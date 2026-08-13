@@ -1,0 +1,2955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+  Street Tree Inventory — © 2026 Silv-Econ Ltd. All rights reserved.
+  Proprietary and confidential. No license is granted; not for redistribution, reuse, or derivative works.
+-->
+<meta charset="UTF-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="author" content="Silv-Econ Ltd.">
+<meta name="copyright" content="© 2026 Silv-Econ Ltd. All rights reserved.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1311">
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tree Card">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<title>Street Tree Inventory</title>
+<style>
+  :root{
+    --bg:#0e1311; --surface:#161e1a; --surface2:#1b2520; --card:#151d19;
+    --line:#2b362f; --line2:#39463b; --field:#0f1714;
+    --text:#e7ebe6; --muted:#98a299; --faint:#6f7a71;
+    --accent:#4cc079; --accent-dk:#2f9d59; --blaze:#f2792e; --warn:#e0a33a;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden}
+  body{ font-family:var(--sans); color:var(--text); background:var(--bg); font-size:16px; line-height:1.4;
+        -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; }
+
+  /* ---------- app bar ---------- */
+  .appbar{ position:fixed; top:0; left:0; right:0; z-index:900; background:#12201a;
+    border-bottom:1px solid var(--line); padding:max(10px,env(safe-area-inset-top)) 12px 9px;
+    box-shadow:0 2px 12px rgba(0,0,0,.45); display:flex; align-items:center; gap:10px; }
+  .appbar h1{ margin:0; font-size:15px; letter-spacing:.05em; font-weight:700; text-transform:uppercase; flex:1 }
+  .appbar .sub{ display:block; font-size:11px; color:#86a08c; font-weight:400; letter-spacing:.02em; text-transform:none }
+  .pillbtn{ background:#1d2c23; border:1px solid #2f4a39; color:#bfe6cb; font-size:12px; padding:5px 11px;
+    border-radius:999px; font-family:var(--mono); cursor:pointer }
+  .dot{ width:9px; height:9px; border-radius:50%; background:#4caf50; box-shadow:0 0 6px #4caf50 }
+  .dot.off{ background:#e0a33a; box-shadow:0 0 6px #e0a33a }
+
+  /* ---------- map ---------- */
+  #fmap{ position:fixed; inset:0; top:56px; bottom:0; background:#0a140a }
+  .leaflet-container{ background:#0a140a }
+
+  /* crosshair */
+  #crosshair{ display:none; position:fixed; left:50%; top:calc(56px + (100% - 56px)/2); z-index:820;
+    transform:translate(-50%,-50%); pointer-events:none; width:56px; height:56px }
+  #crosshair::before,#crosshair::after{ content:""; position:absolute; background:#f2792e; box-shadow:0 0 4px rgba(0,0,0,.9) }
+  #crosshair::before{ left:50%; top:0; width:2px; height:56px; margin-left:-1px }
+  #crosshair::after{ top:50%; left:0; height:2px; width:56px; margin-top:-1px }
+  #crosshair i{ position:absolute; left:50%; top:50%; width:18px; height:18px; margin:-9px 0 0 -9px;
+    border:2px solid #f2792e; border-radius:50%; background:rgba(0,0,0,.25) }
+
+  .map-rail{ position:fixed; right:10px; top:70px; z-index:810; display:flex; flex-direction:column; gap:8px }
+  .map-rail button{ width:44px; height:44px; border-radius:12px; background:rgba(18,32,26,.94);
+    border:1px solid var(--line2); color:#cfe6d6; font-size:19px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.5) }
+  .map-rail button.on{ background:#2f9d59; border-color:#4cc079; color:#fff }
+
+  .bottombar{ position:fixed; left:0; right:0; bottom:0; z-index:815; display:flex; gap:8px;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom)); background:linear-gradient(0deg,#0e1311 55%,transparent) }
+  .bottombar button{ flex:1; padding:13px 8px; border-radius:12px; font-size:14px; font-weight:700;
+    border:1px solid var(--line2); background:rgba(21,29,25,.96); color:var(--text); cursor:pointer }
+  .bottombar button.primary{ background:var(--accent-dk); border-color:var(--accent); color:#fff }
+  .bottombar button.on{ background:var(--blaze); border-color:#ff9a5c; color:#fff }
+
+  .statusline{ position:fixed; left:12px; bottom:calc(70px + env(safe-area-inset-bottom)); z-index:812;
+    font-family:var(--mono); font-size:11px; color:#bcd3c3; background:rgba(10,20,14,.78);
+    border:1px solid var(--line); border-radius:8px; padding:4px 9px; max-width:70vw }
+
+  /* ---------- sheets & modals ---------- */
+  .sheet{ display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.55);
+    align-items:flex-end; justify-content:center }
+  .sheet.show{ display:flex }
+  .sheet-inner{ width:100%; max-width:620px; max-height:92vh; overflow-y:auto; background:var(--surface);
+    border:1px solid var(--line); border-radius:16px 16px 0 0; padding:14px 14px calc(18px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 30px rgba(0,0,0,.6); -webkit-overflow-scrolling:touch }
+  .grab{ width:40px; height:4px; border-radius:2px; background:var(--line2); margin:0 auto 12px }
+  .sheet h2{ margin:0 0 4px; font-size:16px; letter-spacing:.04em; text-transform:uppercase }
+  .sheet .idline{ font-family:var(--mono); font-size:12px; color:var(--accent); margin-bottom:12px }
+
+  .fld{ margin-bottom:12px }
+  .fld label{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+    font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:#8fb59c; margin-bottom:5px }
+  .clr{ font-size:10.5px; letter-spacing:.06em; padding:4px 10px; border-radius:999px; cursor:pointer;
+    border:1px solid var(--line2); background:var(--surface2); color:#c9b4a8; text-transform:uppercase }
+  .clr:active{ background:#3a2420; border-color:#7a4436; color:#ffd9cf }
+  .quick{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:7px }
+  .quick button{ padding:9px 12px; font-size:13.5px; border-radius:9px; border:1px solid var(--line2);
+    background:var(--field); color:var(--text); cursor:pointer; font-family:var(--mono) }
+  .quick button.sel{ background:var(--accent-dk); border-color:var(--accent); color:#fff }
+  .quick .more{ font-family:var(--sans); color:#8fb59c }
+  .dictate{ font-size:11px; color:var(--faint); margin-top:4px }
+  input,select,textarea{ width:100%; padding:12px; font-size:16px; font-family:var(--sans);
+    background:var(--field); color:var(--text); border:1px solid var(--line2); border-radius:10px }
+  textarea{ min-height:74px; resize:vertical }
+  .row2{ display:flex; gap:10px } .row2>*{ flex:1 }
+  .picker{ display:flex; align-items:center; justify-content:space-between; cursor:pointer }
+  .picker span.val{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .picker span.val.empty{ color:var(--faint) }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px }
+  .chips button{ padding:9px 11px; font-size:13px; border-radius:999px; border:1px solid var(--line2);
+    background:var(--field); color:var(--text); cursor:pointer }
+  .chips button.on{ color:#10201a; font-weight:700; border-color:transparent }
+  .stepper{ display:flex; align-items:stretch; gap:8px }
+  .stepper button{ width:52px; font-size:22px; border-radius:10px; border:1px solid var(--line2);
+    background:var(--surface2); color:var(--text); cursor:pointer }
+  .stepper input{ text-align:center; font-family:var(--mono); font-size:19px }
+  .btnrow{ display:flex; gap:8px; margin-top:6px }
+  .btnrow button{ flex:1; padding:14px; border-radius:12px; font-size:15px; font-weight:700;
+    border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
+  .btnrow button.primary{ background:var(--accent-dk); border-color:var(--accent); color:#fff }
+  .btnrow button.danger{ background:#3a1f1f; border-color:#6d3535; color:#ffb4a8 }
+  .mini{ font-size:11.5px; color:var(--muted); margin-top:5px; font-family:var(--mono) }
+  .menuitem{ display:block; width:100%; text-align:left; padding:14px 12px; margin-bottom:7px; font-size:15px;
+    border-radius:11px; border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
+
+  /* full-screen species search */
+  .full{ display:none; position:fixed; inset:0; z-index:1100; background:var(--bg); flex-direction:column }
+  .full.show{ display:flex }
+  .full header{ padding:max(10px,env(safe-area-inset-top)) 12px 10px; border-bottom:1px solid var(--line);
+    display:flex; gap:8px; align-items:center; background:var(--surface) }
+  .full header input{ flex:1 }
+  .full .list{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch }
+  .full .list button{ display:block; width:100%; text-align:left; padding:14px 16px; font-size:15px;
+    background:none; border:0; border-bottom:1px solid var(--line); color:var(--text); cursor:pointer }
+  .full .list button:active{ background:var(--surface2) }
+  .full .list .hdr{ padding:8px 16px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:#7aa888; background:var(--surface2); border-bottom:1px solid var(--line) }
+
+  .thumbs{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+  .thumb{ position:relative; width:74px; height:74px; border-radius:9px; overflow:hidden; border:1px solid var(--line2) }
+  .thumb img{ width:100%; height:100%; object-fit:cover }
+  .thumb b{ position:absolute; right:2px; bottom:1px; font-size:10px; background:rgba(0,0,0,.65);
+    padding:1px 4px; border-radius:4px; font-family:var(--mono) }
+
+  .undobar{ display:none; position:fixed; left:12px; right:12px; bottom:calc(78px + env(safe-area-inset-bottom));
+    z-index:1900; background:#2a2320; border:1px solid #6d5535; border-radius:11px; padding:11px 13px;
+    align-items:center; gap:10px; box-shadow:0 4px 18px rgba(0,0,0,.55) }
+  .undobar.show{ display:flex }
+  .undobar .msg{ flex:1; font-size:13px; color:#f0e2cf }
+  .undobar button{ padding:8px 15px; border-radius:9px; border:1px solid #b98b3c;
+    background:#8a6a2f; color:#fff; font-weight:700; font-size:13px; cursor:pointer }
+
+  .toast{ position:fixed; left:50%; bottom:calc(86px + env(safe-area-inset-bottom)); transform:translateX(-50%) translateY(14px);
+    background:#1f3529; border:1px solid #3c6b4c; color:#dff3e5; padding:11px 16px; border-radius:10px;
+    font-size:13.5px; opacity:0; pointer-events:none; transition:.22s; z-index:2000; max-width:88vw; text-align:center }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0) }
+  .toast.err{ background:#3a2420; border-color:#7a4436; color:#ffd9cf }
+  .hint{ font-size:12px; color:var(--muted); margin:2px 0 10px }
+  .leaflet-popup-content{ margin:9px 11px; font-family:var(--mono); font-size:12px; color:#16271a; min-width:190px }
+  .tpop b.id{ font-size:13px; display:block; margin-bottom:3px }
+  .tpop .sp{ font-family:var(--sans); font-size:13.5px; font-weight:600; margin-bottom:5px; display:block }
+  .tpop table{ border-collapse:collapse; width:100% }
+  .tpop td{ padding:1px 0; vertical-align:top; font-size:11.5px }
+  .tpop td.k{ color:#4a6b52; padding-right:8px; white-space:nowrap }
+  .tpop .hbadge{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px;
+    font-weight:700; color:#10201a; margin-bottom:5px; font-family:var(--sans) }
+  .tpop .ph{ margin-top:7px; width:100%; border-radius:6px; display:block; background:#dfe7e0; min-height:60px }
+  .tpop .acts{ display:flex; gap:6px; margin-top:8px }
+  .tpop .acts a{ flex:1; text-align:center; padding:7px 4px; border-radius:7px; background:#2f9d59;
+    color:#fff !important; text-decoration:none; font-family:var(--sans); font-size:12.5px; font-weight:600 }
+  .tpop .acts a.alt{ background:#e8eee9; color:#1d3326 !important }
+  .rpop{ max-height:230px; overflow-y:auto; -webkit-overflow-scrolling:touch }
+  .rpop .lyr{ font-family:var(--sans); font-size:11px; font-weight:700; letter-spacing:.06em;
+    text-transform:uppercase; color:#4a6b52; display:block; margin-bottom:4px }
+
+  /* statistics */
+  .statgrid{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px }
+  .statbox{ flex:1 1 30%; background:var(--surface2); border:1px solid var(--line2); border-radius:10px; padding:9px 10px }
+  .statbox .n{ font:700 20px/1.1 var(--mono); color:#fff; display:block }
+  .statbox .l{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#8fb59c; margin-top:3px; display:block }
+  .statrow{ display:flex; align-items:center; gap:8px; margin-bottom:4px; font-size:12.5px }
+  .statrow .lab{ flex:0 0 39%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .statrow .track{ flex:1; height:14px; background:var(--field); border-radius:7px; overflow:hidden }
+  .statrow .bar{ height:100%; border-radius:7px; min-width:2px }
+  .statrow .n{ flex:0 0 52px; text-align:right; font-family:var(--mono); font-size:11.5px; color:#cfe6d6 }
+  .stath{ font:700 10.5px/1 var(--sans); letter-spacing:.12em; text-transform:uppercase; color:#7aa888;
+    margin:14px 0 7px; padding-bottom:5px; border-bottom:1px solid var(--line) }
+  .ptlabel{ font:600 10.5px/1.25 var(--mono); color:#fff; text-shadow:0 0 3px #000,0 0 3px #000,0 0 5px #000; white-space:nowrap }
+  .ptlabel.s{ font-size:9px } .ptlabel.m{ font-size:10.5px } .ptlabel.l{ font-size:13px }
+  .ptlabel .k{ color:#a8c9b4; font-weight:400 }
+  .ptlabel.box{ background:rgba(10,20,14,.62); border-radius:4px; padding:1px 4px }
+
+  /* field chips in the label builder — the number shows label order */
+  .fieldchip{ position:relative; padding:9px 12px; font-size:13px; border-radius:9px; border:1px solid var(--line2);
+    background:var(--field); color:var(--text); cursor:pointer; font-family:var(--mono) }
+  .fieldchip.on{ background:#24493a; border-color:var(--accent); color:#dff3e5 }
+  .fieldchip .ord{ position:absolute; top:-7px; right:-7px; width:18px; height:18px; border-radius:50%;
+    background:var(--accent); color:#0d1a12; font:700 10px/18px var(--sans); text-align:center }
+  .preview{ background:#0a1410; border:1px dashed var(--line2); border-radius:9px; padding:12px; min-height:46px;
+    display:flex; align-items:center; justify-content:center }
+
+  .legend{ display:none; position:fixed; left:12px; bottom:calc(104px + env(safe-area-inset-bottom)); z-index:813;
+    background:rgba(10,20,14,.92); border:1px solid var(--line); border-radius:10px; padding:9px 11px; max-width:62vw }
+  .legend.show{ display:block }
+  .legend h4{ margin:0 0 6px; font:700 10px/1 var(--sans); letter-spacing:.12em; text-transform:uppercase; color:#7aa888 }
+  .legend .lr{ display:flex; align-items:center; gap:7px; font-size:11.5px; margin-bottom:3px; font-family:var(--mono) }
+  .legend .sw{ width:12px; height:12px; border-radius:50%; border:1.5px solid #fff; flex:none }
+  .legend .sw.sq{ border-radius:2px }
+
+  .layerrow{ display:flex; align-items:center; gap:8px; padding:10px; margin-bottom:7px; border-radius:10px;
+    border:1px solid var(--line2); background:var(--surface2) }
+  .layerrow .nm{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px }
+  .layerrow .ct{ font-family:var(--mono); font-size:11px; color:var(--muted) }
+  .layerrow button{ padding:7px 9px; font-size:12px; border-radius:8px; border:1px solid var(--line2);
+    background:var(--field); color:var(--text); cursor:pointer }
+  .layerrow button.on{ background:var(--accent-dk); border-color:var(--accent); color:#fff }
+</style>
+</head>
+<body>
+
+<div class="appbar">
+  <h1>Street Trees<span class="sub" id="subLine">—</span></h1>
+  <span class="dot" id="netDot"></span>
+  <button class="pillbtn" onclick="openMenu()">☰ Menu</button>
+</div>
+
+<div id="fmap"></div>
+<div id="crosshair"><i></i></div>
+
+<div class="map-rail">
+  <button id="btnLocate" onclick="centerOnMe()" title="Centre on me">◎</button>
+  <button id="btnBase" onclick="cycleBase()" title="Base map">🛰</button>
+  <button id="btnLabels" onclick="openLabels()" title="Labels">🏷</button>
+  <button id="btnLayers" onclick="openLayers()" title="Layers">📚</button>
+  <button id="btnLegend" onclick="toggleLegend()" title="Legend">🎨</button>
+  <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
+</div>
+
+<div class="legend" id="legend"></div>
+<div class="statusline" id="statusLine">Starting…</div>
+
+<div class="bottombar">
+  <button class="primary" onclick="newTreeAtGPS()">＋ Tree here (GPS)</button>
+  <button id="btnPlace" onclick="togglePlace()">✛ Place</button>
+</div>
+
+<!-- ===== tree edit sheet ===== -->
+<div class="sheet" id="treeSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2 id="sheetTitle">New tree</h2>
+    <div class="idline" id="sheetId">—</div>
+
+    <div class="fld">
+      <label>Species</label>
+      <div class="quick" id="spQuick"></div>
+      <div class="picker" onclick="openSpecies()" id="spPicker">
+        <span class="val empty" id="spVal">Tap to choose species</span><span style="color:var(--faint)">▸</span>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="fld">
+        <label>DBH (cm)</label>
+        <div class="stepper">
+          <button type="button" onclick="bumpDbh(-1)">−</button>
+          <input id="fDBH" type="number" inputmode="decimal" step="0.1" min="0" placeholder="—">
+          <button type="button" onclick="bumpDbh(1)">+</button>
+        </div>
+      </div>
+      <div class="fld">
+        <label>Stems</label>
+        <div class="stepper">
+          <button type="button" onclick="bumpStems(-1)">−</button>
+          <input id="fSTEMS" type="number" inputmode="numeric" step="1" min="1" value="1">
+          <button type="button" onclick="bumpStems(1)">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="fld" id="dbhQuickFld">
+      <label>Common DBH</label>
+      <div class="quick" id="dbhQuick"></div>
+    </div>
+
+    <div class="fld">
+      <label>Health</label>
+      <div class="chips" id="healthChips"></div>
+    </div>
+
+    <div class="fld">
+      <label>Address <button type="button" class="clr" onclick="clearField('fADDRESS')">Clear</button></label>
+      <input id="fADDRESS" type="text" placeholder="Blank — filled automatically on sync" autocomplete="off">
+      <div class="mini"><a href="javascript:void(0)" style="color:var(--accent)" onclick="lookupAddress()">Look up now</a> · needs a connection</div>
+    </div>
+
+    <div class="fld">
+      <label>Notes <button type="button" class="clr" onclick="clearField('fNOTES')">Clear</button></label>
+      <textarea id="fNOTES" placeholder="Defects, wires, clearance, work required… (tap the mic on the keyboard to dictate)"></textarea>
+      <div class="dictate">Dictation works in this field, the address, DBH and the species search.</div>
+    </div>
+
+    <div class="fld">
+      <label>Photos</label>
+      <input id="photoInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)">
+      <div class="btnrow"><button type="button" onclick="document.getElementById('photoInput').click()">📷 Take photo</button></div>
+      <div class="thumbs" id="photoThumbs"></div>
+      <div class="mini" id="photoHint">Saved on the phone, backed up to Drive when online.</div>
+    </div>
+
+    <div class="fld">
+      <label>Position</label>
+      <div class="row2">
+        <input id="fLAT" type="text" inputmode="decimal" placeholder="lat">
+        <input id="fLON" type="text" inputmode="decimal" placeholder="lon">
+      </div>
+      <div class="mini" id="posHint">—</div>
+      <div class="btnrow" style="margin-top:7px">
+        <button type="button" onclick="movePinToGPS()">⌖ Move to my GPS</button>
+      </div>
+    </div>
+
+    <div class="btnrow">
+      <button class="primary" onclick="saveTree()">Save tree</button>
+      <button onclick="closeSheet()">Cancel</button>
+    </div>
+    <div class="btnrow"><button class="danger" onclick="deleteTree()">Delete this tree</button></div>
+  </div>
+</div>
+
+<!-- ===== species search ===== -->
+<div class="full" id="speciesFull">
+  <header>
+    <input id="spSearch" type="search" placeholder="Search 600+ species…" oninput="renderSpecies()" autocomplete="off">
+    <button class="pillbtn" onclick="closeSpecies()">Done</button>
+  </header>
+  <div class="list" id="spList"></div>
+</div>
+
+<!-- ===== menu ===== -->
+<div class="sheet" id="menuSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Menu</h2>
+    <div class="idline" id="menuStats">—</div>
+    <button class="menuitem" onclick="openSettings()">⚙ Cruiser &amp; ID settings</button>
+    <button class="menuitem" onclick="document.getElementById('pointsInput').click()">📍 Import tree points (.zip .shp .geojson .gpx)</button>
+    <button class="menuitem" onclick="toggleProjectFilter()" id="projFilterBtn">🗂 Showing: —</button>
+    <button class="menuitem" onclick="openStats()">📊 Statistics</button>
+    <button class="menuitem" onclick="openLayers()">📚 Layers &amp; reference files</button>
+    <button class="menuitem" onclick="openLabels('trees')">🏷 Label settings</button>
+    <button class="menuitem" onclick="exportShapefile()">⬇ Export shapefile (.zip)</button>
+    <button class="menuitem" onclick="exportCSV()">⬇ Export CSV</button>
+    <button class="menuitem" onclick="downloadPhotos()">⬇ Download all photos (.zip)</button>
+    <button class="menuitem" onclick="emailPackage()">✉ Email me the data + photos</button>
+    <button class="menuitem" onclick="syncNow()">⇅ Sync now</button>
+    <button class="menuitem" onclick="verifySync(false)">✓ Verify what reached the Sheet</button>
+    <button class="menuitem" onclick="pullFromSheet()">⤓ Load trees from Sheet</button>
+    <button class="menuitem" onclick="refreshPhotoLinks()">🔗 Refresh photo links</button>
+    <button class="menuitem" onclick="openArchive()">🖼 Photo archive (<span id="archCount">0</span>)</button>
+    <button class="menuitem" onclick="showHelp()">? How this app works</button>
+    <button class="menuitem" onclick="clearAllData()">🗑 Clear all data on this device</button>
+    <div class="btnrow"><button onclick="closeMenu()">Close</button></div>
+    <div class="mini" id="buildStamp" onclick="forceUpdate()" style="text-align:center;margin-top:10px;cursor:pointer"></div>
+  </div>
+</div>
+
+<!-- ===== settings ===== -->
+<div class="sheet" id="settingsSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Cruiser &amp; ID settings</h2>
+    <div class="hint">Pick your name so every tree you record is attributed to you. The list is shared with the rest of the crew through the Sheet.</div>
+    <div class="fld">
+      <label>Your name</label>
+      <select id="setCruiser" onchange="onUserPick()"></select>
+    </div>
+    <div class="fld" id="newUserRow" style="display:none">
+      <label>New name</label>
+      <input id="setNewUser" type="text" placeholder="Type your name" autocomplete="name">
+    </div>
+    <div class="fld"><label>Email</label><input id="setEmail" type="email" placeholder="you@example.com"></div>
+    <div class="fld">
+      <label>Project</label>
+      <select id="setProject" onchange="onProjectPick()"></select>
+    </div>
+    <div class="fld" id="newProjRow" style="display:none">
+      <label>New project name</label>
+      <input id="setNewProj" type="text" placeholder="e.g. Aurora 2026">
+      <div class="mini">Shared with the whole crew once you save.</div>
+    </div>
+    <div class="row2">
+      <div class="fld"><label>ID prefix</label><input id="setPrefix" type="text" placeholder="AUR" maxlength="6"></div>
+      <div class="fld"><label>Device letter</label><input id="setDevice" type="text" placeholder="A" maxlength="1"></div>
+    </div>
+    <div class="fld"><label>Next number</label><input id="setCounter" type="number" min="1" step="1"></div>
+    <div class="mini" id="idPreview">—</div>
+    <div class="btnrow"><button class="primary" onclick="saveSettings()">Save</button><button onclick="closeSettings()">Cancel</button></div>
+  </div>
+</div>
+
+<!-- ===== import field mapping ===== -->
+<div class="sheet" id="mapSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Import tree points</h2>
+    <div class="idline" id="impCount">—</div>
+    <div class="hint">Match the incoming columns to the app's fields. Anything left blank is imported empty and can be filled in the field.</div>
+    <div class="fld"><label>Existing ID (kept and re-exported as EXT_ID)</label><select id="mapEXT"></select></div>
+    <div class="fld"><label>Species</label><select id="mapSPECIES"></select></div>
+    <div class="fld"><label>DBH</label><select id="mapDBH"></select></div>
+    <div class="fld"><label>Health</label><select id="mapHEALTH"></select></div>
+    <div class="fld"><label>Address</label><select id="mapADDRESS"></select></div>
+    <div class="fld"><label>Notes</label><select id="mapNOTES"></select></div>
+    <div class="btnrow"><button class="primary" onclick="confirmImport()">Import</button><button onclick="cancelImport()">Cancel</button></div>
+  </div>
+</div>
+
+<!-- ===== layers ===== -->
+<div class="sheet" id="layersSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Layers</h2>
+    <div class="idline" id="layerStats">—</div>
+    <div id="layerList"></div>
+    <div class="btnrow"><button onclick="document.getElementById('refInput').click()">＋ Add reference layer</button></div>
+    <div class="mini">Reference layers are for context only — parcels, streets, boundaries. They are drawn and labelled but never edited or exported. To bring in trees you will edit, use Menu → Import tree points.</div>
+    <div class="btnrow"><button onclick="closeLayers()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== field transfer (reference layer -> tree) ===== -->
+<div class="sheet" id="xferSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Copy fields into new trees</h2>
+    <div class="idline" id="xferLayerName">—</div>
+    <div class="hint">When you tap a feature on this layer and choose <b>＋ Tree here</b>, these attributes are copied into the new tree. Leave any as “— none —” to fill it in yourself.</div>
+    <div class="fld"><label>Existing ID → EXT_ID</label><select id="xferEXT_ID"></select></div>
+    <div class="fld"><label>Species</label><select id="xferSPECIES"></select></div>
+    <div class="fld"><label>DBH</label><select id="xferDBH"></select></div>
+    <div class="fld"><label>Stems</label><select id="xferSTEMS"></select></div>
+    <div class="fld"><label>Health</label><select id="xferHEALTH"></select></div>
+    <div class="fld"><label>Address</label><select id="xferADDRESS"></select></div>
+    <div class="fld"><label>Notes</label><select id="xferNOTES"></select></div>
+    <div class="fld">
+      <label>Preview from the first feature</label>
+      <div class="preview" id="xferPreview" style="display:block;text-align:left"></div>
+    </div>
+    <div class="btnrow"><button class="primary" onclick="saveXfer()">Save</button><button onclick="closeXfer()">Cancel</button></div>
+  </div>
+</div>
+
+<!-- ===== label builder ===== -->
+<div class="sheet" id="labelSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Labels</h2>
+    <div class="idline" id="labelLayerName">—</div>
+    <div class="fld">
+      <label>Layer</label>
+      <select id="labelLayerSel" onchange="labelPickLayer()"></select>
+    </div>
+    <div class="fld">
+      <label>Fields to show — tap in the order you want them</label>
+      <div class="chips" id="labelFields"></div>
+    </div>
+    <div class="row2">
+      <div class="fld">
+        <label>Arrangement</label>
+        <select id="labelSep" onchange="labelPreview()">
+          <option value="\n">Stacked (one per line)</option>
+          <option value=" · ">Inline · separated</option>
+          <option value=", ">Inline, comma</option>
+          <option value=" — ">Inline — dash</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Size</label>
+        <select id="labelSize" onchange="labelPreview()">
+          <option value="s">Small</option><option value="m" selected>Medium</option><option value="l">Large</option>
+        </select>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="fld">
+        <label>Field names</label>
+        <select id="labelNames" onchange="labelPreview()">
+          <option value="0">Values only</option><option value="1">Name: value</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Show from zoom</label>
+        <select id="labelZoom" onchange="labelPreview()"></select>
+      </div>
+    </div>
+    <div class="fld">
+      <label>Backing</label>
+      <select id="labelBox" onchange="labelPreview()">
+        <option value="0">None (outline only)</option><option value="1">Dark panel</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>Preview</label>
+      <div class="preview" id="labelPreviewBox"><span style="color:var(--faint);font-size:12px">Choose one or more fields</span></div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" onclick="applyLabels()">Apply</button>
+      <button onclick="clearLabels()">Labels off</button>
+    </div>
+    <div class="btnrow"><button onclick="closeLabels()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== statistics ===== -->
+<div class="sheet" id="statsSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Statistics</h2>
+    <div class="idline" id="statsRangeLine">—</div>
+    <div class="chips" id="statsRange" style="margin-bottom:10px"></div>
+    <div class="row2" id="statsCustom" style="display:none">
+      <div class="fld"><label>From</label><input id="statsFrom" type="date" onchange="renderStats()"></div>
+      <div class="fld"><label>To</label><input id="statsTo" type="date" onchange="renderStats()"></div>
+    </div>
+    <div id="statsBody"></div>
+    <div class="btnrow"><button onclick="exportStatsCSV()">⬇ Export these figures (CSV)</button></div>
+    <div class="btnrow"><button onclick="closeStats()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== photo archive ===== -->
+<div class="sheet" id="archiveSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Photo archive</h2>
+    <div class="idline" id="archStats">—</div>
+    <div class="thumbs" id="archThumbs"></div>
+    <div class="btnrow"><button onclick="reuploadPhotos()">⇧ Re-back-up to Drive</button></div>
+    <div class="btnrow"><button onclick="closeArchive()">Close</button><button class="danger" onclick="clearArchive()">Delete all photos</button></div>
+  </div>
+</div>
+
+<!-- ===== info ===== -->
+<div class="sheet" id="infoSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2 id="infoTitle">Info</h2>
+    <div id="infoBody" style="font-size:14px"></div>
+    <div class="btnrow"><button onclick="closeInfo()">Close</button></div>
+  </div>
+</div>
+
+<input id="pointsInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<div class="undobar" id="undoBar"><span class="msg" id="undoMsg"></span><button onclick="undoDelete()">Undo</button></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ====================================================================
+   1) PASTE YOUR APPS SCRIPT WEB APP URL HERE
+   ==================================================================== */
+const SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+const APP_BUILD  = "2026-08-12 · v8";   // bump alongside the service-worker cache version
+
+const $ = id => document.getElementById(id);
+const connected = SCRIPT_URL.indexOf("script.google.com") >= 0;
+let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
+
+const HEALTH = [
+  ["Good",              "#4caf50"],
+  ["Satisfactory",      "#9ccc65"],
+  ["Potential Trouble", "#ffd54f"],
+  ["Declining",         "#ffa726"],
+  ["Death Imminent",    "#ef6c50"],
+  ["Dead",              "#c62828"]
+];
+const healthCode = h => { const i = HEALTH.findIndex(x=>x[0]===h); return i<0 ? "" : i+1; };
+const healthColor = h => { const r = HEALTH.find(x=>x[0]===h); return r ? r[1] : "#90a4ae"; };
+
+// Export/DBF schema. type N writes a numeric DBF field so DBH arrives in GIS as a number.
+const FIELDS = [
+  {k:"TREE_ID", t:"C", w:20}, {k:"PROJECT", t:"C", w:40},
+  {k:"EXT_ID", t:"C", w:24}, {k:"SPECIES", t:"C", w:40},
+  {k:"DBH", t:"N", w:6, d:1}, {k:"STEMS", t:"N", w:3, d:0},
+  {k:"HEALTH", t:"C", w:18}, {k:"HLTH_CODE", t:"N", w:1, d:0},
+  {k:"NOTES", t:"C", w:180},
+  {k:"LAT", t:"N", w:12, d:6}, {k:"LON", t:"N", w:13, d:6},
+  {k:"ADDRESS", t:"C", w:80}, {k:"PHOTOS", t:"C", w:180},
+  {k:"PHOTO_LINK", t:"C", w:254},   // exactly 10 chars — the DBF field-name limit
+  {k:"CRUISER", t:"C", w:24}, {k:"EMAIL", t:"C", w:40},
+  {k:"DATE", t:"C", w:19}, {k:"SOURCE", t:"C", w:10}, {k:"ACCURACY", t:"N", w:6, d:1}
+];
+const KEYS = FIELDS.map(f=>f.k);
+// PHOTO_LINK is resolved by the Sheet from the Drive folder, so it is never posted up —
+// only pulled down. Sending it would let a stale device value overwrite the real one.
+const SYNC_KEYS = KEYS.filter(k=>k!=="PHOTO_LINK");
+
+/* ---------- persisted state ---------- */
+const TKEY="st_trees", SKEY="st_settings", SPKEY="st_species", USEKEY="st_sppuse";
+let trees = [];  try{ trees = JSON.parse(STORE&&STORE.getItem(TKEY)) || []; }catch(e){ trees=[]; }
+let settings = { cruiser:"", email:"", prefix:"AUR", device:"A", counter:1, project:"" };
+try{ Object.assign(settings, JSON.parse(STORE&&STORE.getItem(SKEY)) || {}); }catch(e){}
+let speciesUse = {}; try{ speciesUse = JSON.parse(STORE&&STORE.getItem(USEKEY)) || {}; }catch(e){}
+let dbhUse = {};     try{ dbhUse = JSON.parse(STORE&&STORE.getItem("st_dbhuse")) || {}; }catch(e){}
+
+const SPECIES_BUILTIN = [
+  "Accolade Elm", "Alberta Spruce", "Alder sp.", "Alexandrina Magnolia", "Algonquin Pillar Swiss Stone Pine",
+  "Almond Leaf Willow", "American Basswood", "American Beech", "American Chestnut Chinese Hybrid",
+  "American Elderberry", "American Elm", "American Elm 'Princeton'", "American Hazelnut", "American Hornbeam",
+  "American Linden", "American Plum", "American Sycamore", "American Wild Plum", "Americana Willow",
+  "Amur Corktree", "Amur Honeysuckle", "Amur Maple", "Apple sp.", "Aristocrat Ornamental Pear",
+  "Armstrong Red Maple", "Arnold Sentinel Austrian Pine", "Arroyo Willow", "Ash sp.",
+  "Aurea American Elderberry", "Austrian Pine", "Autumn Blaze Freeman Maple", "Autumn Blaze Maple",
+  "Autumn Blaze Norway Maple", "Autumn Fantasy Freeman Maple", "Baby's Breath Spirea", "Balkan Maple",
+  "Balsam Fir", "Balsam Poplar", "Barberry", "Basswood", "Beaked Hazelnut", "Beauty Bush", "Beech sp.",
+  "Belgian Red Willow", "Betty Saucer Magnolia", "Bigtooth Maple", "Bing Cherry", "Birch",
+  "Bitternut Hickory", "Black Alder", "Black Ash", "Black Cedar", "Black Cherry", "Black Chokecherry",
+  "Black Gum", "Black Lace Elderberry", "Black Locust", "Black Locust Purple Robe", "Black Maple",
+  "Black Mulberry", "Black Pussy Willow", "Black Spruce", "Black Walnut", "Blackice Plum", "Blue Ash",
+  "Blue Beech", "Blue Spruce", "Blue Spruce, var \"hoopsii\"", "Bottlebrush Buckeye", "Bowhall Maple",
+  "Bowhall Red Maple", "Bradford Ornamental Pear", "Bradford Pear", "Brandywine Crabapple",
+  "Brandywine Maple", "Brandywine Red Maple", "Briotti Red Horse Chestnut", "Buckthorn", "Buffalo Berry",
+  "Bur Oak", "Bur Oak - Foundation Tree", "Bur Oak Stump Carving", "Burgundy Crabapple", "Butterfly Magnolia",
+  "Butternut", "Butternut Hickory", "Canada Plum", "Capital Ornamental Pear", "Cardinal Red Mountain Ash",
+  "Cardinal Royal Mountain Ash", "Carpathian Walnut", "Caspian Honey Locust", "Celebration Maple",
+  "Chantecleer Pear", "Chanticleer Pear", "Cherry Birch", "Cherry Plum", "Cherry sp.",
+  "Chess-apple Whitebeam", "Chinese Catalpa", "Chinese Elm", "Chinese Mountain Ash", "Chinese Paper Birch",
+  "Chinese Pear", "Chinese Wingnut", "Chinkapin Oak", "Chinquapin Oak", "Choke Cherry",
+  "Cinquefoil Crabapple", "Cockspur Hawthorn", "Columnar Crabapple", "Columnar Dark Leaved Beech",
+  "Columnar Elm", "Columnar English Oak", "Columnar Norway Maple", "Columnar Ornamental Pear",
+  "Columnar Regal Prince Oak", "Columnar Tulip Tree", "Columnar White Cedar", "Columnar White Oak",
+  "Common Buttonbush", "Common Lilac", "Common Witch Hazel", "Concolor Fir", "Copper Beech",
+  "Copper Curls Lilac", "Coral Bark Willow", "Corkscrew Mulberry", "Corkscrew Willow",
+  "Cornelian Cherry Dogwood", "Corylus Santiam", "Cotoneaster", "Crabapple", "Crimean Linden",
+  "Crimson Cloud Hawthorn", "Crimson King Norway Maple", "Crimson Sunset Maple", "Cucumber Magnolia",
+  "Cucumber Tree", "Cully Birch", "Cut-leaf Crabapple", "Dappled Dawn Lilac", "Dappled Willow",
+  "Dark Crabapple", "Dark Leaved Willow", "Dasyados Willow", "David's Maple", "Dawn Redwood", "Dawyck Beech",
+  "Dawyck Copper Beech", "Dawyck Golden Beech", "Dawyck Purple Beech", "Dawyck Purple Columnar Beech",
+  "Dicks Green Willow", "Dieckii Maple", "Dogwood", "Dolgo Crabapple", "Dolgo Flowering Crabapple",
+  "Donald Wyman Crabapple", "Douglas Fir", "Drummond Red Maple", "Dwarf Apple - Frostbite",
+  "Dwarf European Pear - Magness", "Dwarf Honeysuckle", "Dwarf Mnt Ash", "Dwarf Mountain Ash",
+  "Dwarf Purple Willow", "Eastern Cottonwood", "Eastern Hemlock", "Eastern Red Cedar", "Eastern Redbud",
+  "Eastern Wahoo Euonymus", "Eastern White Cedar", "Echtermeyer Weeping Crabapple",
+  "Edwin Hillier Scotts Pine", "Elderberry", "Elizabeth Magnolia", "Elm sp.", "Emerald Queen Norway Maple",
+  "Emerald Sunshine Elm", "Emerald White Cedar", "Encore Magnolia", "English Elm", "English Oak",
+  "English Privet", "English Walnut", "English White Oak", "Erman Birch", "Eskimo Sunset Sycamore Maple",
+  "Euchlora Linden", "Euonymous Standard", "Euonymus", "Euonymus Hamiltonianus", "Euonymus Sarcoxie",
+  "European Beech", "European Bird Cherry", "European Black Alder", "European Buckthorn",
+  "European Juneberry", "European Larch", "European Linden", "European Mountain Ash", "European Nettle Tree",
+  "European Pear - Rescue", "European Plum - Bluebyrd", "European Spindle Tree", "Euyonomous",
+  "Fairview Maple", "Fastigiata White Pine", "Fat Albert Blue Spruce", "Fern Leaf Beech", "Field Maple",
+  "Fir sp.", "Flame Amur Maple", "Flax Mill Majesty Sugar Maple", "Flowering Ash",
+  "Flowering Centurian Crabapple", "Forrest's Rowan Mountain Ash", "Forrest's Mountain Ash", "Frages Catalpa",
+  "Fraser Fir", "Freeman Maple", "Freeman Red Maple", "Freeman's Maple", "Fringe Tree", "Frontier Elm",
+  "Fruit Tree - Apple Or Cherry", "Galaxy Magnolia", "Geneva Hazelnut", "Giant Pussy Willow",
+  "Ginkgo 'Maidenhair Tree'", "Ginkgo Magyar", "Glenleven Linden", "Globe Cedar", "Globe Maple",
+  "Globe Norway Maple", "Golden Weeping Willow", "Golden Western Cedar", "Golden Willow", "Goldenchain",
+  "Goldrush Dawn Redwood", "Gray Birch", "Green Ash", "Green Cutleaf Beech", "Green Mountain Sugar Maple",
+  "Green Vase Zelkova", "Grimo Select Butternut", "Grow Low Fragrant Sumac", "Hackberry", "Hagensis Willow",
+  "Hamilton's Spindle Tree", "Hardy Rubber Tree", "Harlequin Maple", "Harlequin Norway Maple",
+  "Harvest Gold Crabapple", "Hawthorn sp.", "Hawthorns", "Hazelnut", "Hedge Maple", "Hick's Yew",
+  "Hill's Yew", "Himalayan Birch", "Homestead Elm", "Honey Locust", "Honey Sweet Pear", "Hoopsi Blue Spruce",
+  "Hoopsii Blue Spruce", "Hopa Crabapple", "Hoptree, Water Ash", "Horse Chestnut", "Horse Chestnut Ruby Red",
+  "Hutchinsons Yellow Willow", "Hybrid Poplar", "Hydrangea", "Improved Bechtel Crabapple",
+  "Indian Magic Crabapple", "Indian Summer Crabapple", "Irette Purple Willow", "Ironwood",
+  "Iroquois Butternut", "Issho Japanese Walnut", "Ivory Pillar Japanese Lilac", "Ivory Silk Japanese Lilac",
+  "Jack Pine", "Jacquemontii Birch", "Jacquemontii White Birch", "Japanee Zelkova", "Japanese Catalpa",
+  "Japanese Cherry", "Japanese Fantail Willow", "Japanese Larch", "Japanese Lilac", "Japanese Maple",
+  "Japanese Mountain Ash", "Japanese Pagoda Tree", "Japanese Tree Lilac", "Japanese Whitespire Birch",
+  "Japanese Zelkova", "Juniper", "Karpick Red Maple", "Katsura", "Kentucky Coffeeetree",
+  "Klems Bechtel Crabapple", "Kobushi Magnolia", "Korean Mountain Ash", "Korean Spruce",
+  "Kwanzan Japanese Cherry", "Lancelot Crabapple", "Large-leaved Linden", "Largetooth Aspen", "Laurel Willow",
+  "Lenne Saucer Magnolia", "Leonard Messel Magnolia", "Liberty Elm", "Lilac", "Lilac (pink Flowered)",
+  "Linden", "Littleleaf Linden", "Lombardy Poplar", "London Plane Tree", "Louisa Crabapple",
+  "Madonna Crabapple", "Magnolia", "Makamic Flowering Crabapple", "Makamik Crabapple",
+  "Makamik Flowering Crabapple", "Mancherian Cherry", "Manchurian Catalpa", "Manchurian Cherry",
+  "Manitoba Maple", "Maple sp.", "Mckaky Willow", "Middledorp White Birch", "Ming Cherry",
+  "Minuet Preston Lilac", "Miyabeana Willow", "Moerheim Blue Spruce", "Morden Golden Glow Elderberry",
+  "Mount Baker Lilac", "Mountain Ash", "Mt Fiji Japanese Cherry", "Mugo Pine", "Mulberry", "Multiflora Rose",
+  "Multiplex Pear", "Nanking Cherry", "Nannyberry", "Newport Flowering Plum", "Niedz Crabapple",
+  "Northern Catalpa", "Northern Catalpa Globe", "Northwood Red Maple", "Norway Maple", "Norway Maple Globe",
+  "Norway Maple Superform", "Norway Spruce", "Oak Scarlet", "Oakleaf Mountain Ash", "Ohio Buckeye",
+  "Olive Tree Shrub", "Olivers Lime Linden", "Oregon Ash", "Oriental Spruce", "Ornamental Cherry Plum",
+  "Ornamental Pear", "Osage Orange", "Pacific Sunset Maple", "Panicled Hydrangea", "Paper Birch",
+  "Paperbark Maple", "Pattern Perfect Tatarian Maple", "Paw Paw", "Pear", "Pin Cherry", "Pin Oak",
+  "Pink Spires Crabapple", "Plum", "Plum x Sweet Cherry - Nadia", "Poplar sp.", "Prairiefire Crabapple",
+  "Preston Lilac", "Prickly Leaf Willow", "Princeton Gold Maple", "Profusion Crabapple", "Prospector Elm",
+  "Pumpkin Ash", "Purple Gem Crabapple", "Purple Leaf Cherry", "Purple Leaf Plum", "Purple Mayday Cherry",
+  "Purple Sand Cherry", "Purple Sandleaf Cherry", "Purple Willow", "Purple-leaf Sandcherry",
+  "Purpleblow Maple", "Pussy Willow", "Pyramidal English Oak", "Pyramidal Swedish Aspen",
+  "Pyramidal Tulip Tree", "Pyramidal White Pine", "Radiant Crabapple", "Rainbow Crabapple",
+  "Rancho Sargent Cherry", "Rare Crabapple", "Red Barron Crabapple", "Red Bud",
+  "Red Cascade European Spindle Tree", "Red Cedar", "Red Crack Willow", "Red Jade Apple",
+  "Red Jade Crabapple", "Red Jade Weeping Crabapple", "Red Maple", "Red Maple Bowhal", "Red Maple Slessinger",
+  "Red Oak", "Red Obelisk Beech", "Red Obelisk Crabapple", "Red Obilisk Crabapple", "Red Osier Dogwood",
+  "Red Pine", "Red Robin Mountain Ash", "Red Splendor Crabapple", "Red Stem Willow", "Red Sunset Clump Maple",
+  "Red Sunset Maple", "Red Tamarix", "Redgold Nectarine", "Rhododendron", "River Birch", "Robinson Crabapple",
+  "Rock Elm", "Rocky Mountain Maple", "Rose Of Sharon", "Rough Leaved Dogwood", "Rowan Mountain Ash",
+  "Royal Beauty Weeping Crabapple", "Royal Crabapple", "Royal Frost Birch", "Royal Frost Weeping Birch",
+  "Royal Knights Blue Spruce", "Royal Raindrop Crabapple", "Royal Red Maple", "Royal Star White Magnolia",
+  "Royalty Crabapple", "Royalty Preston Lilac", "Rubber Hardy Tree", "Ruby Red Horse Chestnut",
+  "Russian Mountain Ash", "Russian Olive", "Russian Olive Tree", "Sakhalin Corktree", "Sandow Dwarf Apple",
+  "Sassafras", "Scarlet Oak", "Schubert Cherry", "Schubert Chokecherry", "Schwedler Norway Maple",
+  "Scots Pine", "Select Willow", "Sentinel Pine", "Serbian Spruce", "Serviceberry", "Seven-son Flower",
+  "Shagbark Hickory", "Shiloh Splash Rivers Birch", "Shingle Oak", "Showy Mountain Ash", "Shubert Cherry",
+  "Siberian Columnar Crabapple", "Siberian Crabapple", "Siberian Elm", "Siberian Peashrub",
+  "Siebold Euonymos", "Siebold Viburnum", "Sieboldianu Euonymus", "Siebold's Crabapple", "Silver Basswood",
+  "Silver Birch", "Silver Cascade Pear", "Silver Maple", "Silver Ornamental Pear", "Singleseed Hawthorn",
+  "Sir Lancelot Crabapple", "Skinner American Hazelnut", "Slender Willow", "Slippery Elm", "Slippery Red Elm",
+  "Smith Willow", "Smoke Tree", "Snowdrift Crabapple", "Snowdrift Crabapple Clump", "Snowflake Crabapple",
+  "Snowmound Spirea", "Southern Catalpa", "Spicebush", "Spindle Tree", "Splitleaf Sumac",
+  "Spring Flowering Serviceberry", "Spring Flurry Serviceberry", "Spring Snow White Crabapple", "Spruce sp.",
+  "Sterling Silver Linden", "Streamco Willow", "Striped Maple", "Sugar Hackberry",
+  "Sugar Hackberry, Sugarberry", "Sugar Maple", "Sugarberry", "Sugartyme Crabapple", "Sumac",
+  "Sumac Leafed Lilac", "Sun Valley Red Maple", "Sunburst Honey Locust", "Susan Magnolia", "Swamp Rose",
+  "Swamp White Oak", "Swamp Willow", "Swedish Columnar Aspen", "Sweet Cherry", "Sweet Cherry - Black Gold",
+  "Sweet Cherry - Ebony Pearl", "Sweet Gum", "Sweet Sixteen Apple", "Sycamore", "Sycamore Maple", "Tamarack",
+  "Tartarian Maple", "Tatarian Honeysuckle", "Tatarian Maple", "Thorlow Weeping Willow",
+  "Thornless Honey Locust", "Thorny Blue Russian Olive", "Thorny Honey Locust", "Thunderchild Crabapple",
+  "Tree Of Heaven", "Trembling Aspen", "Tricolour Beech", "Tulip Tree", "Turkestan Maple", "Turkish Filbert",
+  "Turkish Hazel", "Twisted Willow", "Umbrella Magnolia", "Uzbekistan Prunus", "Variegated Beech",
+  "Variegated River Birch", "Variegated Weigela", "Venus Hybrid Dogwood", "Viburnum sp.", "Viburum sp.",
+  "Villosa Lilac", "Wada's Memory Magnolia", "Waterlily Magnolia", "Weeping Beech", "Weeping Crabapple",
+  "Weeping Elm", "Weeping Golden Willow", "Weeping Larch", "Weeping Mulberry", "Weeping Nootka Cypress",
+  "Weeping Norway Spruce", "Weeping Purple Beech", "Weeping Red Jewel Crabapple",
+  "Weeping Siberian Crabapple", "Weeping Siberian Peashrub", "Weeping White Mulberry", "Weeping Willow",
+  "Western Red Cedar", "Westwood Korean Sun Pear", "White Angel Crabapple", "White Ash", "White Birch",
+  "White Cedar", "White Elderberry", "White Elm", "White Fir", "White Mulberry", "White Oak", "White Pine",
+  "White Poplar", "White Spruce", "White Starlike Magnolia", "White Willow", "Wild Plum", "Willow Leaf Pear",
+  "Willow Shrub", "Willow sp.", "Willow-leafed Pear", "Winged Euonymus", "Winterberry Euonymus",
+  "Witch-hazel", "Wolf Lilac", "Wonder White Willow", "Wonderblue French Blue Hybrid Lilac", "Yellow Birch",
+  "Yellow Bird Magnolia", "Yellow Buckeye", "Yellow Paint Maple", "Yellow Stem Flame Willow", "Yellowwood",
+  "Yew", "Yunnan Crabapple", "Zelkova", "Zig Zag Mulberry"
+];
+let species = SPECIES_BUILTIN.slice();
+try{ const s = JSON.parse(STORE&&STORE.getItem(SPKEY)); if(Array.isArray(s)&&s.length) species = s; }catch(e){}
+
+/* Shared crew list. Held on the device so the picker still works with no signal,
+   and pushed to the Sheet so everyone sees the same names. */
+const UKEY="st_users", PUKEY="st_pendusers";
+const PJKEY="st_projects", PPKEY="st_pendprojects";
+const ADD_USER = "__add__";
+let users = [];        try{ users = JSON.parse(STORE&&STORE.getItem(UKEY)) || []; }catch(e){ users=[]; }
+let pendingUsers = []; try{ pendingUsers = JSON.parse(STORE&&STORE.getItem(PUKEY)) || []; }catch(e){ pendingUsers=[]; }
+function persistUsers(){ if(STORE){ try{ STORE.setItem(UKEY, JSON.stringify(users)); }catch(e){} } }
+
+/* Shared project list. Same pattern as the crew list: cached for offline use, pushed
+   to the Sheet so one canonical spelling is used by everyone. */
+const ADD_PROJ = "__addproj__";
+let projects = [];        try{ projects = JSON.parse(STORE&&STORE.getItem(PJKEY)) || []; }catch(e){ projects=[]; }
+let pendingProjects = []; try{ pendingProjects = JSON.parse(STORE&&STORE.getItem(PPKEY)) || []; }catch(e){ pendingProjects=[]; }
+function persistProjects(){ if(STORE){ try{ STORE.setItem(PJKEY, JSON.stringify(projects)); }catch(e){} } }
+function persistPendProjects(){ if(STORE){ try{ STORE.setItem(PPKEY, JSON.stringify(pendingProjects)); }catch(e){} } }
+
+// Map view filter: one job at a time by default, since three people on a street do
+// not want another town's trees underfoot.
+let showAllProjects = false;
+try{ showAllProjects = (STORE&&STORE.getItem("st_showall"))==="1"; }catch(e){}
+function projectOf(t){ return String(t.PROJECT||"").trim(); }
+function inCurrentProject(t){
+  if(showAllProjects || !settings.project) return true;
+  return projectOf(t).toLowerCase() === settings.project.toLowerCase();
+}
+function visibleTrees(){ return trees.filter(inCurrentProject); }
+function persistPendUsers(){ if(STORE){ try{ STORE.setItem(PUKEY, JSON.stringify(pendingUsers)); }catch(e){} } }
+
+function persistTrees(){ if(STORE){ try{ STORE.setItem(TKEY, JSON.stringify(trees)); }catch(e){ toast("Device storage full",true); } } }
+function persistSettings(){ if(STORE){ try{ STORE.setItem(SKEY, JSON.stringify(settings)); }catch(e){} } }
+function persistSpecies(){ if(STORE){ try{ STORE.setItem(SPKEY, JSON.stringify(species)); }catch(e){} } }
+function persistUse(){ if(STORE){ try{ STORE.setItem(USEKEY, JSON.stringify(speciesUse)); STORE.setItem("st_dbhuse", JSON.stringify(dbhUse)); }catch(e){} } }
+
+/* Dictation on iOS inserts typographic punctuation — curly apostrophes, smart quotes,
+   en dashes. Those become "?" in a DBF export and read badly in a CSV, so everything
+   dictated is folded back to ASCII on the way in. */
+function normText(v){
+  return String(v==null?"":v)
+    .replace(/[‘’‛]/g,"'")
+    .replace(/[“”‟]/g,'"')
+    .replace(/[–—]/g,"-")
+    .replace(/…/g,"...")
+    .replace(/ /g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+// Dictated numbers arrive with stray words or punctuation ("42 point 5", "42.5 cm.").
+function normNumber(v){
+  let t = String(v==null?"":v).toLowerCase()
+    .replace(/\bpoint\b/g,".")
+    .replace(/[^0-9.]/g,"");
+  const bits = t.split(".");
+  if(bits.length>2) t = bits[0]+"."+bits.slice(1).join("");
+  return t;
+}
+function clearField(id){
+  const el=$(id); if(!el) return;
+  el.value="";
+  el.focus();
+  toast("Cleared");
+}
+
+/* ---------- small helpers ---------- */
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function pad(n,w){ return String(n).padStart(w||2,"0"); }
+function nowStr(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
+function isOffline(){ return navigator.onLine===false; }
+let toastT; function toast(msg,err){ const t=$("toast"); t.textContent=msg; t.className="toast show"+(err?" err":""); clearTimeout(toastT); toastT=setTimeout(()=>t.className="toast",2400); }
+function num(v){ const n=parseFloat(v); return isFinite(n)?n:null; }
+
+function nextTreeId(){
+  const p = (settings.prefix||"AUR").replace(/[^A-Za-z0-9]/g,"").toUpperCase() || "AUR";
+  const d = (settings.device||"A").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,1) || "A";
+  let n = parseInt(settings.counter,10); if(!isFinite(n)||n<1) n=1;
+  let id;
+  do { id = `${p}-${pad(n,5)}-${d}`; n++; } while (trees.some(t=>t.TREE_ID===id));   // never reuse an id
+  settings.counter = n; persistSettings();
+  return id;
+}
+
+/* ================================================================== *
+ *  MAP
+ * ================================================================== */
+let fmap=null, pinLayer=null, labelLayer=null, meMarker=null, meRing=null;
+let mePos=null, meSamples=[], watchId=null;
+let placeMode=false, baseIdx=0, baseLayer=null;
+let refGroup=null, legendOn=false;
+
+/* ---------- label configuration ----------
+   One config per layer ("trees", or a reference layer id). fields[] is ordered by the
+   sequence the user tapped them, which is what makes a multi-attribute label readable. */
+const LBL_DEFAULT = { fields:[], sep:"\n", size:"m", names:0, box:0, minZoom:17 };
+let labelCfg = { trees: Object.assign({}, LBL_DEFAULT) };
+try{ const c=JSON.parse(STORE&&STORE.getItem("st_labelcfg")); if(c&&typeof c==="object") labelCfg=c; }catch(e){}
+function cfgFor(id){ if(!labelCfg[id]) labelCfg[id]=Object.assign({},LBL_DEFAULT); return labelCfg[id]; }
+function persistLabelCfg(){ if(STORE){ try{ STORE.setItem("st_labelcfg",JSON.stringify(labelCfg)); }catch(e){} } }
+
+/* ---------- reference layers ----------
+   Context only: drawn and labelled, never edited, never exported. */
+const REF_PALETTE = ["#ff7043","#80cbc4","#ffe082","#ce93d8","#a5d6a7","#90caf9","#f48fb1","#bcaaa4"];
+let refLayers = [];
+try{ refLayers = JSON.parse(STORE&&STORE.getItem("st_reflayers")) || []; }catch(e){ refLayers=[]; }
+function persistRefLayers(){
+  if(!STORE) return;
+  try{ STORE.setItem("st_reflayers", JSON.stringify(refLayers)); }
+  catch(e){ toast("Layer too big to keep on this device — it will vanish on restart",true); }
+}
+
+const BASES = [
+  ["🛰","https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",22,19],
+  ["🗺","https://tile.openstreetmap.org/{z}/{x}/{y}.png",19,19],
+  ["🗻","https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",20,19]
+];
+
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+
+async function initMap(){
+  if(!window.L){ try{ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"); }
+                 catch(e){ setStatus("Map needs a connection the first time"); return; } }
+  fmap = L.map("fmap",{zoomControl:false,attributionControl:false,preferCanvas:true}).setView([44.00,-79.46],16);
+  setBase(0);
+  L.control.zoom({position:"bottomright"}).addTo(fmap);
+  refGroup = L.layerGroup().addTo(fmap);    // context layers sit under the trees
+  pinLayer = L.layerGroup().addTo(fmap);
+  labelLayer = L.layerGroup().addTo(fmap);
+  drawRefLayers();
+  buildLegend();
+  fmap.on("moveend zoomend", renderLabels);
+  renderPins();
+  startGPS();
+  if(trees.length) fitTrees();
+  setStatus(trees.length ? `${trees.length} trees on device` : "No trees yet — import points or add one");
+}
+
+function setBase(i){
+  baseIdx = i % BASES.length;
+  const b = BASES[baseIdx];
+  if(baseLayer) fmap.removeLayer(baseLayer);
+  baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
+  baseLayer.setZIndex(0);
+  $("btnBase").textContent = BASES[(baseIdx+1)%BASES.length][0];
+}
+function cycleBase(){ setBase(baseIdx+1); }
+
+function setStatus(t){ $("statusLine").textContent = t; }
+
+function startGPS(){
+  if(!navigator.geolocation) return;
+  watchId = navigator.geolocation.watchPosition(p=>{
+    const c=p.coords;
+    mePos={lat:c.latitude,lon:c.longitude,acc:c.accuracy};
+    meSamples.push({lat:c.latitude,lon:c.longitude,acc:c.accuracy||30,t:Date.now()});
+    const cut=Date.now()-8000; meSamples=meSamples.filter(s=>s.t>=cut); if(meSamples.length>12) meSamples=meSamples.slice(-12);
+    drawMe();
+  }, ()=>{}, {enableHighAccuracy:true,maximumAge:2000,timeout:15000});
+}
+function drawMe(){
+  if(!fmap||!mePos) return;
+  const ll=[mePos.lat,mePos.lon];
+  if(!meMarker){
+    meMarker=L.marker(ll,{zIndexOffset:1000,interactive:false,icon:L.divIcon({className:"",html:
+      `<div style="width:18px;height:18px;border-radius:50%;background:#2196f3;border:2px solid #fff;box-shadow:0 0 8px rgba(33,150,243,.9)"></div>`,
+      iconSize:[18,18],iconAnchor:[9,9]})}).addTo(fmap);
+    meRing=L.circle(ll,{radius:mePos.acc||15,color:"#2196f3",fillColor:"#2196f3",fillOpacity:.08,weight:1,interactive:false}).addTo(fmap);
+  } else { meMarker.setLatLng(ll); meRing.setLatLng(ll).setRadius(mePos.acc||15); }
+}
+function centerOnMe(){
+  if(!mePos){ toast("No GPS fix yet",true); return; }
+  fmap.setView([mePos.lat,mePos.lon], Math.max(fmap.getZoom(),18));
+}
+function fitTrees(){
+  const b = visibleTrees().filter(t=>num(t.LAT)!=null&&num(t.LON)!=null).map(t=>[num(t.LAT),num(t.LON)]);
+  if(b.length) fmap.fitBounds(b,{padding:[40,40],maxZoom:19});
+}
+
+// Accuracy-weighted average of the last few seconds of fixes — the watch is already
+// running, so this costs no wait and just smooths standing-at-the-tree jitter.
+function avgPos(){
+  const s = meSamples.filter(x=>x.t>=Date.now()-8000);
+  if(s.length<2) return mePos ? {lat:mePos.lat,lon:mePos.lon,acc:mePos.acc,n:1} : null;
+  let w=0,la=0,lo=0;
+  s.forEach(x=>{ const a=Math.max(1,x.acc||30), q=1/(a*a); w+=q; la+=x.lat*q; lo+=x.lon*q; });
+  const acc = Math.sqrt(s.reduce((t,x)=>t+Math.pow(x.acc||30,2),0)/s.length);
+  return { lat:la/w, lon:lo/w, acc:acc, n:s.length };
+}
+
+function renderPins(){
+  if(!pinLayer) return;
+  pinLayer.clearLayers();
+  trees.forEach((t,i)=>{
+    if(!inCurrentProject(t)) return;
+    const lat=num(t.LAT), lon=num(t.LON);
+    if(lat==null||lon==null) return;
+    const col = healthColor(t.HEALTH);
+    const ring = t._sent ? "#ffffff" : "#ffd54f";     // unsynced trees carry an amber ring
+    const icon = L.divIcon({className:"",html:
+      `<div style="width:20px;height:20px;border-radius:50%;background:${col};border:2px solid ${ring};box-shadow:0 2px 5px rgba(0,0,0,.6)"></div>`,
+      iconSize:[20,20],iconAnchor:[10,10]});
+    L.marker([lat,lon],{icon}).addTo(pinLayer)
+      .bindPopup(()=>treePopupHtml(i),{offset:[0,-6],maxWidth:260,autoPanPadding:[24,24]})
+      .on("popupopen",()=>fillPopupPhoto(i));
+  });
+  renderLabels();
+  const vis = visibleTrees();
+  const scope = (showAllProjects || !settings.project) ? "all projects" : settings.project;
+  $("subLine").textContent = `${vis.length} trees · ${vis.filter(t=>!t._sent).length} unsynced · ${scope}`;
+  netDot();
+}
+
+const LABEL_MAX = 150;
+
+// Build one label from an ordered list of fields. Blank fields are skipped rather than
+// leaving gaps, so a tree with no address still labels cleanly.
+function labelHtml(cfg, get){
+  const parts=[];
+  cfg.fields.forEach(f=>{
+    const v = get(f);
+    if(v==null || String(v).trim()==="") return;
+    parts.push(cfg.names ? `<span class="k">${esc(prettyField(f))}:</span> ${esc(v)}` : esc(v));
+  });
+  if(!parts.length) return "";
+  const cls = `ptlabel ${cfg.size||"m"}${cfg.box?" box":""}`;
+  return `<div class="${cls}">${parts.join(cfg.sep==="\n" ? "<br>" : esc(cfg.sep))}</div>`;
+}
+// Tree columns get proper names; a reference layer's own columns are title-cased.
+const FIELD_LABELS = {
+  TREE_ID:"Tree ID", EXT_ID:"Existing ID", SPECIES:"Species", DBH:"DBH", STEMS:"Stems",
+  HEALTH:"Health", HLTH_CODE:"Health #", NOTES:"Notes", LAT:"Lat", LON:"Lon",
+  ADDRESS:"Address", PHOTOS:"Photos", PHOTO_LINK:"Photo link", CRUISER:"Recorded by",
+  EMAIL:"Email", DATE:"Date", SOURCE:"Source", ACCURACY:"Accuracy"
+};
+function prettyField(f){
+  if(FIELD_LABELS[f]) return FIELD_LABELS[f];
+  return String(f).replace(/_/g," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+}
+
+function renderLabels(){
+  if(!labelLayer || !fmap) return;
+  labelLayer.clearLayers();
+  const z = fmap.getZoom(), bb = fmap.getBounds();
+  let n = 0;
+
+  // trees
+  const tc = cfgFor("trees");
+  if(tc.fields.length && z >= tc.minZoom){
+    for(const t of trees){
+      if(n>=LABEL_MAX) break;
+      if(!inCurrentProject(t)) continue;
+      const lat=num(t.LAT), lon=num(t.LON);
+      if(lat==null||lon==null||!bb.contains([lat,lon])) continue;
+      const html = labelHtml(tc, f => f==="HLTH_CODE" ? healthCode(t.HEALTH) : t[f]);
+      if(!html) continue;
+      L.marker([lat,lon],{interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
+      n++;
+    }
+  }
+
+  // reference layers
+  refLayers.forEach(L2=>{
+    if(!L2.visible) return;
+    const c = cfgFor(L2.id);
+    if(!c.fields.length || z < c.minZoom) return;
+    for(const f of L2.features){
+      if(n>=LABEL_MAX) break;
+      const p = labelPointOf(f);
+      if(!p || !bb.contains([p[0],p[1]])) continue;
+      const html = labelHtml(c, k => f.props[k]);
+      if(!html) continue;
+      L.marker(p,{interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
+      n++;
+    }
+  });
+}
+
+// Where a feature's label sits: the point itself, or the centre of a line/polygon.
+function labelPointOf(f){
+  const g=f.geom; if(!g) return null;
+  if(g.t==="pt") return [g.c[1],g.c[0]];
+  const flat=[]; (function walk(a){ if(typeof a[0]==="number") flat.push(a); else a.forEach(walk); })(g.c);
+  if(!flat.length) return null;
+  let la=0,lo=0; flat.forEach(c=>{ lo+=c[0]; la+=c[1]; });
+  return [la/flat.length, lo/flat.length];
+}
+
+/* ---------- crosshair placement ---------- */
+function togglePlace(){
+  placeMode=!placeMode;
+  $("crosshair").style.display = placeMode ? "block" : "none";
+  $("btnPlace").classList.toggle("on", placeMode);
+  if(placeMode){
+    $("btnPlace").textContent="✓ Drop here";
+    setStatus("Pan the map so the crosshair sits on the tree, then tap Drop here");
+  } else {
+    $("btnPlace").textContent="✛ Place";
+    setStatus(`${trees.length} trees on device`);
+    return;
+  }
+  // second tap on the same button drops the tree
+  $("btnPlace").onclick = ()=>{
+    const c=fmap.getCenter();
+    placeMode=false;
+    $("crosshair").style.display="none";
+    $("btnPlace").classList.remove("on");
+    $("btnPlace").textContent="✛ Place";
+    $("btnPlace").onclick = togglePlace;
+    newTree(c.lat, c.lng, "crosshair", null);
+  };
+}
+
+function newTreeAtGPS(){
+  const a = avgPos();
+  if(!a){ toast("No GPS fix yet — use Place instead",true); return; }
+  // A ±30 m fix puts a street tree in the neighbour's frontage. Say so before recording it.
+  if(a.acc && a.acc > GPS_WARN_M){
+    if(!confirm(`GPS accuracy is only ±${Math.round(a.acc)} m right now.\n\n` +
+                `At that spread the tree may land at the wrong address. Wait for a better fix, ` +
+                `or use ✛ Place to put it exactly on the map.\n\nRecord it here anyway?`)) return;
+  }
+  newTree(a.lat, a.lon, "gps", a.acc);
+}
+
+function newTree(lat, lon, source, acc){
+  if(!settings.cruiser){ openSettings(); toast("Set your name first",true); return; }
+
+  // Guard against recording the same tree twice — easy when a block is re-walked
+  // or two of the crew overlap.
+  const near = nearestTree(lat, lon, null);
+  if(near){
+    const t2=near.t;
+    if(!confirm(`${t2.TREE_ID}${t2.SPECIES?` (${t2.SPECIES})`:""} is already recorded ` +
+                `${near.d<1?"less than a metre":Math.round(near.d)+" m"} away.\n\n` +
+                `OK — add a new tree here anyway\nCancel — open the existing one instead`)){
+      openTree(near.i);
+      return;
+    }
+  }
+  const t = {};
+  KEYS.forEach(k=>t[k]="");
+  t.TREE_ID = nextTreeId();
+  t.LAT = lat.toFixed(6); t.LON = lon.toFixed(6);
+  t.STEMS = "1";
+  t.SOURCE = source;
+  t.ACCURACY = acc!=null ? Math.round(acc*10)/10 : "";
+  t.CRUISER = settings.cruiser; t.EMAIL = settings.email;
+  t.PROJECT = settings.project;
+  t.DATE = nowStr();
+  t._sent = false; t._new = true;
+  editIndex = trees.push(t)-1;
+  persistTrees(); renderPins();
+  openTree(editIndex);
+}
+
+/* ================================================================== *
+ *  REFERENCE LAYERS
+ * ================================================================== */
+function drawRefLayers(){
+  if(!refGroup) return;
+  refGroup.clearLayers();
+  refLayers.forEach(L2=>{
+    if(!L2.visible) return;
+    L2.features.forEach((f,fi)=>{
+      const g=f.geom; if(!g) return;
+      const opts={maxWidth:280,autoPanPadding:[24,24]};
+      // The tap position matters for lines and polygons: a tree goes where you touched,
+      // not at the centroid of the parcel.
+      const wire = lyr => lyr.addTo(refGroup)
+        .on("click", e=>{ refPick = { layerId:L2.id, fi:fi,
+              lat: (g.t==="pt") ? g.c[1] : e.latlng.lat,
+              lon: (g.t==="pt") ? g.c[0] : e.latlng.lng }; })
+        .bindPopup(()=>refPopupHtml(L2.id,fi), opts);
+      if(g.t==="pt"){
+        wire(L.circleMarker([g.c[1],g.c[0]],{radius:6,color:"#fff",weight:1.2,fillColor:L2.color,fillOpacity:.9}));
+      } else if(g.t==="ln"){
+        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:3,opacity:.9})));
+      } else {
+        eachPoly(g.c, rings=>wire(L.polygon(rings.map(r=>r.map(c=>[c[1],c[0]])),
+          {color:L2.color,weight:2,fillOpacity:.10,smoothFactor:2})));
+      }
+    });
+  });
+  renderLabels();
+}
+function eachRing(co,fn){ if(typeof co[0][0]==="number") fn(co); else co.forEach(c=>eachRing(c,fn)); }
+function eachPoly(co,fn){ if(typeof co[0][0][0]==="number") fn(co); else co.forEach(c=>eachPoly(c,fn)); }
+
+async function importRefLayer(file){
+  toast("Reading…");
+  try{
+    const gj = await readGeoFile(file);
+    const cols = Array.isArray(gj)?gj:[gj];
+    const feats=[];
+    cols.forEach(fc=>((fc&&fc.features)||[]).forEach(f=>{
+      const g=f.geometry; if(!g) return;
+      const t = /Point/.test(g.type) ? "pt" : (/LineString/.test(g.type) ? "ln" : "pg");
+      if(g.type==="Point"||g.type==="MultiPoint"){
+        (g.type==="Point"?[g.coordinates]:g.coordinates).forEach(c=>feats.push({geom:{t:"pt",c:c},props:f.properties||{}}));
+      } else {
+        feats.push({geom:{t:t,c:g.coordinates},props:f.properties||{}});
+      }
+    }));
+    if(!feats.length){ toast("Nothing to draw in that file",true); return; }
+
+    const id = "ref"+Date.now().toString(36);
+    refLayers.push({
+      id, name: file.name.replace(/\.[^.]+$/,"").slice(0,40),
+      color: REF_PALETTE[refLayers.length % REF_PALETTE.length],
+      visible: true, features: feats
+    });
+    persistRefLayers();
+    drawRefLayers();
+    zoomToRef(id);
+    renderLayerList();
+    buildLegend();
+    toast(`Added ${feats.length} features as a reference layer`);
+  }catch(e){ toast("Could not read that file",true); }
+}
+
+function zoomToRef(id){
+  const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
+  const b=[]; L2.features.forEach(f=>{ const p=labelPointOf(f); if(p) b.push(p); });
+  if(b.length) fmap.fitBounds(b,{padding:[36,36],maxZoom:19});
+}
+function toggleRef(id){
+  const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
+  L2.visible=!L2.visible; persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+}
+function removeRef(id){
+  const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
+  if(!confirm(`Remove the layer "${L2.name}"? Trees are not affected.`)) return;
+  refLayers = refLayers.filter(x=>x.id!==id);
+  delete labelCfg[id]; persistLabelCfg();
+  persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+  toast("Layer removed");
+}
+
+function openLayers(){ renderLayerList(); $("layersSheet").classList.add("show"); }
+function closeLayers(){ $("layersSheet").classList.remove("show"); }
+function renderLayerList(){
+  const withLbl = id => cfgFor(id).fields.length ? `${cfgFor(id).fields.length} label field(s)` : "no labels";
+  let h = `<div class="layerrow">
+      <span class="sw" style="width:14px;height:14px;border-radius:50%;background:#4caf50;border:2px solid #fff"></span>
+      <span class="nm">Trees<br><span class="ct">${trees.length} points · coloured by health · ${withLbl("trees")}</span></span>
+      <button onclick="openLabels('trees')">🏷</button>
+    </div>`;
+  h += refLayers.map(L2=>`
+    <div class="layerrow">
+      <span class="sw sq" style="width:14px;height:14px;background:${L2.color};border:1px solid #fff"></span>
+      <span class="nm">${esc(L2.name)}<br><span class="ct">${L2.features.length} features · ${withLbl(L2.id)}</span></span>
+      <button class="${L2.visible?"on":""}" onclick="toggleRef('${L2.id}')">${L2.visible?"ON":"OFF"}</button>
+      <button onclick="zoomToRef('${L2.id}')">⤢</button>
+      <button onclick="openLabels('${L2.id}')">🏷</button>
+      <button onclick="openXfer('${L2.id}')">⇥</button>
+      <button onclick="removeRef('${L2.id}')">✕</button>
+    </div>`).join("");
+  $("layerList").innerHTML = h;
+  $("layerStats").textContent = `${refLayers.length} reference layer(s) · ${trees.length} trees`;
+}
+
+/* ================================================================== *
+ *  REFERENCE FEATURE -> NEW TREE
+ *  Tapping a feature can create a tree at that spot and carry chosen
+ *  attributes across, so an existing asset layer seeds the new inventory.
+ * ================================================================== */
+let refPick = null;                                     // what was last tapped
+const XFER_FIELDS = ["EXT_ID","SPECIES","DBH","STEMS","HEALTH","ADDRESS","NOTES"];
+
+function refLayerById(id){ return refLayers.find(x=>x.id===id) || null; }
+
+function refPopupHtml(layerId, fi){
+  const L2 = refLayerById(layerId); if(!L2) return "";
+  const f = L2.features[fi]; if(!f) return "";
+  const keys = Object.keys(f.props);
+  const rows = keys.map(k=>popRow(prettyField(k), f.props[k])).join("");
+  const mapped = Object.keys(L2.xfer||{}).filter(k=>L2.xfer[k]).length;
+  return `<div class="tpop">
+    <span class="lyr">${esc(L2.name)}</span>
+    <div class="rpop"><table>${rows || `<tr><td class="k">no attributes</td></tr>`}</table></div>
+    <div class="acts">
+      <a href="javascript:void(0)" onclick="treeFromRef()">＋ Tree here</a>
+      <a class="alt" href="javascript:void(0)" onclick="openXfer('${esc(layerId)}')">${mapped?`Fields (${mapped})`:"Set fields"}</a>
+    </div>
+  </div>`;
+}
+
+// Creates a tree at the tapped spot, pre-filled from the layer's field map.
+function treeFromRef(){
+  if(!refPick){ toast("Tap a feature first",true); return; }
+  const L2 = refLayerById(refPick.layerId); if(!L2) return;
+  const f = L2.features[refPick.fi]; if(!f) return;
+  const before = trees.length;
+  try{ fmap.closePopup(); }catch(e){}
+
+  newTree(refPick.lat, refPick.lon, "reference", null);
+  if(trees.length === before) return;              // duplicate guard cancelled it
+
+  const t = trees[trees.length-1];
+  const map = L2.xfer || {};
+  let copied = 0;
+  XFER_FIELDS.forEach(fld=>{
+    const src = map[fld]; if(!src) return;
+    const raw = f.props[src];
+    if(raw==null || String(raw).trim()==="") return;
+    let v = normText(raw);
+    if(fld==="SPECIES")      v = matchSpecies(v);
+    else if(fld==="HEALTH")  v = matchHealth(v);
+    else if(fld==="DBH")     v = normNumber(v);
+    else if(fld==="STEMS")   v = normNumber(v).split(".")[0];
+    if(v==="") return;
+    t[fld] = v; copied++;
+  });
+  if(map.HEALTH) t.HLTH_CODE = healthCode(t.HEALTH);
+  persistTrees();
+
+  openTree(trees.length-1);                        // refresh the form with the copied values
+  toast(copied ? `${copied} field(s) copied from ${L2.name}` : `New tree — no fields mapped from ${L2.name}`);
+}
+
+/* ---------- field transfer configuration ---------- */
+let xferTarget = null;
+
+function openXfer(layerId){
+  const L2 = refLayerById(layerId); if(!L2){ toast("Layer not found",true); return; }
+  try{ fmap.closePopup(); }catch(e){}
+  closeLayers();
+  xferTarget = layerId;
+  const keys = fieldsFor(layerId);
+  $("xferLayerName").textContent = `${L2.name} · ${L2.features.length} features · ${keys.length} attributes`;
+  const map = L2.xfer || {};
+  XFER_FIELDS.forEach(fld=>{
+    const sel = $("xfer"+fld);
+    sel.innerHTML = `<option value="">— none —</option>` +
+      keys.map(k=>`<option value="${esc(k)}">${esc(k)}</option>`).join("");
+    sel.value = map[fld] || guessXfer(fld, keys) || "";
+    sel.onchange = xferPreview;
+  });
+  xferPreview();
+  $("xferSheet").classList.add("show");
+}
+function closeXfer(){ $("xferSheet").classList.remove("show"); xferTarget=null; }
+
+// First-time suggestion only — a saved mapping always wins.
+function guessXfer(fld, keys){
+  const pat = { EXT_ID:/^(id|tree_?id|asset|objectid|fid|ext)/i, SPECIES:/spec|comm|botan|name|tree_?type/i,
+                DBH:/dbh|diam|dia\b/i, STEMS:/stem|trunk/i, HEALTH:/health|cond|vigou?r/i,
+                ADDRESS:/addr|street|civic|location/i, NOTES:/note|comment|remark|desc/i }[fld];
+  return pat ? (keys.find(k=>pat.test(k)) || "") : "";
+}
+
+function xferPreview(){
+  const L2 = refLayerById(xferTarget); if(!L2) return;
+  const f = L2.features[0];
+  if(!f){ $("xferPreview").innerHTML = `<span style="color:var(--faint);font-size:12px">No features to preview</span>`; return; }
+  const rows = XFER_FIELDS.map(fld=>{
+    const src = $("xfer"+fld).value;
+    if(!src) return "";
+    let v = normText(f.props[src]);
+    if(fld==="SPECIES")     v = matchSpecies(v);
+    else if(fld==="HEALTH") v = matchHealth(v) || `<span style="color:#e0a33a">unrecognised — left blank</span>`;
+    else if(fld==="DBH")    v = normNumber(v);
+    else if(fld==="STEMS")  v = normNumber(v).split(".")[0];
+    return `<div style="font-size:12px;margin-bottom:3px"><span style="color:#8fb59c">${esc(prettyField(fld))}</span> ← ${esc(src)} = <b>${v===""?'<span style="color:var(--faint)">blank</span>':v}</b></div>`;
+  }).filter(Boolean).join("");
+  $("xferPreview").innerHTML = rows || `<span style="color:var(--faint);font-size:12px">Nothing mapped yet</span>`;
+}
+
+function saveXfer(){
+  const L2 = refLayerById(xferTarget); if(!L2) return;
+  const map = {};
+  let n = 0;
+  XFER_FIELDS.forEach(fld=>{ const v = $("xfer"+fld).value; if(v){ map[fld]=v; n++; } });
+  L2.xfer = map;
+  persistRefLayers();
+  renderLayerList();
+  closeXfer();
+  toast(n ? `${n} field(s) will copy from ${L2.name}` : `Field copying turned off for ${L2.name}`);
+}
+
+/* ================================================================== *
+ *  LABEL BUILDER
+ * ================================================================== */
+let labelTarget = "trees";
+
+function layerName(id){
+  if(id==="trees") return "Trees";
+  const L2=refLayers.find(x=>x.id===id); return L2?L2.name:id;
+}
+// Fields offered for a layer: the tree schema, or whatever columns a reference layer carries.
+function fieldsFor(id){
+  if(id==="trees") return KEYS.filter(k=>k!=="PHOTO_LINK"&&k!=="EMAIL");
+  const L2=refLayers.find(x=>x.id===id); if(!L2) return [];
+  const keys=[]; L2.features.slice(0,300).forEach(f=>{ for(const k in f.props) if(keys.indexOf(k)<0) keys.push(k); });
+  return keys;
+}
+// A real record to preview against, so the user sees their actual data, not placeholders.
+function sampleFor(id){
+  if(id==="trees") return trees.length ? trees[0] : null;
+  const L2=refLayers.find(x=>x.id===id);
+  return (L2&&L2.features.length) ? L2.features[0].props : null;
+}
+
+function openLabels(target){
+  closeLayers(); closeMenu();
+  labelTarget = target || "trees";
+  const ids = ["trees"].concat(refLayers.map(l=>l.id));
+  $("labelLayerSel").innerHTML = ids.map(i=>`<option value="${esc(i)}">${esc(layerName(i))}</option>`).join("");
+  $("labelLayerSel").value = labelTarget;
+  const zs=[]; for(let z=12;z<=21;z++) zs.push(z);
+  $("labelZoom").innerHTML = zs.map(z=>`<option value="${z}">${z}${z<=15?" (far out)":z>=19?" (close in)":""}</option>`).join("");
+  loadLabelCfg();
+  $("labelSheet").classList.add("show");
+}
+function closeLabels(){ $("labelSheet").classList.remove("show"); }
+function labelPickLayer(){ labelTarget = $("labelLayerSel").value; loadLabelCfg(); }
+
+function loadLabelCfg(){
+  const c = cfgFor(labelTarget);
+  $("labelLayerName").textContent = layerName(labelTarget) + " · " + (c.fields.length ? c.fields.length+" field(s)" : "no labels yet");
+  $("labelSep").value = c.sep;
+  $("labelSize").value = c.size;
+  $("labelNames").value = String(c.names||0);
+  $("labelBox").value = String(c.box||0);
+  $("labelZoom").value = String(c.minZoom||17);
+  renderFieldChips();
+  labelPreview();
+}
+function renderFieldChips(){
+  const c = cfgFor(labelTarget), all = fieldsFor(labelTarget);
+  if(!all.length){ $("labelFields").innerHTML = `<span style="color:var(--faint);font-size:12.5px">This layer has no attributes to label.</span>`; return; }
+  $("labelFields").innerHTML = all.map(f=>{
+    const i = c.fields.indexOf(f);
+    return `<button type="button" class="fieldchip${i>=0?" on":""}" onclick="toggleLabelField('${esc(f).replace(/'/g,"\\'")}')">${esc(prettyField(f))}${i>=0?`<span class="ord">${i+1}</span>`:""}</button>`;
+  }).join("");
+}
+// Tapping adds to the end and keeps the order; tapping again removes it and the rest renumber.
+function toggleLabelField(f){
+  const c = cfgFor(labelTarget);
+  const i = c.fields.indexOf(f);
+  if(i>=0) c.fields.splice(i,1); else c.fields.push(f);
+  renderFieldChips(); labelPreview();
+}
+function readLabelForm(){
+  const c = cfgFor(labelTarget);
+  c.sep = $("labelSep").value;
+  c.size = $("labelSize").value;
+  c.names = parseInt($("labelNames").value,10)||0;
+  c.box = parseInt($("labelBox").value,10)||0;
+  c.minZoom = parseInt($("labelZoom").value,10)||17;
+  return c;
+}
+function labelPreview(){
+  const c = readLabelForm();
+  const box = $("labelPreviewBox");
+  if(!c.fields.length){ box.innerHTML = `<span style="color:var(--faint);font-size:12px">Choose one or more fields</span>`; return; }
+  const smp = sampleFor(labelTarget);
+  const get = f => {
+    if(!smp) return "sample";
+    if(labelTarget==="trees" && f==="HLTH_CODE") return healthCode(smp.HEALTH);
+    return smp[f];
+  };
+  const html = labelHtml(c,get);
+  box.innerHTML = html || `<span style="color:var(--faint);font-size:12px">Those fields are empty on the first record</span>`;
+}
+function applyLabels(){
+  const c = readLabelForm();
+  persistLabelCfg();
+  syncLabelBtn();
+  renderLabels();
+  closeLabels();
+  toast(c.fields.length ? `${layerName(labelTarget)}: ${c.fields.length} field(s) labelled` : "Labels off for "+layerName(labelTarget));
+}
+function clearLabels(){
+  const c = cfgFor(labelTarget);
+  c.fields = [];
+  persistLabelCfg(); renderFieldChips(); labelPreview(); syncLabelBtn(); renderLabels();
+  toast("Labels off for " + layerName(labelTarget));
+}
+function syncLabelBtn(){
+  const any = Object.keys(labelCfg).some(k=>(labelCfg[k].fields||[]).length);
+  const b=$("btnLabels"); if(b) b.classList.toggle("on", any);
+}
+
+/* ================================================================== *
+ *  LEGEND
+ * ================================================================== */
+function buildLegend(){
+  let h = `<h4>Tree health</h4>` + HEALTH.map(([n,c])=>
+    `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
+  h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
+  h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
+  const vis = refLayers.filter(l=>l.visible);
+  if(vis.length){
+    h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>
+      `<div class="lr"><span class="sw sq" style="background:${l.color}"></span>${esc(l.name)}</div>`).join("");
+  }
+  $("legend").innerHTML = h;
+}
+function toggleLegend(){
+  legendOn=!legendOn;
+  if(legendOn) buildLegend();
+  $("legend").classList.toggle("show",legendOn);
+  $("btnLegend").classList.toggle("on",legendOn);
+}
+
+/* ================================================================== *
+ *  FIELD-SAFETY GUARDS
+ * ================================================================== */
+
+// Metres between two positions. Used for the duplicate check, so it needs to be
+// accurate at street-tree spacing rather than over long distances.
+function distM(lat1,lon1,lat2,lon2){
+  const R=6371000, r=Math.PI/180;
+  const dLat=(lat2-lat1)*r, dLon=(lon2-lon1)*r;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(a)));
+}
+
+const DUPLICATE_M = 4;    // two street trees are rarely closer than this
+const GPS_WARN_M  = 10;   // beyond this a tree can land in the wrong frontage
+
+// Returns the nearest already-recorded tree within DUPLICATE_M, or null.
+function nearestTree(lat,lon,ignoreIdx){
+  let best=null;
+  trees.forEach((t,i)=>{
+    if(i===ignoreIdx || t._new || !inCurrentProject(t)) return;
+    const a=num(t.LAT), b=num(t.LON); if(a==null||b==null) return;
+    const d=distM(lat,lon,a,b);
+    if(d<=DUPLICATE_M && (!best || d<best.d)) best={i,d,t};
+  });
+  return best;
+}
+
+/* ---------- 1. sync verification ----------
+   Posts go out in no-cors mode, so a failure at the Sheet end is invisible and the
+   app would keep showing everything as synced. This asks the Sheet which IDs it
+   actually holds and un-marks anything that never arrived. */
+function verifySync(quiet){
+  if(!connected || isOffline()){ if(!quiet) toast("No connection",true); return; }
+  const sent = trees.filter(t=>t._sent);
+  if(!sent.length){ if(!quiet) toast("Nothing has been marked as synced yet"); return; }
+  const cb="__ids"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  if(!quiet) toast("Checking the Sheet…");
+  window[cb]=resp=>{
+    try{
+      const have={}; ((resp&&resp.ids)||[]).forEach(id=>have[String(id).trim()]=1);
+      let missing=0;
+      sent.forEach(t=>{ if(!have[t.TREE_ID]){ t._sent=false; missing++; } });
+      if(missing){
+        persistTrees(); renderPins();
+        toast(`${missing} tree(s) never reached the Sheet — re-queued`,true);
+      } else if(!quiet){
+        toast(`All ${sent.length} synced trees confirmed on the Sheet`);
+      }
+    }catch(e){ if(!quiet) toast("Could not verify",true); }
+    cleanup();
+  };
+  sc.onerror=()=>{ if(!quiet) toast("Could not reach the Sheet",true); cleanup(); };
+  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
+  document.body.appendChild(sc);
+}
+
+/* ---------- 2. undo delete ---------- */
+let lastDeleted=null, undoTimer=null;
+function showUndo(msg){
+  $("undoMsg").textContent=msg;
+  $("undoBar").classList.add("show");
+  clearTimeout(undoTimer);
+  undoTimer=setTimeout(hideUndo, 9000);
+}
+function hideUndo(){ $("undoBar").classList.remove("show"); }
+function undoDelete(){
+  if(!lastDeleted){ hideUndo(); return; }
+  const { tree, index } = lastDeleted;
+  tree._sent=false;                       // the Sheet row is gone, so it must go back up
+  trees.splice(Math.min(index,trees.length), 0, tree);
+  lastDeleted=null; hideUndo();
+  persistTrees(); renderPins();
+  sendTree(tree);
+  toast("Restored " + tree.TREE_ID);
+}
+
+/* ---------- 5. abandoned new trees ----------
+   A tree is pushed to the list the moment it is dropped, so backgrounding the app
+   mid-entry used to leave an empty pin behind with an ID already spent. */
+function discardNewTree(i){
+  const t=trees[i]; if(!t||!t._new) return false;
+  const id=t.TREE_ID;
+  trees.splice(i,1);
+  // Reclaim the number if it was the most recent one issued.
+  const m=/-(\d{5})-/.exec(id);
+  if(m && parseInt(m[1],10) === (parseInt(settings.counter,10)-1)){
+    settings.counter = parseInt(settings.counter,10)-1; persistSettings();
+  }
+  persistTrees();
+  return true;
+}
+function purgeAbandoned(){
+  let n=0;
+  for(let i=trees.length-1;i>=0;i--) if(trees[i]._new){ if(discardNewTree(i)) n++; }
+  if(n){ renderPins(); }
+  return n;
+}
+
+/* ================================================================== *
+ *  TREE POPUP — read-only preview, with the editor one tap away
+ * ================================================================== */
+function popRow(k,v){ return (v==null||String(v).trim()==="") ? "" : `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`; }
+
+function treePopupHtml(i){
+  const t = trees[i]; if(!t) return "";
+  const photos = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
+  const dbh = t.DBH ? `${t.DBH} cm${parseInt(t.STEMS,10)>1?` · ${t.STEMS} stems`:""}` : "";
+  const link = String(t.PHOTO_LINK||"").split(";")[0].trim();
+  return `<div class="tpop" id="tpop${i}">
+    <b class="id">${esc(t.TREE_ID)}${t.EXT_ID?` <span style="color:#4a6b52">· ${esc(t.EXT_ID)}</span>`:""}</b>
+    <span class="sp">${esc(t.SPECIES||"— no species —")}</span>
+    ${t.HEALTH?`<span class="hbadge" style="background:${healthColor(t.HEALTH)}">${esc(t.HEALTH)}</span>`:""}
+    <table>
+      ${popRow("DBH",dbh)}
+      ${popRow("Address",t.ADDRESS)}
+      ${popRow("Notes",t.NOTES)}
+      ${popRow("By",t.CRUISER)}
+      ${popRow("Date",String(t.DATE||"").slice(0,16))}
+      ${popRow("Position",`${t.LAT}, ${t.LON}`)}
+      ${popRow("Fix",t.SOURCE + (t.ACCURACY?` ±${t.ACCURACY} m`:""))}
+      ${popRow("Synced",t._sent?"yes":"not yet")}
+    </table>
+    ${photos.length?`<img class="ph" id="tpopimg${i}" alt="photo of ${esc(t.TREE_ID)}">`:""}
+    ${photos.length>1?`<div style="font-size:10.5px;color:#4a6b52;margin-top:3px">1 of ${photos.length} photos</div>`:""}
+    <div class="acts">
+      <a href="javascript:void(0)" onclick="editFromPopup(${i})">Edit ›</a>
+      ${link?`<a class="alt" href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:""}
+    </div>
+  </div>`;
+}
+
+// The thumbnail is fetched after the popup opens — reading it inline would block the tap.
+function fillPopupPhoto(i){
+  const t = trees[i]; if(!t) return;
+  const first = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean)[0];
+  if(!first || !HAS_IDB) return;
+  idbGet(first).then(r=>{
+    const el = $("tpopimg"+i);
+    if(el && r && r.data){ el.src = r.data; }
+    else if(el){ el.style.display="none"; }   // on Drive but no longer on this phone
+  }).catch(()=>{});
+}
+function editFromPopup(i){ try{ fmap.closePopup(); }catch(e){} openTree(i); }
+
+/* ================================================================== *
+ *  STATISTICS
+ * ================================================================== */
+const RANGES = [["all","All time"],["today","Today"],["7","Last 7 days"],["30","Last 30 days"],["custom","Custom…"]];
+let statsRange = "all";
+
+function openStats(){
+  closeMenu();
+  $("statsRange").innerHTML = RANGES.map(([k,l])=>
+    `<button type="button" onclick="setStatsRange('${k}')" class="${statsRange===k?"on":""}"
+      style="${statsRange===k?"background:var(--accent);":""}">${esc(l)}</button>`).join("");
+  if(!$("statsTo").value){
+    const d=new Date(), p=n=>String(n).padStart(2,"0");
+    $("statsTo").value = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+    const a=new Date(Date.now()-29*86400000);
+    $("statsFrom").value = `${a.getFullYear()}-${p(a.getMonth()+1)}-${p(a.getDate())}`;
+  }
+  renderStats();
+  $("statsSheet").classList.add("show");
+}
+function closeStats(){ $("statsSheet").classList.remove("show"); }
+function setStatsRange(k){
+  statsRange = k;
+  $("statsCustom").style.display = (k==="custom") ? "flex" : "none";
+  [...$("statsRange").children].forEach(b=>{
+    const on = b.getAttribute("onclick").indexOf(`'${k}'`)>=0;
+    b.classList.toggle("on",on);
+    b.style.background = on ? "var(--accent)" : "";
+  });
+  renderStats();
+}
+
+// DATE is stored as "YYYY-MM-DD HH:MM:SS", so a plain string compare on the date part
+// is both correct and cheap — no parsing, no timezone drift.
+function treeDay(t){ return String(t.DATE||"").slice(0,10); }
+function statsFiltered(){
+  const base = visibleTrees();
+  if(statsRange==="all") return base.slice();
+  const p=n=>String(n).padStart(2,"0"), fmt=d=>`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  let from, to;
+  if(statsRange==="custom"){ from=$("statsFrom").value; to=$("statsTo").value; }
+  else if(statsRange==="today"){ from=to=fmt(new Date()); }
+  else { const n=parseInt(statsRange,10); from=fmt(new Date(Date.now()-(n-1)*86400000)); to=fmt(new Date()); }
+  if(!from||!to) return base.slice();
+  if(from>to){ const x=from; from=to; to=x; }
+  return base.filter(t=>{ const d=treeDay(t); return d && d>=from && d<=to; });
+}
+
+function tally(list, fn){
+  const m={}; list.forEach(x=>{ const k=fn(x); if(k===null||k===undefined||k==="") return; m[k]=(m[k]||0)+1; });
+  return m;
+}
+function barBlock(title, entries, total, colorFn){
+  if(!entries.length) return "";
+  const max = Math.max.apply(null, entries.map(e=>e[1])) || 1;
+  return `<div class="stath">${esc(title)}</div>` + entries.map(([k,n])=>{
+    const pct = total ? Math.round(n/total*1000)/10 : 0;
+    return `<div class="statrow">
+      <span class="lab">${esc(k)}</span>
+      <span class="track"><span class="bar" style="width:${Math.max(2,Math.round(n/max*100))}%;background:${colorFn?colorFn(k):"var(--accent-dk)"}"></span></span>
+      <span class="n">${n} · ${pct}%</span></div>`;
+  }).join("");
+}
+
+function renderStats(){
+  const list = statsFiltered();
+  const n = list.length;
+  const days = Object.keys(tally(list,treeDay)).sort();
+  $("statsRangeLine").textContent = n
+    ? `${n} trees · ${days.length} day(s)${days.length?` · ${days[0]} to ${days[days.length-1]}`:""}`
+    : "No trees in this range";
+
+  if(!n){ $("statsBody").innerHTML = `<div class="hint">Nothing recorded in the selected period.</div>`; return; }
+
+  const dbhs = list.map(t=>num(t.DBH)).filter(v=>v!=null && v>0);
+  const mean = dbhs.length ? (dbhs.reduce((a,b)=>a+b,0)/dbhs.length) : null;
+  const sorted = dbhs.slice().sort((a,b)=>a-b);
+  const median = sorted.length ? (sorted.length%2 ? sorted[(sorted.length-1)/2]
+                                : (sorted[sorted.length/2-1]+sorted[sorted.length/2])/2) : null;
+  const photos = list.reduce((a,t)=>a+String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length,0);
+  const multi = list.filter(t=>parseInt(t.STEMS,10)>1).length;
+  const unsynced = list.filter(t=>!t._sent).length;
+  const noSpecies = list.filter(t=>!String(t.SPECIES||"").trim()).length;
+  const noHealth = list.filter(t=>!String(t.HEALTH||"").trim()).length;
+  const noAddr = list.filter(t=>!String(t.ADDRESS||"").trim()).length;
+  const perDay = days.length ? (n/days.length) : n;
+
+  let h = `<div class="statgrid">
+    <div class="statbox"><span class="n">${n}</span><span class="l">Trees</span></div>
+    <div class="statbox"><span class="n">${mean!=null?mean.toFixed(1):"—"}</span><span class="l">Mean DBH cm</span></div>
+    <div class="statbox"><span class="n">${median!=null?median.toFixed(1):"—"}</span><span class="l">Median DBH</span></div>
+    <div class="statbox"><span class="n">${Object.keys(tally(list,t=>t.SPECIES)).length}</span><span class="l">Species</span></div>
+    <div class="statbox"><span class="n">${photos}</span><span class="l">Photos</span></div>
+    <div class="statbox"><span class="n">${perDay.toFixed(0)}</span><span class="l">Per day</span></div>
+  </div>`;
+
+  // health, always in class order rather than by count, so the shape is comparable
+  const ht = tally(list,t=>t.HEALTH);
+  const hEntries = HEALTH.map(([k])=>[k,ht[k]||0]).filter(e=>e[1]>0);
+  if(noHealth) hEntries.push(["not assessed",noHealth]);
+  h += barBlock("By health", hEntries, n, k=>healthColor(k));
+
+  const ct = tally(list,t=>t.CRUISER||"(unattributed)");
+  h += barBlock("By collector", Object.entries(ct).sort((a,b)=>b[1]-a[1]), n, ()=>"#4fa3d1");
+
+  const st = tally(list,t=>t.SPECIES);
+  const sEntries = Object.entries(st).sort((a,b)=>b[1]-a[1]);
+  const shown = sEntries.slice(0,12);
+  h += barBlock(`By species (top ${shown.length} of ${sEntries.length})`, shown, n, ()=>"#6bbf7a");
+
+  const DBHC=[["< 10",0,10],["10–20",10,20],["20–30",20,30],["30–40",30,40],["40–50",40,50],
+              ["50–60",50,60],["60–70",60,70],["70–80",70,80],["80+",80,1e9]];
+  const dEntries = DBHC.map(c=>[c[0]+" cm", dbhs.filter(v=>v>=c[1]&&v<c[2]).length]).filter(e=>e[1]>0);
+  h += barBlock("By DBH class", dEntries, dbhs.length, ()=>"#c9a227");
+
+  const dt = tally(list,treeDay);
+  const dEnt = Object.entries(dt).sort((a,b)=>a[0]<b[0]?1:-1).slice(0,14);
+  h += barBlock("By day (most recent first)", dEnt, n, ()=>"#8e7cc3");
+
+  const src = tally(list,t=>t.SOURCE||"unknown");
+  h += barBlock("How the position was set", Object.entries(src).sort((a,b)=>b[1]-a[1]), n, ()=>"#7b8f84");
+
+  if(showAllProjects || !settings.project){
+    const pj = tally(list,t=>projectOf(t)||"(unassigned)");
+    h += barBlock("By project", Object.entries(pj).sort((a,b)=>b[1]-a[1]), n, ()=>"#d98cb3");
+  }
+
+  h += `<div class="stath">Data completeness</div>
+    <div class="hint" style="margin:0">
+      ${multi} multi-stem · ${unsynced} not yet synced<br>
+      Missing: ${noSpecies} species · ${noHealth} health · ${noAddr} address
+    </div>`;
+
+  $("statsBody").innerHTML = h;
+}
+
+function exportStatsCSV(){
+  const list = statsFiltered();
+  if(!list.length){ toast("Nothing in this range",true); return; }
+  const n=list.length, rows=[["SECTION","CATEGORY","TREES","PERCENT"]];
+  const push=(sec,m,tot)=>Object.entries(m).sort((a,b)=>b[1]-a[1])
+    .forEach(([k,v])=>rows.push([sec,k,v,(Math.round(v/tot*1000)/10)+"%"]));
+  rows.push(["Summary","Trees",n,"100%"]);
+  push("Health", tally(list,t=>t.HEALTH||"not assessed"), n);
+  push("Collector", tally(list,t=>t.CRUISER||"(unattributed)"), n);
+  push("Species", tally(list,t=>t.SPECIES||"(blank)"), n);
+  push("Day", tally(list,treeDay), n);
+  push("Position source", tally(list,t=>t.SOURCE||"unknown"), n);
+  const csv = rows.map(r=>r.map(csvCell).join(",")).join("\n");
+  const blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=`StreetTreeStats_${nowStr().replace(/[: ]/g,"-")}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast("Statistics exported");
+}
+
+/* ================================================================== *
+ *  TREE FORM
+ * ================================================================== */
+let editIndex = null;
+let currentPhotos = [];
+
+function buildHealthChips(){
+  $("healthChips").innerHTML = HEALTH.map(([h,c])=>
+    `<button type="button" data-h="${esc(h)}" onclick="pickHealth('${esc(h)}')">${esc(h)}</button>`).join("");
+}
+function pickHealth(h){
+  const t = trees[editIndex]; if(!t) return;
+  t._draftHealth = (t._draftHealth===h) ? "" : h;
+  paintHealth(t._draftHealth);
+}
+function paintHealth(h){
+  [...$("healthChips").children].forEach(b=>{
+    const on = b.getAttribute("data-h")===h;
+    b.classList.toggle("on",on);
+    b.style.background = on ? healthColor(h) : "";
+  });
+}
+
+function openTree(i){
+  editIndex = i;
+  const t = trees[i];
+  t._draftHealth = t.HEALTH || "";
+  $("sheetTitle").textContent = t._new ? "New tree" : "Edit tree";
+  $("sheetId").textContent = t.TREE_ID + (t.EXT_ID ? " · was " + t.EXT_ID : "");
+  setSpeciesVal(t.SPECIES);
+  $("fDBH").value = t.DBH || "";
+  $("fSTEMS").value = t.STEMS || "1";
+  $("fADDRESS").value = t.ADDRESS || "";
+  $("fNOTES").value = t.NOTES || "";
+  $("fLAT").value = t.LAT || "";
+  $("fLON").value = t.LON || "";
+  paintHealth(t._draftHealth);
+  renderSpeciesQuick();
+  renderDbhQuick();
+  $("posHint").textContent = t.SOURCE ? `${t.SOURCE}${t.ACCURACY?` · ±${t.ACCURACY} m`:""}` : "—";
+  currentPhotos = String(t.PHOTOS||"").split(";").map(s=>s.trim()).filter(Boolean);
+  renderThumbs();
+  if(t.PHOTO_LINK){
+    const first=String(t.PHOTO_LINK).split(";")[0].trim();
+    $("photoHint").innerHTML = `${currentPhotos.length} photo(s) · <a href="${esc(first)}" target="_blank" rel="noopener" style="color:var(--accent)">open in Drive ›</a>`;
+  } else {
+    $("photoHint").textContent = currentPhotos.length ? `${currentPhotos.length} photo(s) — Drive link appears after sync` : "Saved on the phone, backed up to Drive when online.";
+  }
+  $("treeSheet").classList.add("show");
+}
+
+function closeSheet(){
+  // A brand-new tree that was never saved should not linger as an empty pin.
+  if(editIndex!=null && trees[editIndex] && trees[editIndex]._new){
+    discardNewTree(editIndex); renderPins();
+  }
+  $("treeSheet").classList.remove("show");
+  editIndex = null;
+}
+
+function saveTree(){
+  const t = trees[editIndex]; if(!t) return;
+  const lat = num($("fLAT").value), lon = num($("fLON").value);
+  if(lat==null||lon==null){ toast("A tree needs a latitude and longitude",true); return; }
+  $("fDBH").value = normNumber($("fDBH").value);   // show the cleaned value if dictation added words
+  if(!$("spVal").textContent || $("spVal").classList.contains("empty")){ toast("Choose a species",true); return; }
+
+  t.SPECIES = $("spVal").textContent;
+  t.DBH     = normNumber($("fDBH").value);
+  t.STEMS   = normNumber($("fSTEMS").value).split(".")[0] || "1";
+  t.HEALTH  = t._draftHealth || "";
+  t.HLTH_CODE = healthCode(t.HEALTH);
+  t.ADDRESS = normText($("fADDRESS").value);
+  t.NOTES   = normText($("fNOTES").value);
+  t.LAT = lat.toFixed(6); t.LON = lon.toFixed(6);
+  t.PHOTOS = currentPhotos.join("; ");
+  t.CRUISER = settings.cruiser; t.EMAIL = settings.email;
+  if(!projectOf(t)) t.PROJECT = settings.project;   // keep the original on an imported tree
+  t.DATE = nowStr();
+  t._sent = false;
+  delete t._new; delete t._draftHealth;
+
+  if(t.SPECIES) speciesUse[t.SPECIES] = (speciesUse[t.SPECIES]||0)+1;
+  if(t.DBH)     dbhUse[t.DBH] = (dbhUse[t.DBH]||0)+1;
+  if(t.SPECIES || t.DBH) persistUse();
+
+  persistTrees();
+  $("treeSheet").classList.remove("show");
+  const idx = editIndex; editIndex = null;
+  renderPins();
+  sendTree(trees[idx]);
+  toast("Saved · " + trees[idx].TREE_ID);
+}
+
+function deleteTree(){
+  const t = trees[editIndex]; if(!t) return;
+  if(!confirm(`Delete ${t.TREE_ID}?`)) return;
+  const id = t.TREE_ID, wasNew = !!t._new, idx = editIndex;
+  lastDeleted = wasNew ? null : { tree: Object.assign({},t), index: idx };
+  trees.splice(idx,1); persistTrees();
+  $("treeSheet").classList.remove("show"); editIndex=null;
+  renderPins();
+  if(!wasNew && connected && !isOffline()){
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"delete",TREE_ID:id})}).catch(()=>{});
+  }
+  if(lastDeleted) showUndo(`Deleted ${id}`); else toast("Discarded " + id);
+}
+
+function bumpDbh(d){
+  const el=$("fDBH"); const v=num(normNumber(el.value));
+  el.value = String(Math.max(0, Math.round(((v==null?0:v)+d)*10)/10));
+  renderDbhQuick();
+}
+function bumpStems(d){
+  const el=$("fSTEMS"); const v=parseInt(normNumber(el.value),10)||1;
+  el.value = String(Math.max(1, v+d));
+}
+function movePinToGPS(){
+  const a=avgPos(); if(!a){ toast("No GPS fix yet",true); return; }
+  $("fLAT").value=a.lat.toFixed(6); $("fLON").value=a.lon.toFixed(6);
+  const t=trees[editIndex]; if(t){ t.SOURCE="gps"; t.ACCURACY=Math.round(a.acc*10)/10; }
+  $("posHint").textContent = `gps · ±${Math.round(a.acc)} m · ${a.n} fixes`;
+  toast(a.acc>GPS_WARN_M ? `Position updated — but only ±${Math.round(a.acc)} m` : "Position updated", a.acc>GPS_WARN_M);
+}
+
+// Free reverse geocoding: OpenStreetMap Nominatim, on explicit tap only (their policy
+// forbids bulk automated use). The Sheet back-fills anything left blank on sync.
+function lookupAddress(){
+  const lat=num($("fLAT").value), lon=num($("fLON").value);
+  if(lat==null||lon==null){ toast("No position yet",true); return; }
+  if(isOffline()){ toast("Needs a connection — it fills in on sync",true); return; }
+  $("fADDRESS").placeholder="Looking up…";
+  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18`,
+        {headers:{"Accept":"application/json"}})
+    .then(r=>r.json())
+    .then(j=>{
+      const a=j&&j.address;
+      if(!a){ throw new Error("no result"); }
+      const street=[a.house_number,a.road].filter(Boolean).join(" ");
+      const city=a.city||a.town||a.village||a.municipality||"";
+      const out=[street,city,a.state].filter(Boolean).join(", ");
+      $("fADDRESS").value = out || (j.display_name||"").split(",").slice(0,3).join(", ");
+      toast("Address found");
+    })
+    .catch(()=>{ toast("Lookup failed — it fills in on sync",true); })
+    .then(()=>{ $("fADDRESS").placeholder="Blank — filled automatically on sync"; });
+}
+
+/* ================================================================== *
+ *  SPECIES PICKER
+ * ================================================================== */
+/* Most-used first. This is the single biggest time saver in the field: after a morning
+   on one street, four or five species and a handful of DBH values cover most trees. */
+function topUsed(map, n){
+  return Object.keys(map).sort((a,b)=>map[b]-map[a]||a.localeCompare(b)).slice(0,n);
+}
+function renderSpeciesQuick(){
+  const cur = $("spVal").classList.contains("empty") ? "" : $("spVal").textContent;
+  const top = topUsed(speciesUse, 6);
+  if(!top.length){ $("spQuick").innerHTML=""; return; }
+  $("spQuick").innerHTML = top.map(nm=>
+    `<button type="button" class="${nm===cur?"sel":""}" onclick="quickSpecies(${JSON.stringify(nm).replace(/"/g,"&quot;")})">${esc(nm)}</button>`
+  ).join("") + `<button type="button" class="more" onclick="openSpecies()">Search all ${species.length} ›</button>`;
+}
+function quickSpecies(nm){ setSpeciesVal(nm); renderSpeciesQuick(); }
+
+function renderDbhQuick(){
+  const cur = String($("fDBH").value||"").trim();
+  const top = topUsed(dbhUse, 8);
+  $("dbhQuickFld").style.display = top.length ? "block" : "none";
+  if(!top.length) return;
+  $("dbhQuick").innerHTML = top.map(v=>
+    `<button type="button" class="${v===cur?"sel":""}" onclick="quickDbh('${esc(v)}')">${esc(v)}</button>`).join("");
+}
+function quickDbh(v){ $("fDBH").value=v; renderDbhQuick(); }
+
+function setSpeciesVal(v){
+  const el=$("spVal");
+  el.textContent = v || "Tap to choose species";
+  el.classList.toggle("empty", !v);
+}
+function openSpecies(){ $("spSearch").value=""; renderSpecies(); $("speciesFull").classList.add("show"); setTimeout(()=>$("spSearch").focus(),60); }
+function closeSpecies(){ $("speciesFull").classList.remove("show"); }
+function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); renderSpeciesQuick(); }
+
+// Dictation yields "sugar maple." or "Hick's yew" — strip punctuation before matching.
+function searchKey(v){ return String(v||"").toLowerCase().replace(/[‘’']/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim(); }
+function renderSpecies(){
+  const q = searchKey($("spSearch").value);
+  const list = $("spList");
+  let html = "";
+
+  if(!q){
+    const recent = Object.keys(speciesUse).sort((a,b)=>speciesUse[b]-speciesUse[a]).slice(0,12);
+    if(recent.length){
+      html += `<div class="hdr">Most used</div>` +
+        recent.map(n=>`<button onclick="chooseSpecies(${JSON.stringify(n).replace(/"/g,'&quot;')})">${esc(n)}</button>`).join("");
+    }
+    html += `<div class="hdr">All species (${species.length})</div>`;
+  }
+  // Rank: name starting with the query first, then contains. Keeps "Red Maple" above
+  // "Amur Red Maple" when you type "red".
+  const starts=[], has=[];
+  for(const n of species){
+    if(!q){ has.push(n); continue; }
+    const l=searchKey(n);
+    if(l.startsWith(q)) starts.push(n);
+    else if(l.indexOf(q)>=0) has.push(n);
+  }
+  const out = starts.concat(has).slice(0, q?60:400);
+  html += out.map(n=>`<button onclick="chooseSpecies(${JSON.stringify(n).replace(/"/g,'&quot;')})">${esc(n)}</button>`).join("");
+
+  if(q && !out.length){
+    html += `<div class="hdr">Not on the list</div>
+      <button onclick="addNewSpecies()">＋ Add "${esc($("spSearch").value.trim())}" as a new species</button>`;
+  }
+  list.innerHTML = html;
+  list.scrollTop = 0;
+}
+
+function addNewSpecies(){
+  const name = normText($("spSearch").value);
+  if(!name) return;
+  if(!species.some(s=>s.toLowerCase()===name.toLowerCase())){
+    species.push(name); species.sort((a,b)=>a.localeCompare(b)); persistSpecies();
+    if(connected && !isOffline()){
+      fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+        body:JSON.stringify({_action:"addspecies",name:name})}).catch(()=>{});
+    }
+  }
+  chooseSpecies(name);
+  toast("Added " + name);
+}
+
+function fetchSpecies(){
+  if(!connected || isOffline()) return;
+  const cb = "__spp"+Date.now(), sep = SCRIPT_URL.indexOf("?")>=0 ? "&" : "?";
+  const sc = document.createElement("script");
+  const cleanup = ()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  window[cb] = resp=>{
+    try{
+      const list = (resp&&resp.species)||[];
+      if(list.length){ species = list.slice().sort((a,b)=>a.localeCompare(b)); persistSpecies(); }
+    }catch(e){}
+    cleanup();
+  };
+  sc.onerror = cleanup;
+  sc.src = SCRIPT_URL + sep + "action=species&callback=" + cb;
+  document.body.appendChild(sc);
+}
+
+/* ================================================================== *
+ *  PHOTOS
+ * ================================================================== */
+const HAS_IDB = !!window.indexedDB;
+const PHOTO_DB="st_photos_db", PHOTO_STORE="photos";
+let pendingMem=[];
+
+function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO_DB,1);
+  r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE,{keyPath:"filename"}); };
+  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function idbPut(rec){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"); tx.objectStore(PHOTO_STORE).put(rec); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
+function idbGet(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readonly"), g=tx.objectStore(PHOTO_STORE).get(fn);
+  g.onsuccess=()=>{ db.close(); res(g.result||null); }; g.onerror=()=>{ db.close(); res(null); }; }).catch(()=>res(null)); }); }
+function idbAll(){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readonly"); const rq=tx.objectStore(PHOTO_STORE).getAll(); rq.onsuccess=()=>{db.close();res(rq.result||[]);}; rq.onerror=()=>{db.close();rej(rq.error);}; }).catch(rej); }); }
+function idbClear(){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"); tx.objectStore(PHOTO_STORE).clear(); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
+function idbSetUploaded(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"), st=tx.objectStore(PHOTO_STORE), g=st.get(fn);
+  g.onsuccess=()=>{ const r=g.result; if(r){ r.uploaded=true; st.put(r); } }; tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }).catch(()=>res()); }); }
+
+/* Photos are encoded to a size band rather than a fixed quality: a plain trunk shot
+   and a busy streetscape compress very differently, so one fixed setting gives wildly
+   varying file sizes. This measures the result and adjusts, spending the whole budget
+   on detail when the scene is simple. */
+const PHOTO_MIN_BYTES = 150*1024;
+const PHOTO_MAX_BYTES = 200*1024;
+const PHOTO_MAX_TRIES = 9;
+
+function loadImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{ resolve({img,url}); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error("image load failed")); };
+    img.src=url;
+  });
+}
+function renderJpeg(img,maxPx,quality){
+  const scale=Math.min(1, maxPx/Math.max(img.width,img.height));
+  const w=Math.max(1,Math.round(img.width*scale)), h=Math.max(1,Math.round(img.height*scale));
+  const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+  cv.getContext("2d").drawImage(img,0,0,w,h);
+  return { url: cv.toDataURL("image/jpeg",quality), w:w, h:h };
+}
+const dataUrlSize = u => Math.round((String(u).length - (String(u).indexOf(",")+1)) * 0.75);
+
+async function encodeToTarget(file){
+  const { img, url } = await loadImage(file);
+  try{
+    let px = 1600, q = 0.72, best = null, shrunk = false;
+    for(let i=0; i<PHOTO_MAX_TRIES; i++){
+      const r = renderJpeg(img, px, q);
+      const bytes = dataUrlSize(r.url);
+      best = { dataUrl:r.url, bytes, w:r.w, h:r.h, q };
+
+      if(bytes > PHOTO_MAX_BYTES){
+        if(q > 0.38){ q = Math.max(0.38, q - 0.12); }      // quality first — it costs less detail than pixels
+        else { px = Math.round(px * 0.75); shrunk = true; }
+        continue;
+      }
+      if(bytes < PHOTO_MIN_BYTES && !shrunk){
+        // Under budget: buy back detail rather than shipping a needlessly soft photo.
+        if(q < 0.88){ q = Math.min(0.88, q + 0.10); continue; }
+        if(px < 2400 && img.width > px){ px = Math.min(2400, Math.round(px * 1.25)); continue; }
+      }
+      break;   // inside the band, or nothing further to gain
+    }
+    return best;
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// Filenames are unique by construction: tree id + sequence + cruiser + timestamp + random.
+function handlePhoto(input){
+  const file = input.files && input.files[0]; input.value="";
+  if(!file) return;
+  const t = trees[editIndex]; if(!t){ toast("Open a tree first",true); return; }
+  const seq = currentPhotos.length + 1;
+  const d=new Date();
+  const ts = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const who = (settings.cruiser||"na").replace(/[^A-Za-z0-9]/g,"").slice(0,12) || "na";
+  const rnd = Math.random().toString(36).slice(2,6);
+  const filename = `${t.TREE_ID}_p${pad(seq)}_${who}_${ts}_${rnd}.jpg`.replace(/[^A-Za-z0-9_.\-]/g,"-");
+
+  $("photoHint").textContent = "Processing photo…";
+  encodeToTarget(file).then(enc=>{
+    currentPhotos.push(filename);
+    addThumb(enc.dataUrl, seq);
+    const rec = { filename, tree:t.TREE_ID, cruiser:settings.cruiser, time:new Date().toISOString(),
+                  lat:num($("fLAT").value), lon:num($("fLON").value), data:enc.dataUrl, uploaded:false,
+                  bytes:enc.bytes, w:enc.w, h:enc.h };
+    const done = HAS_IDB ? idbPut(rec).catch(()=>{ pendingMem.push(rec); }) : (pendingMem.push(rec), Promise.resolve());
+    done.then(()=>{
+      $("photoHint").textContent = `Photo ${seq} saved · ${Math.round(enc.bytes/1024)} KB · ${enc.w}×${enc.h}`;
+      updateArchCount(); flushPhotos();
+    });
+  }).catch(()=>{ $("photoHint").textContent = "That image could not be processed on this device."; });
+}
+function addThumb(dataUrl,seq){
+  const d=document.createElement("div"); d.className="thumb";
+  d.innerHTML=`<img src="${dataUrl}" alt="photo ${seq}"><b>${seq}</b>`;
+  $("photoThumbs").appendChild(d);
+}
+function renderThumbs(){
+  $("photoThumbs").innerHTML="";
+  if(!currentPhotos.length || !HAS_IDB) return;
+  idbAll().then(list=>{
+    currentPhotos.forEach((fn,i)=>{
+      const r = list.find(x=>x.filename===fn);
+      if(r && r.data) addThumb(r.data, i+1);
+    });
+  }).catch(()=>{});
+}
+function flushPhotos(){
+  if(!connected || isOffline()) return;
+  if(HAS_IDB){ idbAll().then(list=>{ list.filter(r=>!r.uploaded).forEach(uploadPhoto); }).catch(()=>{}); }
+  else pendingMem.slice().forEach(uploadPhoto);
+}
+function uploadPhoto(r){
+  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({_action:"photo",filename:r.filename,data:r.data,tree:r.tree,cruiser:r.cruiser,time:r.time,lat:r.lat,lon:r.lon})})
+    .then(()=>{ if(HAS_IDB) idbSetUploaded(r.filename).then(updateArchCount);
+                else pendingMem = pendingMem.filter(x=>x.filename!==r.filename); })
+    .catch(()=>{});
+}
+function updateArchCount(){
+  if(!HAS_IDB){ $("archCount").textContent = pendingMem.length; return; }
+  idbAll().then(l=>{ $("archCount").textContent = l.length; }).catch(()=>{});
+}
+function openArchive(){ closeMenu(); $("archiveSheet").classList.add("show"); renderArchive(); }
+function closeArchive(){ $("archiveSheet").classList.remove("show"); }
+function renderArchive(){
+  if(!HAS_IDB){ $("archStats").textContent="No device photo store available"; return; }
+  idbAll().then(list=>{
+    const mb = (list.reduce((b,r)=>b+(r.data?r.data.length*0.75:0),0)/1048576).toFixed(1);
+    const up = list.filter(r=>r.uploaded).length;
+    $("archStats").textContent = `${list.length} photos · ${mb} MB · ${up} backed up`;
+    $("archThumbs").innerHTML = list.slice(-60).map(r=>{
+      const kb = r.bytes ? Math.round(r.bytes/1024) : Math.round((r.data?r.data.length*0.75:0)/1024);
+      return `<div class="thumb"><img src="${r.data}" alt=""><b>${r.uploaded?"✓":"…"} ${kb}k</b></div>`;
+    }).join("");
+  }).catch(()=>{});
+}
+function reuploadPhotos(){
+  if(!connected || isOffline()){ toast("No connection",true); return; }
+  idbAll().then(list=>{ list.forEach(uploadPhoto); toast(`Re-sending ${list.length} photos`); }).catch(()=>{});
+}
+function clearArchive(){
+  if(!confirm("Delete every photo stored on this phone? Photos already backed up to Drive are kept there.")) return;
+  idbClear().then(()=>{ renderArchive(); updateArchCount(); toast("Device photos deleted"); });
+}
+
+/* ================================================================== *
+ *  SYNC
+ * ================================================================== */
+/* Photos upload in no-cors mode, so the app never sees the Drive URL in the reply.
+   Instead the Sheet's Photos index is pulled back and matched on filename. This is
+   read-only enrichment: it never marks a tree unsynced and never touches field data. */
+function fetchPhotoLinks(quiet){
+  if(!connected || isOffline()){ if(!quiet) toast("No connection",true); return; }
+  const cb="__pl"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  if(!quiet) toast("Fetching photo links…");
+  window[cb]=resp=>{
+    try{
+      const map={};
+      ((resp&&resp.links)||[]).forEach(p=>{ if(p&&p[0]) map[p[0]]=p[1]; });
+      const n = applyPhotoLinks(map);
+      if(!quiet) toast(n ? `Photo links updated on ${n} trees` : "No new photo links");
+    }catch(e){ if(!quiet) toast("Could not read photo links",true); }
+    cleanup();
+  };
+  sc.onerror=()=>{ if(!quiet) toast("Could not reach the Sheet",true); cleanup(); };
+  sc.src = SCRIPT_URL + sep + "action=photolinks&callback=" + cb;
+  document.body.appendChild(sc);
+}
+function applyPhotoLinks(map){
+  let changed=0;
+  trees.forEach(t=>{
+    const names = String(t.PHOTOS||"").split(";").map(s=>s.trim()).filter(Boolean);
+    if(!names.length) return;
+    const urls = names.map(n=>map[n]).filter(Boolean);
+    const joined = urls.join("; ");
+    if(joined && joined!==t.PHOTO_LINK){ t.PHOTO_LINK=joined; changed++; }
+  });
+  if(changed){ persistTrees(); }
+  return changed;
+}
+
+function netDot(){
+  const q = trees.filter(t=>!t._sent).length;
+  $("netDot").className = "dot" + ((!connected || isOffline() || q) ? " off" : "");
+}
+function payload(t){
+  const o={}; SYNC_KEYS.forEach(k=>o[k]=t[k]==null?"":t[k]);
+  o.HLTH_CODE = healthCode(t.HEALTH);
+  return o;
+}
+function sendTree(t){
+  if(!connected){ toast("Saved on device (backend URL not set)",true); return; }
+  if(isOffline()){ netDot(); return; }
+  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify(payload(t))})
+    .then(()=>{ t._sent=true; persistTrees(); renderPins(); })
+    .catch(()=>{ netDot(); });
+}
+function syncNow(){
+  closeMenu();
+  if(!connected){ toast("Backend URL not set",true); return; }
+  if(isOffline()){ toast("No connection",true); return; }
+  const q = trees.filter(t=>!t._sent);
+  flushPhotos();
+  if(!q.length){ toast("Everything is already synced"); setTimeout(()=>fetchPhotoLinks(true),1500); return; }
+  // One request for the whole queue rather than one per tree.
+  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({_action:"treebatch", trees:q.map(payload)})})
+    .then(()=>{ q.forEach(t=>t._sent=true); persistTrees(); renderPins(); toast(`Synced ${q.length} trees`);
+                setTimeout(()=>verifySync(true), 3000);           // prove they actually landed
+                setTimeout(()=>fetchPhotoLinks(true), 6000); })   // give Drive a moment to index the uploads
+    .catch(()=>{ toast("Sync failed — will retry",true); });
+}
+function refreshPhotoLinks(){ closeMenu(); fetchPhotoLinks(false); }
+function pullFromSheet(){
+  closeMenu();
+  if(!connected || isOffline()){ toast("No connection",true); return; }
+  const cb="__tr"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  toast("Loading from Sheet…");
+  window[cb]=resp=>{
+    try{
+      const rows=(resp&&resp.trees)||[];
+      let added=0, kept=0;
+      rows.forEach(r=>{
+        const id=String(r.TREE_ID||"").trim(); if(!id) return;
+        const i=trees.findIndex(t=>t.TREE_ID===id);
+        const link = r.PHOTO_LINKS==null ? "" : r.PHOTO_LINKS;
+        if(i>=0){
+          // Never overwrite unsynced local edits: the phone in hand is the newer truth.
+          if(trees[i]._sent){ KEYS.forEach(k=>trees[i][k]=r[k]==null?"":r[k]); trees[i].PHOTO_LINK=link; trees[i]._sent=true; }
+          else { if(link) trees[i].PHOTO_LINK=link; kept++; }   // links are safe to take either way
+        } else {
+          const t={}; KEYS.forEach(k=>t[k]=r[k]==null?"":r[k]); t.PHOTO_LINK=link; t._sent=true; trees.push(t); added++;
+        }
+      });
+      persistTrees(); renderPins(); if(added) fitTrees();
+      toast(`Loaded ${rows.length} · ${added} new${kept?` · ${kept} local edits kept`:""}`);
+    }catch(e){ toast("Could not read the Sheet",true); }
+    cleanup();
+  };
+  sc.onerror=()=>{ toast("Could not reach the Sheet",true); cleanup(); };
+  sc.src = SCRIPT_URL + sep + "action=trees&callback=" + cb +
+           (settings.project && !showAllProjects ? "&project="+encodeURIComponent(settings.project) : "");
+  document.body.appendChild(sc);
+}
+
+/* ================================================================== *
+ *  IMPORT
+ * ================================================================== */
+let importFeatures = null;
+$("pointsInput").addEventListener("change", e=>{
+  const f=e.target.files[0]; e.target.value="";
+  if(f) importPoints(f);
+});
+$("refInput").addEventListener("change", e=>{
+  const f=e.target.files[0]; e.target.value="";
+  if(f) importRefLayer(f);
+});
+
+// Shared by both importers: read any supported file into WGS84 GeoJSON.
+async function readGeoFile(file){
+  const lower = file.name.toLowerCase();
+  let gj;
+  if(lower.endsWith(".geojson")||lower.endsWith(".json")) gj = JSON.parse(await file.text());
+  else if(lower.endsWith(".gpx")) gj = gpxToGeo(await file.text());
+  else if(lower.endsWith(".zip")||lower.endsWith(".shp")){
+    if(!window.shp) await loadScript("https://unpkg.com/shpjs@4.0.4/dist/shp.min.js");
+    gj = await shp(await file.arrayBuffer());
+  } else throw new Error("unsupported file type");
+  return await ensureWGS84(gj);
+}
+
+async function importPoints(file){
+  toast("Reading…");
+  try{
+    const gj = await readGeoFile(file);
+    const cols = Array.isArray(gj)?gj:[gj];
+    const feats = [];
+    cols.forEach(fc=>((fc&&fc.features)||[]).forEach(f=>{
+      const g=f.geometry; if(!g) return;
+      if(g.type==="Point") feats.push({lon:g.coordinates[0], lat:g.coordinates[1], props:f.properties||{}});
+      else if(g.type==="MultiPoint") g.coordinates.forEach(c=>feats.push({lon:c[0], lat:c[1], props:f.properties||{}}));
+    }));
+    if(!feats.length){ toast("No point features found",true); return; }
+
+    importFeatures = feats;
+    const keys=[]; feats.slice(0,300).forEach(f=>{ for(const k in f.props) if(keys.indexOf(k)<0) keys.push(k); });
+    ["EXT","SPECIES","DBH","HEALTH","ADDRESS","NOTES"].forEach(id=>{
+      const sel=$("map"+id);
+      sel.innerHTML = `<option value="">— none —</option>` + keys.map(k=>`<option value="${esc(k)}">${esc(k)}</option>`).join("");
+      const guess = { EXT:/^(id|tree_?id|asset|objectid|fid|ext)/i, SPECIES:/spec|comm|name|tree_?type/i,
+                      DBH:/dbh|diam/i, HEALTH:/health|cond/i, ADDRESS:/addr|street|location/i, NOTES:/note|comment|remark/i }[id];
+      const hit = keys.find(k=>guess.test(k));
+      if(hit) sel.value = hit;
+    });
+    $("impCount").textContent = `${feats.length} points · ${keys.length} columns`;
+    $("mapSheet").classList.add("show");
+  }catch(err){
+    toast("Could not read that file",true);
+  }
+}
+
+function confirmImport(){
+  if(!importFeatures) return;
+  const pick = id => $("map"+id).value;
+  const fEXT=pick("EXT"), fSP=pick("SPECIES"), fDBH=pick("DBH"), fH=pick("HEALTH"), fA=pick("ADDRESS"), fN=pick("NOTES");
+  let added=0, skipped=0;
+  importFeatures.forEach(f=>{
+    const ext = fEXT ? String(f.props[fEXT]==null?"":f.props[fEXT]).trim() : "";
+    // Re-importing the same file should not duplicate: an existing EXT_ID wins.
+    if(ext && trees.some(t=>t.EXT_ID===ext)){ skipped++; return; }
+    const t={}; KEYS.forEach(k=>t[k]="");
+    t.TREE_ID = nextTreeId();
+    t.EXT_ID  = ext;
+    t.LAT = Number(f.lat).toFixed(6);
+    t.LON = Number(f.lon).toFixed(6);
+    t.SPECIES = fSP ? matchSpecies(String(f.props[fSP]==null?"":f.props[fSP]).trim()) : "";
+    t.DBH     = fDBH ? String(f.props[fDBH]==null?"":f.props[fDBH]).trim() : "";
+    t.HEALTH  = fH ? matchHealth(String(f.props[fH]==null?"":f.props[fH]).trim()) : "";
+    t.HLTH_CODE = healthCode(t.HEALTH);
+    t.ADDRESS = fA ? String(f.props[fA]==null?"":f.props[fA]).trim() : "";
+    t.NOTES   = fN ? String(f.props[fN]==null?"":f.props[fN]).trim() : "";
+    t.STEMS = "1";
+    t.PROJECT = settings.project;
+    t.SOURCE = "import";
+    t._sent = false;
+    trees.push(t); added++;
+  });
+  importFeatures=null;
+  $("mapSheet").classList.remove("show");
+  persistTrees(); renderPins(); fitTrees();
+  toast(`Imported ${added}${skipped?` · ${skipped} already present`:""}`);
+}
+function cancelImport(){ importFeatures=null; $("mapSheet").classList.remove("show"); }
+
+// Incoming species text rarely matches the list exactly — take an exact hit, else a
+// clean case-insensitive one, else keep the original text so nothing is silently lost.
+function matchSpecies(v){
+  if(!v) return "";
+  const hit = species.find(s=>s.toLowerCase()===v.toLowerCase());
+  return hit || v;
+}
+function matchHealth(v){
+  if(!v) return "";
+  const l=v.toLowerCase();
+  const hit = HEALTH.find(h=>h[0].toLowerCase()===l);
+  if(hit) return hit[0];
+  // Anchored patterns only: a loose /^d/ would turn "Damaged" into "Dead".
+  if(/^(g|good|healthy|1)$/.test(l)) return "Good";
+  if(/^(s|sat|satisfactory|fair|f|2)$/.test(l)) return "Satisfactory";
+  if(/^(p|poor|3)$/.test(l) || /troubl/.test(l)) return "Potential Trouble";
+  if(/declin|^4$/.test(l)) return "Declining";
+  if(/immin|dying|^5$/.test(l)) return "Death Imminent";
+  if(/^(d|dead|x|6)$/.test(l)) return "Dead";
+  return "";
+}
+
+function gpxToGeo(text){
+  const xml=new DOMParser().parseFromString(text,"application/xml"); const feats=[];
+  xml.querySelectorAll("wpt").forEach(w=>{
+    const lat=+w.getAttribute("lat"), lon=+w.getAttribute("lon");
+    const nm=w.querySelector("name"), de=w.querySelector("desc");
+    if(isFinite(lat)&&isFinite(lon)) feats.push({type:"Feature",
+      properties:{name:nm?nm.textContent:"", desc:de?de.textContent:""},
+      geometry:{type:"Point",coordinates:[lon,lat]}});
+  });
+  return {type:"FeatureCollection",features:feats};
+}
+
+/* Shapefiles carrying a .prj are reprojected by shpjs. If coordinates still arrive
+   projected (missing or unreadable .prj), fall back to UTM 17N — Ontario — inverted. */
+function firstCoord(fc){ let p=null;
+  ((fc&&fc.features)||[]).some(f=>{ let c=f&&f.geometry&&f.geometry.coordinates; if(!c) return false;
+    while(Array.isArray(c[0])) c=c[0]; if(typeof c[0]==="number"){ p=c; return true; } return false; });
+  return p; }
+async function ensureWGS84(gj){
+  const cols = Array.isArray(gj)?gj:[gj];
+  const bad = cols.some(fc=>{ const p=firstCoord(fc); return !!p && (Math.abs(p[0])>180 || Math.abs(p[1])>90); });
+  if(!bad) return gj;
+  const conv=c=>{ const ll=utmToLatLon(c[0],c[1],17); return [ll.lon,ll.lat]; };
+  const walk=a=>(typeof a[0]==="number") ? conv(a) : a.map(walk);
+  cols.forEach(fc=>((fc&&fc.features)||[]).forEach(f=>{
+    const g=f.geometry; if(!g||!g.coordinates) return;
+    g.coordinates = walk(g.coordinates);
+  }));
+  toast("Coordinates looked projected — read as UTM 17N");
+  return gj;
+}
+// Inverse UTM (WGS84 ellipsoid), northern hemisphere.
+function utmToLatLon(x,y,zone){
+  const a=6378137.0, f=1/298.257223563, k0=0.9996;
+  const e2=f*(2-f), e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2)), ep2=e2/(1-e2);
+  const M=y/k0, mu=M/(a*(1-e2/4-3*e2*e2/64-5*e2*e2*e2/256));
+  const p1=mu+(3*e1/2-27*e1*e1*e1/32)*Math.sin(2*mu)+(21*e1*e1/16-55*Math.pow(e1,4)/32)*Math.sin(4*mu)+(151*Math.pow(e1,3)/96)*Math.sin(6*mu);
+  const C1=ep2*Math.pow(Math.cos(p1),2), T1=Math.pow(Math.tan(p1),2);
+  const N1=a/Math.sqrt(1-e2*Math.pow(Math.sin(p1),2));
+  const R1=a*(1-e2)/Math.pow(1-e2*Math.pow(Math.sin(p1),2),1.5);
+  const D=(x-500000)/(N1*k0);
+  const lat=p1-(N1*Math.tan(p1)/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*ep2)*Math.pow(D,4)/24
+      +(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*Math.pow(D,6)/720);
+  const lon=(D-(1+2*T1+C1)*Math.pow(D,3)/6+(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*Math.pow(D,5)/120)/Math.cos(p1);
+  return { lat: lat*180/Math.PI, lon: (zone*6-183) + lon*180/Math.PI };
+}
+
+/* ================================================================== *
+ *  EXPORT — shapefile (typed DBF) and CSV
+ * ================================================================== */
+function exportRows(){
+  return visibleTrees().filter(t=>num(t.LAT)!=null && num(t.LON)!=null);
+}
+// Exports are named for what is actually in them.
+function exportTag(){
+  const p = (showAllProjects || !settings.project) ? "AllProjects" : settings.project;
+  return String(p).replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"") || "StreetTrees";
+}
+function exportShapefile(){
+  closeMenu();
+  const rows = exportRows();
+  if(!rows.length){ toast("No trees with coordinates yet",true); return; }
+  const bytes = buildShapefileZip(rows);
+  const blob = new Blob([bytes],{type:"application/zip"});
+  const url = URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=`StreetTrees_${exportTag()}_${nowStr().replace(/[: ]/g,"-")}.zip`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  const skipped = visibleTrees().length-rows.length;
+  toast(`Shapefile: ${rows.length} trees${skipped?` · ${skipped} without coordinates skipped`:""}`);
+}
+
+function fieldValue(t,f){
+  if(f.k==="HLTH_CODE") return healthCode(t.HEALTH);
+  if(f.k==="LAT") return num(t.LAT);
+  if(f.k==="LON") return num(t.LON);
+  return t[f.k]==null ? "" : t[f.k];
+}
+// DBF: character fields are left-aligned and space padded, numeric fields are
+// right-aligned with fixed decimals. A blank numeric stays blank, not zero.
+function dbfCell(f,v){
+  if(f.t==="N"){
+    const n = (v===""||v==null) ? null : parseFloat(v);
+    const s = (n==null||!isFinite(n)) ? "" : n.toFixed(f.d||0);
+    return s.length>f.w ? s.slice(0,f.w) : " ".repeat(f.w-s.length)+s;
+  }
+  let s = String(v==null?"":v);
+  s = s.replace(/[^\x20-\xFF]/g,"?");
+  if(s.length>f.w) s=s.slice(0,f.w);
+  return s + " ".repeat(f.w-s.length);
+}
+function buildShapefileZip(rows){
+  const N=rows.length, REC=28;
+  const shpBuf=new ArrayBuffer(100+N*REC), shxBuf=new ArrayBuffer(100+N*8);
+  const shp=new DataView(shpBuf), shx=new DataView(shxBuf);
+  let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
+  rows.forEach(r=>{ const x=num(r.LON), y=num(r.LAT);
+    if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; });
+  const hdr=(dv,words)=>{ dv.setInt32(0,9994,false); dv.setInt32(24,words,false);
+    dv.setInt32(28,1000,true); dv.setInt32(32,1,true);
+    dv.setFloat64(36,xmin,true); dv.setFloat64(44,ymin,true);
+    dv.setFloat64(52,xmax,true); dv.setFloat64(60,ymax,true); };
+  hdr(shp,(100+N*REC)/2); hdr(shx,(100+N*8)/2);
+  let off=100;
+  rows.forEach((r,i)=>{
+    const x=num(r.LON), y=num(r.LAT);
+    shp.setInt32(off,i+1,false); shp.setInt32(off+4,10,false);
+    shp.setInt32(off+8,1,true); shp.setFloat64(off+12,x,true); shp.setFloat64(off+20,y,true);
+    shx.setInt32(100+i*8,off/2,false); shx.setInt32(100+i*8+4,10,false);
+    off+=REC;
+  });
+
+  const hLen = 32 + 32*FIELDS.length + 1;
+  const rLen = 1 + FIELDS.reduce((s,f)=>s+f.w,0);
+  const dbf = new Uint8Array(hLen + N*rLen + 1);
+  const dv = new DataView(dbf.buffer);
+  dbf[0]=0x03; const d=new Date();
+  dbf[1]=d.getFullYear()-1900; dbf[2]=d.getMonth()+1; dbf[3]=d.getDate();
+  dv.setUint32(4,N,true); dv.setUint16(8,hLen,true); dv.setUint16(10,rLen,true);
+  let p=32;
+  FIELDS.forEach(f=>{
+    const nm=f.k.slice(0,10);
+    for(let k=0;k<nm.length;k++) dbf[p+k]=nm.charCodeAt(k);
+    dbf[p+11]=f.t.charCodeAt(0);      // 'C' or 'N'
+    dbf[p+16]=f.w;                    // field length
+    dbf[p+17]=f.t==="N" ? (f.d||0) : 0;   // decimal count
+    p+=32;
+  });
+  dbf[p++]=0x0D;
+  rows.forEach(r=>{
+    dbf[p++]=0x20;                    // not-deleted flag
+    FIELDS.forEach(f=>{
+      const cell=dbfCell(f, fieldValue(r,f));
+      for(let k=0;k<f.w;k++){ let c=cell.charCodeAt(k); if(!isFinite(c)||c>255) c=0x3F; dbf[p+k]=c; }
+      p+=f.w;
+    });
+  });
+  dbf[p]=0x1A;
+
+  const prj='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+  const cpg='UTF-8';
+  return zipStore([
+    {name:"StreetTrees.shp", data:new Uint8Array(shpBuf)},
+    {name:"StreetTrees.shx", data:new Uint8Array(shxBuf)},
+    {name:"StreetTrees.dbf", data:dbf},
+    {name:"StreetTrees.prj", data:strBytes(prj)},
+    {name:"StreetTrees.cpg", data:strBytes(cpg)}
+  ]);
+}
+
+function strBytes(s){ const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++){ const c=s.charCodeAt(i); a[i]=c>255?0x3F:c; } return a; }
+const _crcTab=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); t[n]=c>>>0; } return t; })();
+function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c=_crcTab[(c^u8[i])&0xFF]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zipStore(files){
+  const enc=files.map(f=>({ name:strBytes(f.name), data:f.data, crc:crc32(f.data) }));
+  let local=0; enc.forEach(f=>local+=30+f.name.length+f.data.length);
+  let cd=0; enc.forEach(f=>cd+=46+f.name.length);
+  const out=new Uint8Array(local+cd+22), dv=new DataView(out.buffer); let o=0; const offs=[];
+  enc.forEach(f=>{ offs.push(o);
+    dv.setUint32(o,0x04034b50,true); o+=4; dv.setUint16(o,20,true); o+=2; dv.setUint16(o,0,true); o+=2;
+    dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2;
+    dv.setUint32(o,f.crc,true); o+=4; dv.setUint32(o,f.data.length,true); o+=4; dv.setUint32(o,f.data.length,true); o+=4;
+    dv.setUint16(o,f.name.length,true); o+=2; dv.setUint16(o,0,true); o+=2;
+    out.set(f.name,o); o+=f.name.length; out.set(f.data,o); o+=f.data.length; });
+  const cdStart=o;
+  enc.forEach((f,i)=>{ dv.setUint32(o,0x02014b50,true); o+=4; dv.setUint16(o,20,true); o+=2; dv.setUint16(o,20,true); o+=2;
+    dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2;
+    dv.setUint32(o,f.crc,true); o+=4; dv.setUint32(o,f.data.length,true); o+=4; dv.setUint32(o,f.data.length,true); o+=4;
+    dv.setUint16(o,f.name.length,true); o+=2; dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2;
+    dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2; dv.setUint32(o,0,true); o+=4; dv.setUint32(o,offs[i],true); o+=4;
+    out.set(f.name,o); o+=f.name.length; });
+  dv.setUint32(o,0x06054b50,true); o+=4; dv.setUint16(o,0,true); o+=2; dv.setUint16(o,0,true); o+=2;
+  dv.setUint16(o,enc.length,true); o+=2; dv.setUint16(o,enc.length,true); o+=2;
+  dv.setUint32(o,cd,true); o+=4; dv.setUint32(o,cdStart,true); o+=4; dv.setUint16(o,0,true);
+  return out;
+}
+
+function csvCell(v){ v=(v==null)?"":String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+function exportCSV(){
+  closeMenu();
+  const rows = visibleTrees();
+  if(!rows.length){ toast("Nothing to export yet",true); return; }
+  const lines=[KEYS.join(",")].concat(rows.map(t=>KEYS.map(k=>csvCell(k==="HLTH_CODE"?healthCode(t.HEALTH):t[k])).join(",")));
+  const blob=new Blob([lines.join("\n")],{type:"text/csv"});
+  const url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=`StreetTrees_${exportTag()}_${nowStr().replace(/[: ]/g,"-")}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast(`CSV: ${rows.length} trees`);
+}
+
+/* ================================================================== *
+ *  DOWNLOAD — photos off the phone, or the whole package by email
+ * ================================================================== */
+
+// dataURL -> bytes, so a stored photo can go straight into the ZIP writer.
+function dataUrlBytes(u){
+  const i = String(u||"").indexOf(",");
+  const b64 = i>=0 ? u.slice(i+1) : u;
+  const bin = atob(b64);
+  const a = new Uint8Array(bin.length);
+  for(let k=0;k<bin.length;k++) a[k]=bin.charCodeAt(k);
+  return a;
+}
+
+const PHOTO_ZIP_MAX = 45*1024*1024;   // split beyond this — mobile Safari struggles with huge blobs
+
+// Zips the photos held on this phone, with a manifest so the folder stands alone.
+function downloadPhotos(){
+  closeMenu();
+  if(!HAS_IDB){ toast("No photo store on this device",true); return; }
+  toast("Gathering photos…");
+  idbAll().then(list=>{
+    if(!list.length){ toast("No photos on this phone",true); return; }
+
+    // filename -> tree, so the zip is usable without the Sheet
+    const byName = {};
+    trees.forEach(t=>String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean).forEach(fn=>byName[fn]=t));
+    const man = [["FILENAME","TREE_ID","SPECIES","DBH","HEALTH","ADDRESS","LAT","LON","CRUISER","TAKEN"].join(",")];
+    list.forEach(r=>{
+      const t = byName[r.filename] || {};
+      man.push([r.filename,t.TREE_ID||r.tree||"",t.SPECIES||"",t.DBH||"",t.HEALTH||"",t.ADDRESS||"",
+                r.lat==null?"":r.lat, r.lon==null?"":r.lon, r.cruiser||"", r.time||""].map(csvCell).join(","));
+    });
+
+    // Batch by size rather than count: photo sizes vary a lot.
+    const batches=[]; let cur=[], bytes=0;
+    list.forEach(r=>{
+      const b = dataUrlBytes(r.data);
+      if(bytes + b.length > PHOTO_ZIP_MAX && cur.length){ batches.push(cur); cur=[]; bytes=0; }
+      cur.push({name:r.filename, data:b}); bytes += b.length;
+    });
+    if(cur.length) batches.push(cur);
+
+    const stamp = nowStr().replace(/[: ]/g,"-");
+    batches.forEach((files,i)=>{
+      if(i===0) files.unshift({name:"PHOTO_INDEX.csv", data:strBytes(man.join("\n"))});
+      const zip = zipStore(files);
+      const nm = `StreetTreePhotos_${stamp}${batches.length>1?`_part${i+1}`:""}.zip`;
+      // Stagger the downloads — a browser will silently drop several at once.
+      setTimeout(()=>{
+        const blob=new Blob([zip],{type:"application/zip"});
+        const url=URL.createObjectURL(blob), a=document.createElement("a");
+        a.href=url; a.download=nm; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),3000);
+      }, i*1200);
+    });
+
+    const mb = (list.reduce((b,r)=>b+(r.data?r.data.length*0.75:0),0)/1048576).toFixed(1);
+    toast(`${list.length} photos · ${mb} MB · ${batches.length} zip file(s)`);
+  }).catch(()=>toast("Could not read the photo store",true));
+}
+
+// Asks the Sheet to email the workbook, the CSV and Drive links to the zipped photos.
+function emailPackage(){
+  closeMenu();
+  if(!connected){ toast("Backend URL not set",true); return; }
+  if(isOffline()){ toast("Needs a connection",true); return; }
+  const to = (settings.email||"").trim();
+  if(!to){ toast("Set your email in settings first",true); openSettings(); return; }
+  const withPhotos = confirm(
+    "Email the data to " + to + "?\n\n" +
+    "OK = workbook, CSV and zipped photos (slower — the Sheet zips them into Drive first).\n" +
+    "Cancel = workbook and CSV only.");
+  const unsent = trees.filter(t=>!t._sent).length;
+  if(unsent && !confirm(`${unsent} tree(s) on this phone have not synced yet and would be missing from the export.\n\nSend anyway?`)) return;
+
+  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({_action:"package", email:to, photos:withPhotos,
+                         project:(showAllProjects?"":settings.project)})})
+    .then(()=>toast(withPhotos ? "Building the package — the email can take a few minutes"
+                               : "Sending the workbook and CSV to " + to))
+    .catch(()=>toast("Could not reach the Sheet",true));
+}
+
+/* ================================================================== *
+ *  MENU / SETTINGS / HELP
+ * ================================================================== */
+function openMenu(){
+  const un = trees.filter(t=>!t._sent).length;
+  $("menuStats").textContent = `${trees.length} trees · ${un} unsynced · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
+  updateProjBtn();
+  updateArchCount();
+  $("menuSheet").classList.add("show");
+}
+function closeMenu(){ $("menuSheet").classList.remove("show"); }
+
+/* ---------- shared crew list ---------- */
+function userSelect(){
+  const cur = settings.cruiser || "";
+  if(cur && !users.some(u=>u.name.toLowerCase()===cur.toLowerCase())) users.push({name:cur,email:settings.email||"",device:settings.device||""});
+  users.sort((a,b)=>a.name.localeCompare(b.name));
+  $("setCruiser").innerHTML =
+    `<option value="">— choose your name —</option>` +
+    users.map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join("") +
+    `<option value="${ADD_USER}">＋ Add a new name…</option>`;
+  $("setCruiser").value = cur;
+  onUserPick();
+}
+function onUserPick(){
+  const v = $("setCruiser").value;
+  $("newUserRow").style.display = (v===ADD_USER) ? "block" : "none";
+  if(v===ADD_USER){ setTimeout(()=>$("setNewUser").focus(),60); return; }
+  const u = users.find(x=>x.name===v);
+  if(u){
+    if(u.email && !$("setEmail").value.trim()) $("setEmail").value=u.email;
+    if(u.device && !$("setDevice").value.trim()) $("setDevice").value=u.device;
+    previewId();
+  }
+}
+function queueUser(name,email,device){
+  name=String(name||"").trim(); if(!name) return;
+  if(!users.some(u=>u.name.toLowerCase()===name.toLowerCase())){
+    users.push({name,email:email||"",device:device||""});
+    users.sort((a,b)=>a.name.localeCompare(b.name));
+    persistUsers();
+  } else {
+    const u=users.find(x=>x.name.toLowerCase()===name.toLowerCase());
+    if(email) u.email=email; if(device) u.device=device;
+    persistUsers();
+  }
+  if(!pendingUsers.some(p=>p.name.toLowerCase()===name.toLowerCase() && p.device===device)){
+    pendingUsers.push({name,email:email||"",device:device||""});
+    persistPendUsers();
+  }
+  flushUsers();
+}
+function flushUsers(){
+  if(!connected || isOffline() || !pendingUsers.length) return;
+  pendingUsers.slice().forEach(p=>{
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"adduser",name:p.name,email:p.email,device:p.device})})
+      .then(()=>{ pendingUsers = pendingUsers.filter(x=>x.name.toLowerCase()!==p.name.toLowerCase()); persistPendUsers(); })
+      .catch(()=>{});
+  });
+}
+function projectSelect(){
+  const cur = settings.project || "";
+  if(cur && !projects.some(p=>p.name.toLowerCase()===cur.toLowerCase())) projects.push({name:cur,client:""});
+  projects.sort((a,b)=>a.name.localeCompare(b.name));
+  $("setProject").innerHTML =
+    `<option value="">— choose a project —</option>` +
+    projects.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("") +
+    `<option value="${ADD_PROJ}">＋ Add a new project…</option>`;
+  $("setProject").value = cur;
+  onProjectPick();
+}
+function onProjectPick(){
+  const v=$("setProject").value;
+  $("newProjRow").style.display = (v===ADD_PROJ) ? "block" : "none";
+  if(v===ADD_PROJ) setTimeout(()=>$("setNewProj").focus(),60);
+}
+function queueProject(name){
+  name=normText(name); if(!name) return;
+  if(!projects.some(p=>p.name.toLowerCase()===name.toLowerCase())){
+    projects.push({name,client:""});
+    projects.sort((a,b)=>a.name.localeCompare(b.name));
+    persistProjects();
+  }
+  if(!pendingProjects.some(p=>p.toLowerCase()===name.toLowerCase())){
+    pendingProjects.push(name); persistPendProjects();
+  }
+  flushProjects();
+}
+function flushProjects(){
+  if(!connected || isOffline() || !pendingProjects.length) return;
+  pendingProjects.slice().forEach(nm=>{
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"addproject",name:nm})})
+      .then(()=>{ pendingProjects = pendingProjects.filter(x=>x.toLowerCase()!==nm.toLowerCase()); persistPendProjects(); })
+      .catch(()=>{});
+  });
+}
+function fetchProjects(){
+  if(!connected || isOffline()) return;
+  const cb="__prj"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  window[cb]=resp=>{
+    try{
+      const list=(resp&&resp.projects)||[];
+      let changed=false;
+      list.forEach(p=>{
+        const n=String(p.name||"").trim(); if(!n) return;
+        if(!projects.some(x=>x.name.toLowerCase()===n.toLowerCase())){ projects.push({name:n,client:p.client||""}); changed=true; }
+      });
+      if(changed){ projects.sort((a,b)=>a.name.localeCompare(b.name)); persistProjects();
+                   if($("settingsSheet").classList.contains("show")) projectSelect(); }
+    }catch(e){}
+    cleanup();
+  };
+  sc.onerror=cleanup;
+  sc.src = SCRIPT_URL + sep + "action=projects&callback=" + cb;
+  document.body.appendChild(sc);
+}
+
+function toggleProjectFilter(){
+  if(!settings.project){ toast("Set a project in settings first",true); openSettings(); return; }
+  showAllProjects=!showAllProjects;
+  try{ STORE&&STORE.setItem("st_showall", showAllProjects?"1":"0"); }catch(e){}
+  renderPins(); updateProjBtn(); closeMenu();
+  toast(showAllProjects ? "Showing every project" : "Showing "+settings.project);
+}
+function updateProjBtn(){
+  const b=$("projFilterBtn"); if(!b) return;
+  b.textContent = "🗂 Showing: " + (showAllProjects || !settings.project ? "all projects" : settings.project) +
+                  (settings.project ? " · tap to switch" : "");
+}
+
+function fetchUsers(){
+  if(!connected || isOffline()) return;
+  const cb="__usr"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  window[cb]=resp=>{
+    try{
+      const list=(resp&&resp.users)||[];
+      let changed=false;
+      list.forEach(u=>{
+        const n=String(u.name||"").trim(); if(!n) return;
+        const have=users.find(x=>x.name.toLowerCase()===n.toLowerCase());
+        if(!have){ users.push({name:n,email:u.email||"",device:u.device||""}); changed=true; }
+        else if(u.email && !have.email){ have.email=u.email; changed=true; }
+      });
+      if(changed){ users.sort((a,b)=>a.name.localeCompare(b.name)); persistUsers();
+                   if($("settingsSheet").classList.contains("show")) userSelect(); }
+    }catch(e){}
+    cleanup();
+  };
+  sc.onerror=cleanup;
+  sc.src = SCRIPT_URL + sep + "action=users&callback=" + cb;
+  document.body.appendChild(sc);
+}
+
+function openSettings(){
+  closeMenu();
+  $("setEmail").value=settings.email||"";
+  $("setPrefix").value=settings.prefix||"AUR";
+  $("setDevice").value=settings.device||"A";
+  $("setCounter").value=settings.counter||1;
+  $("setNewUser").value="";
+  $("setNewProj").value="";
+  userSelect();
+  projectSelect();
+  previewId();
+  ["setPrefix","setDevice","setCounter"].forEach(id=>$(id).oninput=previewId);
+  $("settingsSheet").classList.add("show");
+  fetchUsers();
+  fetchProjects();
+}
+function previewId(){
+  const p=($("setPrefix").value||"AUR").toUpperCase(), d=($("setDevice").value||"A").toUpperCase().slice(0,1);
+  const n=parseInt($("setCounter").value,10)||1;
+  $("idPreview").textContent = `Next tree: ${p}-${pad(n,5)}-${d}`;
+}
+function closeSettings(){ $("settingsSheet").classList.remove("show"); }
+function saveSettings(){
+  let name = $("setCruiser").value;
+  if(name===ADD_USER) name = $("setNewUser").value.trim();
+  name = String(name||"").trim();
+  if(!name){ toast("Choose or type your name",true); return; }
+
+  let proj = $("setProject").value;
+  if(proj===ADD_PROJ) proj = $("setNewProj").value;
+  proj = normText(proj);
+  if(!proj){ toast("Choose or type a project",true); return; }
+
+  const prevProj = settings.project || "";
+  const prev = settings.cruiser || "";
+  settings.cruiser=name;
+  settings.project=proj;
+  settings.email=$("setEmail").value.trim();
+  settings.prefix=($("setPrefix").value.trim()||"AUR").toUpperCase();
+  settings.device=($("setDevice").value.trim()||"A").toUpperCase().slice(0,1);
+  settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
+  persistSettings();
+
+  // Share the name and the project with the rest of the crew (queued if offline).
+  queueUser(settings.cruiser, settings.email, settings.device);
+  queueProject(settings.project);
+
+  closeSettings();
+  updateProjBtn();
+  renderPins();
+  toast(`${settings.cruiser} · ${settings.project}`);
+
+  // Trees with no project (or recorded under the previous one) can be re-stamped.
+  const noProj = trees.filter(t=>!projectOf(t)).length;
+  if(noProj && confirm(`${noProj} tree(s) on this phone have no project.\n\nAssign them to ${settings.project}?`)){
+    let k=0;
+    trees.forEach(t=>{ if(!projectOf(t)){ t.PROJECT=settings.project; t._sent=false; k++; } });
+    persistTrees(); renderPins();
+    toast(`${k} tree(s) assigned to ${settings.project}`);
+  }
+  if(prevProj && prevProj!==settings.project) showAllProjects=false;
+
+  // Trees recorded before a name was set, or under the previous name, can be
+  // re-attributed. Asked rather than assumed — two people may share a phone.
+  const orphans = trees.filter(t=>!t.CRUISER || (prev && prev!==name && t.CRUISER===prev)).length;
+  if(orphans && confirm(`${orphans} tree(s) on this phone are not attributed to ${name}.\n\nRe-attribute them and re-sync?`)){
+    reattribute(prev && prev!==name ? prev : null);
+  }
+}
+
+// Re-attribute trees already on this phone that carry no name, or an old one.
+function reattribute(oldName){
+  let n=0;
+  trees.forEach(t=>{ if(!t.CRUISER || (oldName && t.CRUISER===oldName)){ t.CRUISER=settings.cruiser; t.EMAIL=settings.email; t._sent=false; n++; } });
+  if(n){ persistTrees(); renderPins(); toast(`Re-attributed ${n} trees`); }
+  return n;
+}
+
+function clearAllData(){
+  if(!confirm("Delete every tree and photo stored on this phone?\n\nAnything already synced stays in the Google Sheet. This cannot be undone.")) return;
+  if(!confirm("Really delete? Last chance.")) return;
+  trees=[]; persistTrees();
+  idbClear().catch(()=>{});
+  renderPins(); closeMenu();
+  toast("Device data cleared");
+}
+
+function showHelp(){
+  closeMenu();
+  $("infoTitle").textContent="How this app works";
+  $("infoBody").innerHTML=`
+    <p><b>Adding a tree</b><br>
+    <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
+    <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
+    <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
+    <p><b>Fast entry</b><br>Your most-used species and DBH values appear as tap chips at the top of the form, so most trees need no typing at all. The full 600-name list is one tap away and the search tolerates dictated punctuation.</p>
+    <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
+    <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and first photo. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
+    <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
+    <p><b>Importing</b><br>Menu → Import tree points takes a zipped shapefile, .geojson or .gpx. You match the incoming columns to the app's fields once, and any existing ID is kept and re-exported as EXT_ID. Re-importing the same file will not create duplicates.</p>
+    <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
+    <p><b>Addresses</b><br>Leave blank and the Sheet fills them in on sync. <i>Look up now</i> fetches one immediately if you have signal.</p>
+    <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
+    <p><b>Building from an existing layer</b><br>Tap any feature on a reference layer to see its attributes, then <b>＋ Tree here</b> to create a tree at that spot. Use <b>Set fields</b> (or the ⇥ button in Layers) to choose once which of the layer's attributes fill species, DBH, stems, health, address, notes and the existing ID — after that every tap carries them across. Species and health text is matched to the app's own lists, and a live preview shows exactly what will be copied before you commit.</p>
+    <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
+    <p><b>Offline</b><br>Everything works with no signal. Trees queue on the phone and go up on the next sync. Only the map imagery needs a connection.</p>
+    <p style="color:#8fb59c;font-size:12px">© 2026 Silv-Econ Ltd. Build ${esc(APP_BUILD)}</p>`;
+  $("infoSheet").classList.add("show");
+}
+function closeInfo(){ $("infoSheet").classList.remove("show"); }
+
+async function forceUpdate(){
+  if(isOffline()){ toast("Go online first — clearing the cache offline would blank the app",true); return; }
+  try{
+    if("serviceWorker" in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if(window.caches){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
+    toast("Updating…");
+    setTimeout(()=>location.reload(true),400);
+  }catch(e){ toast("Update failed",true); }
+}
+
+/* ================================================================== *
+ *  START
+ * ================================================================== */
+window.addEventListener("online", ()=>{ netDot(); flushPhotos(); flushUsers(); flushProjects(); });
+// Backgrounding the app mid-entry must not leave a half-made tree on the map.
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState==="hidden" && editIndex!=null && trees[editIndex] && trees[editIndex]._new){
+    discardNewTree(editIndex); editIndex=null;
+    $("treeSheet").classList.remove("show");
+    renderPins();
+  }
+});
+window.addEventListener("offline", netDot);
+
+(function start(){
+  $("buildStamp").textContent = "Build " + APP_BUILD + " · tap to update";
+  buildHealthChips();
+  const abandoned = purgeAbandoned();   // left over from a crash or a force-close
+  syncLabelBtn();
+  netDot();
+  updateArchCount();
+  initMap();
+  fetchSpecies();
+  fetchUsers();
+  fetchProjects();
+  flushUsers();
+  flushProjects();
+  updateProjBtn();
+  if(abandoned) setTimeout(()=>toast(`${abandoned} unfinished tree(s) discarded`), 900);
+  if(!settings.cruiser) setTimeout(openSettings, 700);
+  else setTimeout(()=>verifySync(true), 6000);   // catch anything a previous session only thought it sent
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+})();
+</script>
+</body>
+</html>
