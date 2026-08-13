@@ -107,7 +107,17 @@
      exactly what you changed before saving. */
   .sheet-inner .changed, .sheet-inner select.changed, .sheet-inner textarea.changed,
   .sheet-inner input.changed{ background:#FFDD54 !important; border-color:#E6B800 !important; font-weight:700 }
-  .sheet-inner .picker.changed, .sheet-inner .quick button.changed{ background:#FFDD54 !important; border-color:#E6B800 !important }
+  .sheet-inner .picker.changed, .sheet-inner .quick button.changed,
+  .sheet-inner .chips.changed{ background:#FFDD54 !important; border-color:#E6B800 !important }
+  /* Untouched fields sit in pale red, so the form reads as a checklist: everything
+     red is still waiting on you, everything yellow you have dealt with. */
+  .sheet-inner .pending, .sheet-inner select.pending, .sheet-inner textarea.pending,
+  .sheet-inner input.pending{ background:rgba(214,64,43,.13) !important; border-color:#D6402B !important }
+  .sheet-inner .picker.pending{ background:rgba(214,64,43,.13) !important; border-color:#D6402B !important }
+  .sheet-inner .chips.pending{ background:rgba(214,64,43,.13); border:1.5px solid #D6402B;
+    border-radius:10px; padding:7px }
+  .sheet-inner .chips.changed{ border:1.5px solid #E6B800; border-radius:10px; padding:7px }
+  #confirmRow{ position:sticky; top:0; z-index:3; padding:6px 0 8px; background:#fff }
   .changedot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:#E6B800; margin-left:6px; vertical-align:middle }
   .sheet-inner .statbox{ background:#eef2ee; border-color:#9fb0a5 }
   .sheet-inner .statbox .n{ color:#0d1a13 } .sheet-inner .statbox .l{ color:#3f5147 }
@@ -302,6 +312,10 @@
     <div class="grab"></div>
     <h2 id="sheetTitle">New tree</h2>
     <div class="idline" id="sheetId">—</div>
+
+    <div class="btnrow" id="confirmRow">
+      <button type="button" onclick="confirmAllPending()">✓ Accept defaults <span id="pendCount"></span></button>
+    </div>
 
     <div class="btnrow" id="sameAsLastRow" style="display:none;margin-bottom:12px">
       <button type="button" class="primary" onclick="fillFromLastTree()" id="sameAsLastBtn">⧉ Same as last tree</button>
@@ -631,7 +645,7 @@
    1) PASTE YOUR APPS SCRIPT WEB APP URL HERE
    ==================================================================== */
 const SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
-const APP_BUILD  = "2026-08-13 · v12";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v13";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 const connected = SCRIPT_URL.indexOf("script.google.com") >= 0;
@@ -2002,12 +2016,12 @@ function domainOptions(field){
 
 function onDomainChange(field){
   const el = $("f"+field); if(!el) return;
-  if(el.value !== ADD_DOMAIN){ markChanged(el); return; }
+  if(el.value !== ADD_DOMAIN){ confirmField("f"+field); return; }
   const name = normText(prompt(`New ${prettyField(field).toLowerCase()} value:`) || "");
   if(!name){ el.value = (trees[editIndex] && trees[editIndex][field]) || ""; return; }
   addCustomDomain(field, name);
   rebuildDomainSelect(field, name);
-  markChanged(el);
+  confirmField("f"+field);
 }
 function addCustomDomain(field, value){
   customDomains[field] = customDomains[field] || [];
@@ -2061,30 +2075,85 @@ function fetchDomains(){
   document.body.appendChild(sc);
 }
 
-/* ---------- changed-field highlighting ---------- */
-let formSnapshot = {};
+/* ---------- field state: pending (pale red) -> changed (yellow) ----------
+   A field is "pending" until you have actually dealt with it. For a new tree that
+   is everything, including the pre-filled defaults — the point is to see what you
+   have confirmed. For an existing tree only the empty fields start pending, since
+   the rest already hold real recorded data. */
+let formSnapshot = {}, pendingFields = {};
+const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS"];
+function trackedIds(){ return TRACKED.concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f)); }
+
+function setState(el, state){
+  if(!el) return;
+  el.classList.toggle("changed", state==="changed");
+  el.classList.toggle("pending", state==="pending");
+}
 function markChanged(el){
   if(!el) return;
   const base = formSnapshot[el.id];
-  el.classList.toggle("changed", base !== undefined && String(el.value) !== String(base));
+  const isChanged = base !== undefined && String(el.value) !== String(base);
+  if(isChanged){ pendingFields[el.id]=false; setState(el,"changed"); }
+  else setState(el, pendingFields[el.id] ? "pending" : "");
+  updatePendCount();
 }
+// Touching a field at all counts as dealing with it, even if you keep the default.
+function confirmField(id){
+  const el=$(id); if(!el) return;
+  pendingFields[id]=false;
+  setState(el,"changed");
+  updatePendCount();
+}
+function confirmAllPending(){
+  let n=0;
+  trackedIds().forEach(id=>{ if(pendingFields[id]){ confirmField(id); n++; } });
+  if(pendingFields._species){ pendingFields._species=false; setState($("spPicker"),"changed"); n++; }
+  if(pendingFields._health){ pendingFields._health=false; setState($("healthChips"),"changed"); n++; }
+  updatePendCount();
+  toast(n ? `${n} field(s) accepted as-is` : "Nothing left outstanding");
+}
+function updatePendCount(){
+  const n = trackedIds().filter(id=>pendingFields[id]).length +
+            (pendingFields._species?1:0) + (pendingFields._health?1:0);
+  $("pendCount").textContent = n ? `(${n} left)` : "";
+  $("confirmRow").style.display = n ? "flex" : "none";
+}
+
 function snapshotForm(){
-  formSnapshot = {};
-  ["fDBH","fSTEMS","fCOMMENTS","fADDRESS"].concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f))
-    .forEach(id=>{ const el=$(id); if(el){ formSnapshot[id]=el.value; el.classList.remove("changed"); } });
+  const t = trees[editIndex] || {};
+  const fresh = !!t._new;
+  formSnapshot = {}; pendingFields = {};
+  trackedIds().forEach(id=>{
+    const el=$(id); if(!el) return;
+    formSnapshot[id]=el.value;
+    // Existing trees only flag genuinely empty fields; a saved value is not "pending".
+    pendingFields[id] = fresh || !String(el.value||"").trim();
+    setState(el, pendingFields[id] ? "pending" : "");
+  });
   formSnapshot._species = $("spVal").textContent;
-  formSnapshot._health  = (trees[editIndex] && trees[editIndex].HEALTH) || "";
-  $("spPicker").classList.remove("changed");
+  formSnapshot._health  = t.HEALTH || "";
+  pendingFields._species = fresh || $("spVal").classList.contains("empty");
+  pendingFields._health  = fresh || !t.HEALTH;
+  setState($("spPicker"), pendingFields._species ? "pending" : "");
+  setState($("healthChips"), pendingFields._health ? "pending" : "");
+  updatePendCount();
 }
 function wireChangeTracking(){
-  ["fDBH","fSTEMS","fCOMMENTS","fADDRESS"].forEach(id=>{
+  TRACKED.forEach(id=>{
     const el=$(id); if(el) el.addEventListener("input", ()=>markChanged(el));
   });
-  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>markChanged(el)); });
+  // A select is dealt with the moment you touch it, default kept or not.
+  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>confirmField(id)); });
 }
 function markSpeciesChanged(){
-  $("spPicker").classList.toggle("changed",
-    formSnapshot._species !== undefined && $("spVal").textContent !== formSnapshot._species);
+  pendingFields._species = false;
+  setState($("spPicker"), "changed");
+  updatePendCount();
+}
+function markHealthChanged(){
+  pendingFields._health = false;
+  setState($("healthChips"), "changed");
+  updatePendCount();
 }
 
 /* ================================================================== *
@@ -2140,6 +2209,7 @@ function pickHealth(h){
   const t = trees[editIndex]; if(!t) return;
   t._draftHealth = (t._draftHealth===h) ? "" : h;
   paintHealth(t._draftHealth);
+  markHealthChanged();
   if(NON_LIVING.indexOf(t._draftHealth)>=0) resetForNonLiving();
 }
 
@@ -2155,8 +2225,8 @@ function resetForNonLiving(){
   set("IMPEDMNT","None");
   set("RECOTREA","No Treatment");
   $("fCOMMENTS").value="";
-  Object.keys(DOMAIN_FIELDS).forEach(f=>markChanged($("f"+f)));
-  markChanged($("fCOMMENTS"));
+  Object.keys(DOMAIN_FIELDS).forEach(f=>confirmField("f"+f));
+  confirmField("fCOMMENTS");
   toast("Defect fields and comments cleared for a non-living tree");
 }
 function paintHealth(h){
@@ -2184,9 +2254,9 @@ function fillFromLastTree(){
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ if(L[f]!=null && $("f"+f)) $("f"+f).value = L[f]; });
   if(L.HEALTH){ t._draftHealth = L.HEALTH; paintHealth(L.HEALTH); }
   renderSpeciesQuick(); renderDbhQuick();
-  ["fDBH","fSTEMS"].forEach(id=>markChanged($(id)));
-  Object.keys(DOMAIN_FIELDS).forEach(f=>markChanged($("f"+f)));
-  markSpeciesChanged();
+  ["fDBH","fSTEMS"].forEach(confirmField);
+  Object.keys(DOMAIN_FIELDS).forEach(f=>confirmField("f"+f));
+  markSpeciesChanged(); markHealthChanged();
   toast("Copied from " + (L.SPECIES || "the last tree"));
 }
 function rememberLastTree(t){
@@ -2363,6 +2433,7 @@ function runGeoQueue(){
       if(editIndex===idx && !$("fADDRESS").value.trim()){
         $("fADDRESS").value = addr;
         formSnapshot["fADDRESS"] = addr;        // filled by the app, not an edit
+        confirmField("fADDRESS");
       }
     }
   }).catch(()=>{}).then(()=>{
@@ -2393,7 +2464,7 @@ function lookupAddress(){
     .then(out=>{
       if(!out) throw new Error("no result");
       $("fADDRESS").value = out;
-      formSnapshot["fADDRESS"] = out;
+      formSnapshot["fADDRESS"] = out; confirmField("fADDRESS");
       toast("Address found");
     })
     .catch(()=>{ toast("Lookup failed — it fills in on sync",true); })
@@ -2426,7 +2497,7 @@ function renderDbhQuick(){
   $("dbhQuick").innerHTML = top.map(v=>
     `<button type="button" class="${v===cur?"sel":""}" onclick="quickDbh('${esc(v)}')">${esc(v)}</button>`).join("");
 }
-function quickDbh(v){ $("fDBH").value=selValue("fDBH",v); renderDbhQuick(); markChanged($("fDBH")); }
+function quickDbh(v){ $("fDBH").value=selValue("fDBH",v); renderDbhQuick(); confirmField("fDBH"); }
 
 // An imported value may be 38.5 or 250 — snap it to the nearest option rather than
 // silently blanking the field.
@@ -3432,6 +3503,7 @@ function showHelp(){
     <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
+    <p><b>Red and yellow</b><br>On a new tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>Fast entry</b><br>Your most-used species and DBH values appear as tap chips at the top of the form, so most trees need no typing at all. The full 600-name list is one tap away and the search tolerates dictated punctuation.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
