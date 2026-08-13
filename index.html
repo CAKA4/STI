@@ -50,11 +50,15 @@
   .dot.off{ background:#e0a33a; box-shadow:0 0 6px #e0a33a }
 
   /* ---------- map ---------- */
-  #fmap{ position:fixed; inset:0; top:56px; bottom:0; background:#0a140a }
+  /* The app bar's height varies with the notch inset and the two-line title, so it is
+     measured at runtime into --barh rather than assumed. A fixed 56px put the first
+     rail button behind the bar on a notched phone. */
+  :root{ --barh:76px }
+  #fmap{ position:fixed; inset:0; top:var(--barh); bottom:0; background:#0a140a }
   .leaflet-container{ background:#0a140a }
 
   /* crosshair */
-  #crosshair{ display:none; position:fixed; left:50%; top:calc(56px + (100% - 56px)/2); z-index:820;
+  #crosshair{ display:none; position:fixed; left:50%; top:calc(var(--barh) + (100% - var(--barh))/2); z-index:820;
     transform:translate(-50%,-50%); pointer-events:none; width:56px; height:56px }
   #crosshair::before,#crosshair::after{ content:""; position:absolute; background:#f2792e; box-shadow:0 0 4px rgba(0,0,0,.9) }
   #crosshair::before{ left:50%; top:0; width:2px; height:56px; margin-left:-1px }
@@ -62,7 +66,8 @@
   #crosshair i{ position:absolute; left:50%; top:50%; width:18px; height:18px; margin:-9px 0 0 -9px;
     border:2px solid #f2792e; border-radius:50%; background:rgba(0,0,0,.25) }
 
-  .map-rail{ position:fixed; right:10px; top:70px; z-index:810; display:flex; flex-direction:column; gap:8px }
+  .map-rail{ position:fixed; right:10px; top:calc(var(--barh) + 10px); z-index:810;
+    display:flex; flex-direction:column; gap:8px; max-height:calc(100% - var(--barh) - 96px) }
   .map-rail button{ width:44px; height:44px; border-radius:12px; background:rgba(18,32,26,.94);
     border:1px solid var(--line2); color:#cfe6d6; font-size:19px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.5) }
   .map-rail button.on{ background:#2f9d59; border-color:#4cc079; color:#fff }
@@ -316,9 +321,8 @@
 <div id="crosshair"><i></i></div>
 
 <div class="map-rail">
-  <button id="btnLocate" onclick="centerOnMe()" title="Centre on me">◎</button>
   <button id="btnBase" onclick="cycleBase()" title="Base map">🛰</button>
-  <button id="btnLabels" onclick="openLabels()" title="Labels">🏷</button>
+  <button id="btnLabels" onclick="toggleLabels()" oncontextmenu="openLabels();return false;" title="Labels on/off — hold to configure">🏷</button>
   <button id="btnLayers" onclick="openLayers()" title="Layers">📚</button>
   <button id="btnLegend" onclick="toggleLegend()" title="Legend">🎨</button>
   <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
@@ -619,8 +623,9 @@
     </div>
     <div class="btnrow">
       <button class="primary" onclick="applyLabels()">Apply</button>
-      <button onclick="clearLabels()">Labels off</button>
+      <button onclick="clearLabels()">Hide labels</button>
     </div>
+    <div class="btnrow"><button onclick="resetLabelFields()">Clear chosen fields</button></div>
     <div class="btnrow"><button onclick="closeLabels()">Close</button></div>
   </div>
 </div>
@@ -692,7 +697,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v21";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v23";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1101,7 +1106,7 @@ let refGroup=null, legendOn=false;
 /* ---------- label configuration ----------
    One config per layer ("trees", or a reference layer id). fields[] is ordered by the
    sequence the user tapped them, which is what makes a multi-attribute label readable. */
-const LBL_DEFAULT = { fields:[], sep:"NL", size:"m", names:0, box:0, minZoom:17 };
+const LBL_DEFAULT = { fields:[], sep:"NL", size:"m", names:0, box:0, minZoom:17, on:true };
 let labelCfg = { trees: Object.assign({}, LBL_DEFAULT) };
 try{ const c=JSON.parse(STORE&&STORE.getItem("st_labelcfg")); if(c&&typeof c==="object") labelCfg=c; }catch(e){}
 function cfgFor(id){ if(!labelCfg[id]) labelCfg[id]=Object.assign({},LBL_DEFAULT); return labelCfg[id]; }
@@ -1148,6 +1153,7 @@ async function initMap(){
   fmap.on("zoomstart", ()=>{ if(labelLayer) labelLayer.clearLayers(); });   // labels are the costly part
   fmap.on("dragstart", ()=>{ if(followMe) setFollow(false); });   // a manual pan means you want control
   renderPins();
+  syncBarHeight();
   startGPS();
   if(trees.length) fitTrees();
   setStatus(trees.length ? `${trees.length} trees on device` : "No trees yet — import points or add one");
@@ -1164,6 +1170,15 @@ function setBase(i){
 function cycleBase(){ setBase(baseIdx+1); }
 
 function setStatus(t){ $("statusLine").textContent = t; }
+
+// Measure the app bar and hand its height to the layout, so nothing hides beneath it.
+function syncBarHeight(){
+  const bar = document.querySelector(".appbar");
+  if(!bar) return;
+  const h = Math.round(bar.getBoundingClientRect().height);
+  if(h > 0) document.documentElement.style.setProperty("--barh", h + "px");
+  if(fmap) fmap.invalidateSize();
+}
 
 function startGPS(){
   if(!navigator.geolocation) return;
@@ -1249,6 +1264,11 @@ function pinStyle(t){
            color: t._sent ? "#ffffff" : "#ffd54f",   // amber ring = not yet synced
            fillColor: healthColor(t.HEALTH), fillOpacity: 0.95 };
 }
+// A soft halo marks a tree someone has actually opened and saved, so on an imported
+// street you can see at a glance how far along you are.
+function haloStyle(){
+  return { radius: 14, weight: 0, fillColor: "#25b0ff", fillOpacity: 0.22, interactive: false };
+}
 
 function renderPins(){
   if(!pinLayer || !fmap) return;
@@ -1266,11 +1286,13 @@ function renderPins(){
     if(lat==null||lon==null) continue;
     if(!b.contains([lat,lon])) continue;          // off screen: skip entirely
     if(drawn>=PIN_MAX){ pinsTruncated = true; break; }
+    if(t._reviewed) L.circleMarker([lat,lon], Object.assign({renderer:pinRenderer}, haloStyle())).addTo(pinLayer);
     const m = L.circleMarker([lat,lon], Object.assign({renderer:pinRenderer}, pinStyle(t)));
     m._treeIdx = i;
     m.addTo(pinLayer)
      .bindPopup(()=>treePopupHtml(m._treeIdx),{offset:[0,-6],maxWidth:260,autoPanPadding:[24,24]})
-     .on("popupopen",()=>fillPopupPhoto(m._treeIdx));
+     .on("popupopen",()=>{ popupOpen = true; fillPopupPhoto(m._treeIdx); })
+     .on("popupclose",()=>{ popupOpen = false; });
     pinIndex.push(i);
     drawn++;
   }
@@ -1287,10 +1309,15 @@ function renderPins(){
 
 // Panning and zooming only change which pins are on screen, so redraw on a short
 // debounce rather than on every frame of the gesture.
-let redrawTimer = null;
+let redrawTimer = null, popupOpen = false;
 function scheduleRedraw(){
   clearTimeout(redrawTimer);
-  redrawTimer = setTimeout(()=>{ renderPins(); }, 140);
+  redrawTimer = setTimeout(()=>{
+    // Opening a popup auto-pans the map, which fires moveend. Redrawing then would
+    // clear the very marker the popup belongs to, so it vanishes as you tap it.
+    if(popupOpen) return;
+    renderPins();
+  }, 140);
 }
 
 const LABEL_MAX = 90;
@@ -1337,7 +1364,7 @@ function renderLabels(){
 
   // trees
   const tc = cfgFor("trees");
-  if(tc.fields.length && z >= tc.minZoom){
+  if(tc.on !== false && tc.fields.length && z >= tc.minZoom){
     for(const t of trees){
       if(n>=LABEL_MAX) break;
       if(!inCurrentProject(t)) continue;
@@ -1354,7 +1381,7 @@ function renderLabels(){
   refLayers.forEach(L2=>{
     if(!L2.visible) return;
     const c = cfgFor(L2.id);
-    if(!c.fields.length || z < c.minZoom) return;
+    if(c.on === false || !c.fields.length || z < c.minZoom) return;
     for(const f of L2.features){
       if(n>=LABEL_MAX) break;
       const p = labelPointOf(f);
@@ -1853,21 +1880,42 @@ function labelPreview(){
 }
 function applyLabels(){
   const c = readLabelForm();
+  c.on = true;                     // applying implies you want to see them
   persistLabelCfg();
   syncLabelBtn();
   renderLabels();
   closeLabels();
   toast(c.fields.length ? `${layerName(labelTarget)}: ${c.fields.length} field(s) labelled` : "Labels off for "+layerName(labelTarget));
 }
+// Hides this layer's labels but keeps the field selection for next time.
 function clearLabels(){
   const c = cfgFor(labelTarget);
-  c.fields = [];
+  c.on = false;
+  persistLabelCfg(); syncLabelBtn(); renderLabels(); closeLabels();
+  toast("Labels hidden for " + layerName(labelTarget) + " — settings kept");
+}
+// Actually forget the chosen fields.
+function resetLabelFields(){
+  const c = cfgFor(labelTarget);
+  c.fields = []; c.on = true;
   persistLabelCfg(); renderFieldChips(); labelPreview(); syncLabelBtn(); renderLabels();
-  toast("Labels off for " + layerName(labelTarget));
+  toast("Fields cleared for " + layerName(labelTarget));
 }
 function syncLabelBtn(){
-  const any = Object.keys(labelCfg).some(k=>(labelCfg[k].fields||[]).length);
-  const b=$("btnLabels"); if(b) b.classList.toggle("on", any);
+  const b=$("btnLabels"); if(b) b.classList.toggle("on", labelsShowing());
+}
+function labelsShowing(){
+  return Object.keys(labelCfg).some(k=>labelCfg[k].on !== false && (labelCfg[k].fields||[]).length);
+}
+/* Turning labels off only sets a flag — the chosen fields are kept, so switching
+   them back on does not mean picking the attributes again. */
+function toggleLabels(){
+  const configured = Object.keys(labelCfg).filter(k=>(labelCfg[k].fields||[]).length);
+  if(!configured.length){ openLabels("trees"); return; }     // nothing set up yet
+  const turningOff = labelsShowing();
+  configured.forEach(k=>{ labelCfg[k].on = !turningOff; });
+  persistLabelCfg(); syncLabelBtn(); renderLabels();
+  toast(turningOff ? "Labels off — settings kept" : "Labels on");
 }
 
 /* ================================================================== *
@@ -1878,6 +1926,7 @@ function buildLegend(){
     `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
   h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
+  h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 4px rgba(37,176,255,.45)"></span>blue halo = field checked</div>`;
   const vis = refLayers.filter(l=>l.visible);
   if(vis.length){
     h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>
@@ -2153,6 +2202,7 @@ function renderStats(){
   const noSpecies = list.filter(t=>!String(t.SPECIES||"").trim()).length;
   const noHealth = list.filter(t=>!String(t.HEALTH||"").trim()).length;
   const noAddr = list.filter(t=>!String(t.ADDRESS||"").trim()).length;
+  const reviewed = list.filter(t=>t._reviewed).length;
   const perDay = days.length ? (n/days.length) : n;
 
   let h = `<div class="statgrid">
@@ -2162,6 +2212,7 @@ function renderStats(){
     <div class="statbox"><span class="n">${Object.keys(tally(list,t=>t.SPECIES)).length}</span><span class="l">Species</span></div>
     <div class="statbox"><span class="n">${photos}</span><span class="l">Photos</span></div>
     <div class="statbox"><span class="n">${perDay.toFixed(0)}</span><span class="l">Per day</span></div>
+    <div class="statbox"><span class="n">${reviewed}</span><span class="l">Field checked</span></div>
   </div>`;
 
   // health, always in class order rather than by count, so the shape is comparable
@@ -2205,7 +2256,7 @@ function renderStats(){
 
   h += `<div class="stath">Data completeness</div>
     <div class="hint" style="margin:0">
-      ${multi} multi-stem · ${unsynced} not yet synced<br>
+      ${multi} multi-stem · ${unsynced} not yet synced · ${n-reviewed} not yet field checked<br>
       Missing: ${noSpecies} species · ${noHealth} health · ${noAddr} address
     </div>`;
 
@@ -2387,7 +2438,9 @@ function updatePendCount(){
 
 function snapshotForm(){
   const t = trees[editIndex] || {};
-  const fresh = !!t._new;
+  // Imported trees arrive with values nobody has checked on the ground, so they
+  // start red exactly like a new tree. Only a save marks a tree as reviewed.
+  const fresh = !!t._new || !t._reviewed;
   formSnapshot = {}; pendingFields = {};
   trackedIds().forEach(id=>{
     const el=$(id); if(!el) return;
@@ -2619,6 +2672,7 @@ function saveTree(){
   t.DATE = nowStr();
   t._sent = false;
   delete t._new; delete t._draftHealth;
+  t._reviewed = true;                 // opened, checked and saved by a person
 
   Object.keys(DOMAIN_FIELDS).forEach(f=>bumpDomainUse(f, t[f]));
   persistDomainUse();
@@ -3113,13 +3167,34 @@ function syncNow(){
   const q = trees.filter(t=>!t._sent);
   flushPhotos();
   if(!q.length){ toast("Everything is already synced"); setTimeout(()=>fetchPhotoLinks(true),1500); return; }
-  // One request for the whole queue rather than one per tree.
-  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body:JSON.stringify({_action:"treebatch", trees:q.map(payload)})})
-    .then(()=>{ q.forEach(t=>t._sent=true); persistTrees(); renderPins(); toast(`Synced ${q.length} trees`);
-                setTimeout(()=>verifySync(true), 3000);           // prove they actually landed
-                setTimeout(()=>fetchPhotoLinks(true), 6000); })   // give Drive a moment to index the uploads
-    .catch(()=>{ toast("Sync failed — will retry",true); });
+  // Chunked rather than one giant POST: a few hundred trees in a single request risks
+  // running past the Apps Script execution limit, and losing the lot if it does.
+  const CHUNK = 150;
+  const parts = [];
+  for(let i=0;i<q.length;i+=CHUNK) parts.push(q.slice(i,i+CHUNK));
+  toast(`Syncing ${q.length} trees…`);
+
+  let done = 0;
+  const sendPart = k => {
+    if(k >= parts.length){
+      persistTrees(); renderPins();
+      toast(`Synced ${done} trees`);
+      setTimeout(()=>verifySync(true), 3000);          // prove they actually landed
+      setTimeout(()=>fetchPhotoLinks(true), 6000);     // give Drive a moment to index
+      return;
+    }
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"treebatch", trees:parts[k].map(payload)})})
+      .then(()=>{
+        parts[k].forEach(t=>t._sent=true);
+        done += parts[k].length;
+        persistTrees();
+        if(parts.length>1) setStatus(`Synced ${done} of ${q.length}…`);
+        setTimeout(()=>sendPart(k+1), 1200);           // let the script finish before the next
+      })
+      .catch(()=>{ persistTrees(); renderPins(); toast(`Stopped after ${done} — tap Sync again`,true); });
+  };
+  sendPart(0);
 }
 function refreshPhotoLinks(){ closeMenu(); fetchPhotoLinks(false); }
 function pullFromSheet(){
@@ -3853,8 +3928,10 @@ function showHelp(){
     <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
     <p><b>Moving a tree</b><br>Repositioning by more than about 12 m re-looks-up the address, since a real move usually means a different frontage. A small nudge leaves it alone. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
     <p><b>Backend URL</b><br>This build already knows your Sheet, so there is nothing to set up — open it and record. Settings still lets you point a phone somewhere else, and <i>Use built-in</i> puts it back.</p>
+    <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
-    <p><b>Red and yellow</b><br>On a new tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
+    <p><b>Blue halo</b><br>A tree with a soft blue halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
+    <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
@@ -3916,6 +3993,9 @@ window.addEventListener("offline", netDot);
 
 (function start(){
   $("buildStamp").textContent = "Build " + APP_BUILD + " · tap to update";
+  syncBarHeight();
+  window.addEventListener("resize", syncBarHeight);
+  window.addEventListener("orientationchange", ()=>setTimeout(syncBarHeight,250));
   buildHealthChips();
   buildPickers();
   $("btnGo").classList.add("nofix");
