@@ -96,6 +96,14 @@
   .full input, .full select, .full textarea{
     background:#fff; color:#0d1a13; border:1.5px solid #9fb0a5; font-weight:500;
   }
+  /* Safari draws its own select chrome and ignores background-color unless the
+     native appearance is switched off — which is why DBH and Stems stayed white. */
+  .sheet-inner select, .full select{
+    -webkit-appearance:none; appearance:none; background-repeat:no-repeat;
+    background-position:right 12px center; background-size:11px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'><path fill='%233f5147' d='M1 1l5 5 5-5'/></svg>");
+    padding-right:34px;
+  }
   .sheet-inner .fld label, .full .fld label{ color:#2c4638; font-weight:700 }
   .sheet-inner h2{ color:#0d1a13 }
   .sheet-inner .idline{ color:#1d7a45; font-weight:700 }
@@ -340,9 +348,14 @@
       <button type="button" class="primary" onclick="fillFromLastTree()" id="sameAsLastBtn">⧉ Same as last tree</button>
     </div>
 
+    <div class="fld" id="extRow" style="display:none">
+      <label>Prior / existing ID</label>
+      <input id="fEXT_ID" type="text" autocomplete="off" placeholder="from the imported layer">
+      <div class="mini">Carried through to the export as EXT_ID.</div>
+    </div>
+
     <div class="fld">
       <label>Species</label>
-      <div class="quick" id="spQuick"></div>
       <div class="picker" onclick="openSpecies()" id="spPicker">
         <span class="val empty" id="spVal">Tap to choose species</span><span style="color:var(--faint)">▸</span>
       </div>
@@ -351,17 +364,12 @@
     <div class="row2">
       <div class="fld">
         <label>DBH (cm)</label>
-        <select id="fDBH" onchange="renderDbhQuick()"></select>
+        <select id="fDBH"></select>
       </div>
       <div class="fld">
         <label>Stems</label>
         <select id="fSTEMS"></select>
       </div>
-    </div>
-
-    <div class="fld" id="dbhQuickFld">
-      <label>Common DBH</label>
-      <div class="quick" id="dbhQuick"></div>
     </div>
 
     <div class="fld">
@@ -681,7 +689,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v19";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v20";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1121,12 +1129,14 @@ async function initMap(){
   fmap = L.map("fmap",{zoomControl:false,attributionControl:false,preferCanvas:true}).setView([44.00,-79.46],16);
   setBase(0);
   L.control.zoom({position:"bottomright"}).addTo(fmap);
+  pinRenderer = L.canvas({ padding: 0.4 });
   refGroup = L.layerGroup().addTo(fmap);    // context layers sit under the trees
   pinLayer = L.layerGroup().addTo(fmap);
   labelLayer = L.layerGroup().addTo(fmap);
   drawRefLayers();
   buildLegend();
-  fmap.on("moveend zoomend", renderLabels);
+  fmap.on("moveend zoomend", scheduleRedraw);
+  fmap.on("zoomstart", ()=>{ if(labelLayer) labelLayer.clearLayers(); });   // labels are the costly part
   fmap.on("dragstart", ()=>{ if(followMe) setFollow(false); });   // a manual pan means you want control
   renderPins();
   startGPS();
@@ -1216,30 +1226,65 @@ function avgPos(){
   return { lat:la/w, lon:lo/w, acc:acc, n:s.length };
 }
 
+/* Pins are canvas circleMarkers, not DOM markers.
+   A divIcon marker creates real DOM nodes, so a few thousand trees means a few
+   thousand elements for the browser to lay out on every zoom — which is what made
+   this slow and eventually crashed the tab. Canvas draws them all in one pass.
+   On top of that only what is on screen is drawn, with a hard ceiling. */
+const PIN_MAX = 2500;            // safety ceiling for a single frame
+const PIN_PAD = 0.35;            // draw a little beyond the edge so panning looks continuous
+let pinRenderer = null, pinIndex = [], pinsTruncated = false;
+
+function pinStyle(t){
+  return { radius: 7, weight: 2,
+           color: t._sent ? "#ffffff" : "#ffd54f",   // amber ring = not yet synced
+           fillColor: healthColor(t.HEALTH), fillOpacity: 0.95 };
+}
+
 function renderPins(){
-  if(!pinLayer) return;
+  if(!pinLayer || !fmap) return;
   pinLayer.clearLayers();
-  trees.forEach((t,i)=>{
-    if(!inCurrentProject(t)) return;
+  pinIndex = [];
+  pinsTruncated = false;
+
+  const b = fmap.getBounds().pad(PIN_PAD);
+  let drawn = 0;
+
+  for(let i=0;i<trees.length;i++){
+    const t = trees[i];
+    if(!inCurrentProject(t)) continue;
     const lat=num(t.LAT), lon=num(t.LON);
-    if(lat==null||lon==null) return;
-    const col = healthColor(t.HEALTH);
-    const ring = t._sent ? "#ffffff" : "#ffd54f";     // unsynced trees carry an amber ring
-    const icon = L.divIcon({className:"",html:
-      `<div style="width:20px;height:20px;border-radius:50%;background:${col};border:2px solid ${ring};box-shadow:0 2px 5px rgba(0,0,0,.6)"></div>`,
-      iconSize:[20,20],iconAnchor:[10,10]});
-    L.marker([lat,lon],{icon}).addTo(pinLayer)
-      .bindPopup(()=>treePopupHtml(i),{offset:[0,-6],maxWidth:260,autoPanPadding:[24,24]})
-      .on("popupopen",()=>fillPopupPhoto(i));
-  });
+    if(lat==null||lon==null) continue;
+    if(!b.contains([lat,lon])) continue;          // off screen: skip entirely
+    if(drawn>=PIN_MAX){ pinsTruncated = true; break; }
+    const m = L.circleMarker([lat,lon], Object.assign({renderer:pinRenderer}, pinStyle(t)));
+    m._treeIdx = i;
+    m.addTo(pinLayer)
+     .bindPopup(()=>treePopupHtml(m._treeIdx),{offset:[0,-6],maxWidth:260,autoPanPadding:[24,24]})
+     .on("popupopen",()=>fillPopupPhoto(m._treeIdx));
+    pinIndex.push(i);
+    drawn++;
+  }
+
   renderLabels();
   const vis = visibleTrees();
   const scope = (showAllProjects || !settings.project) ? "all projects" : settings.project;
   $("subLine").textContent = `${vis.length} trees · ${vis.filter(t=>!t._sent).length} unsynced · ${scope}`;
+  setStatus(pinsTruncated
+    ? `Showing ${drawn} of ${vis.length} — zoom in to see the rest`
+    : `${vis.length} trees on device`);
   netDot();
 }
 
-const LABEL_MAX = 150;
+// Panning and zooming only change which pins are on screen, so redraw on a short
+// debounce rather than on every frame of the gesture.
+let redrawTimer = null;
+function scheduleRedraw(){
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(()=>{ renderPins(); }, 140);
+}
+
+const LABEL_MAX = 90;
 
 // Build one label from an ordered list of fields. Blank fields are skipped rather than
 // leaving gaps, so a tree with no address still labels cleanly.
@@ -2224,7 +2269,7 @@ function fetchDomains(){
    have confirmed. For an existing tree only the empty fields start pending, since
    the rest already hold real recorded data. */
 let formSnapshot = {}, pendingFields = {};
-const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS"];
+const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID"];
 function trackedIds(){ return TRACKED.concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f)); }
 
 function setState(el, state){
@@ -2330,10 +2375,21 @@ const FIELD_DEFAULTS = {
    DBH is deliberately KEPT — size still matters after removal. */
 const NON_LIVING = ["Removed","Dead","Stump","Stump carving"];
 
-function buildPickers(){
+function dbhOptions(){
+  const top = topUsed(dbhUse, 8);
   let o = `<option value="">—</option>`;
+  if(top.length){
+    o += `<optgroup label="Most used">` +
+         top.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("") +
+         `</optgroup><optgroup label="0 – ${DBH_MAX}">`;
+  }
   for(let i=0;i<=DBH_MAX;i++) o += `<option value="${i}">${i}</option>`;
-  $("fDBH").innerHTML = o;                       // 0–249, same range as Aurora
+  if(top.length) o += `</optgroup>`;
+  return o;
+}
+
+function buildPickers(){
+  $("fDBH").innerHTML = dbhOptions();            // 0–249, same range as Aurora
   let st = "";
   for(let i=1;i<=STEMS_MAX;i++) st += `<option value="${i}"${i===1?" selected":""}>${i}</option>`;
   $("fSTEMS").innerHTML = st;                    // a cedar hedge can run to dozens of stems
@@ -2396,7 +2452,6 @@ function fillFromLastTree(){
   if(L.STEMS) $("fSTEMS").value = L.STEMS;
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ if(L[f]!=null && $("f"+f)) $("f"+f).value = L[f]; });
   if(L.HEALTH){ t._draftHealth = L.HEALTH; paintHealth(L.HEALTH); }
-  renderSpeciesQuick(); renderDbhQuick();
   ["fDBH","fSTEMS"].forEach(confirmField);
   Object.keys(DOMAIN_FIELDS).forEach(f=>confirmField("f"+f));
   markSpeciesChanged(); markHealthChanged();
@@ -2415,7 +2470,10 @@ function openTree(i){
   $("sheetTitle").textContent = t._new ? "New tree" : "Edit tree";
   $("sheetId").textContent = t.TREE_ID + (t.EXT_ID ? " · was " + t.EXT_ID : "");
   setSpeciesVal(t.SPECIES);
+  $("fDBH").innerHTML = dbhOptions();            // re-rank each time
   $("fDBH").value = selValue("fDBH", t.DBH);
+  $("fEXT_ID").value = t.EXT_ID || "";
+  $("extRow").style.display = (t.EXT_ID || t.SOURCE==="import" || t.SOURCE==="reference") ? "block" : "none";
   $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
   Object.keys(DOMAIN_FIELDS).forEach(f=>{
     const el=$("f"+f); if(!el) return;
@@ -2431,8 +2489,6 @@ function openTree(i){
   $("sameAsLastRow").style.display = (t._new && lastTreeAttrs) ? "flex" : "none";
   if(lastTreeAttrs && lastTreeAttrs.SPECIES)
     $("sameAsLastBtn").textContent = "⧉ Same as last tree · " + lastTreeAttrs.SPECIES;
-  renderSpeciesQuick();
-  renderDbhQuick();
   $("posHint").textContent = t.LAT
     ? `${t.SOURCE||"set"}${t.ACCURACY?` · ±${t.ACCURACY} m`:""} · ${Number(t.LAT).toFixed(5)}, ${Number(t.LON).toFixed(5)}`
     : "no position yet";
@@ -2467,6 +2523,7 @@ function saveTree(){
   if(lat==null||lon==null){ toast("A tree needs a latitude and longitude",true); return; }
   if(!$("spVal").textContent || $("spVal").classList.contains("empty")){ toast("Choose a species",true); return; }
 
+  t.EXT_ID  = normText($("fEXT_ID").value);
   t.SPECIES = $("spVal").textContent;
   t.DBH     = $("fDBH").value;
   t.STEMS   = $("fSTEMS").value || "1";
@@ -2665,25 +2722,6 @@ function lookupAddress(){
 function topUsed(map, n){
   return Object.keys(map).sort((a,b)=>map[b]-map[a]||a.localeCompare(b)).slice(0,n);
 }
-function renderSpeciesQuick(){
-  const cur = $("spVal").classList.contains("empty") ? "" : $("spVal").textContent;
-  const top = topUsed(speciesUse, 6);
-  if(!top.length){ $("spQuick").innerHTML=""; return; }
-  $("spQuick").innerHTML = top.map(nm=>
-    `<button type="button" class="${nm===cur?"sel":""}" onclick="quickSpecies(${JSON.stringify(nm).replace(/"/g,"&quot;")})">${esc(nm)}</button>`
-  ).join("") + `<button type="button" class="more" onclick="openSpecies()">Search all ${species.length} ›</button>`;
-}
-function quickSpecies(nm){ setSpeciesVal(nm); renderSpeciesQuick(); markSpeciesChanged(); }
-
-function renderDbhQuick(){
-  const cur = String($("fDBH").value||"").trim();
-  const top = topUsed(dbhUse, 8);
-  $("dbhQuickFld").style.display = top.length ? "block" : "none";
-  if(!top.length) return;
-  $("dbhQuick").innerHTML = top.map(v=>
-    `<button type="button" class="${v===cur?"sel":""}" onclick="quickDbh('${esc(v)}')">${esc(v)}</button>`).join("");
-}
-function quickDbh(v){ $("fDBH").value=selValue("fDBH",v); renderDbhQuick(); confirmField("fDBH"); }
 
 // An imported value may be 38.5 or 250 — snap it to the nearest option rather than
 // silently blanking the field.
@@ -2700,7 +2738,7 @@ function setSpeciesVal(v){
 }
 function openSpecies(){ $("spSearch").value=""; renderSpecies(); $("speciesFull").classList.add("show"); setTimeout(()=>$("spSearch").focus(),60); }
 function closeSpecies(){ $("speciesFull").classList.remove("show"); }
-function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); renderSpeciesQuick(); markSpeciesChanged(); }
+function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); markSpeciesChanged(); }
 
 // Dictation yields "sugar maple." or "Hick's yew" — strip punctuation before matching.
 function searchKey(v){ return String(v||"").toLowerCase().replace(/[‘’']/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim(); }
@@ -3733,7 +3771,7 @@ function showHelp(){
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
     <p><b>Red and yellow</b><br>On a new tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
-    <p><b>Fast entry</b><br>Your most-used species and DBH values appear as tap chips at the top of the form, so most trees need no typing at all. The full 600-name list is one tap away and the search tolerates dictated punctuation.</p>
+    <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and small photo thumbnails — tap a thumbnail to see it full size. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
