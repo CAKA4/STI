@@ -691,7 +691,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v24";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v27";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1248,7 +1248,12 @@ function pinStyle(t){
 // A soft halo marks a tree someone has actually opened and saved, so on an imported
 // street you can see at a glance how far along you are.
 function haloStyle(){
-  return { radius: 14, weight: 0, fillColor: "#25b0ff", fillOpacity: 0.22, interactive: false };
+  // A ring rather than a plain fill: Dead and Death imminent pins are themselves dark
+  // red, so a solid red halo would disappear behind exactly the trees you most want
+  // to spot. The bright ring stays visible against every health colour and against
+  // both satellite and street basemaps.
+  return { radius: 14, weight: 3, color: "#FF1744", opacity: 0.95,
+           fillColor: "#FF1744", fillOpacity: 0.28, interactive: false };
 }
 
 function renderPins(){
@@ -1907,7 +1912,7 @@ function buildLegend(){
     `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
   h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
-  h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 4px rgba(37,176,255,.45)"></span>blue halo = field checked</div>`;
+  h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 3px #FF1744"></span>red halo = field checked</div>`;
   const vis = refLayers.filter(l=>l.visible);
   if(vis.length){
     h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>
@@ -2613,6 +2618,10 @@ function openTree(i){
     $("photoHint").textContent = currentPhotos.length ? `${currentPhotos.length} photo(s) — Drive link appears after sync` : "Saved on the phone, backed up to Drive when online.";
   }
   snapshotForm();
+  // An imported tree usually arrives with no address. Look it up as the form opens so
+  // it is on screen while you work, rather than waiting for the Sheet to fill it after
+  // sync - the address is how you confirm you are standing at the right tree.
+  if(!String(t.ADDRESS||"").trim() && num(t.LAT)!=null) queueGeocode(i);
   $("treeSheet").classList.add("show");
   // Always start at the top: the sheet keeps its scroll position between trees,
   // which on a new tree would drop you into the middle of the form.
@@ -2779,6 +2788,7 @@ function runGeoQueue(){
   const idx = geoQueue.shift();
   const t = trees[idx];
   if(!t || String(t.ADDRESS||"").trim()){ geoBusy=false; return runGeoQueue(); }
+  if(editIndex===idx && !$("fADDRESS").value.trim()) $("fADDRESS").placeholder = "Looking up address...";
   reverseGeocode(num(t.LAT), num(t.LON)).then(addr=>{
     if(addr && !String(t.ADDRESS||"").trim()){
       t.ADDRESS = addr;
@@ -2789,6 +2799,7 @@ function runGeoQueue(){
         $("fADDRESS").value = addr;
         formSnapshot["fADDRESS"] = addr;        // filled by the app, not an edit
         confirmField("fADDRESS");
+        $("fADDRESS").placeholder = "Fills in automatically...";
       }
     }
   }).catch(()=>{}).then(()=>{
@@ -3148,9 +3159,11 @@ function syncNow(){
   const q = trees.filter(t=>!t._sent);
   flushPhotos();
   if(!q.length){ toast("Everything is already synced"); setTimeout(()=>fetchPhotoLinks(true),1500); return; }
-  // Chunked rather than one giant POST: a few hundred trees in a single request risks
-  // running past the Apps Script execution limit, and losing the lot if it does.
-  const CHUNK = 150;
+  /* Chunked rather than one giant POST: a few hundred trees in a single request risks
+     running past the Apps Script execution limit. Chunks are deliberately spaced well
+     apart — the Sheet processes one at a time behind a lock, and firing them faster
+     than it can work just leaves requests queueing. */
+  const CHUNK = 100;
   const parts = [];
   for(let i=0;i<q.length;i+=CHUNK) parts.push(q.slice(i,i+CHUNK));
   toast(`Syncing ${q.length} trees…`);
@@ -3159,9 +3172,11 @@ function syncNow(){
   const sendPart = k => {
     if(k >= parts.length){
       persistTrees(); renderPins();
-      toast(`Synced ${done} trees`);
-      setTimeout(()=>verifySync(true), 3000);          // prove they actually landed
-      setTimeout(()=>fetchPhotoLinks(true), 6000);     // give Drive a moment to index
+      toast(`Sent ${done} trees — checking…`);
+      // Uploads are fire-and-forget, so confirm against the Sheet and re-send anything
+      // that did not arrive. Without this a dropped chunk would look like a success.
+      setTimeout(()=>verifyAndRetry(1), 8000);
+      setTimeout(()=>fetchPhotoLinks(true), 20000);
       return;
     }
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
@@ -3171,13 +3186,51 @@ function syncNow(){
         done += parts[k].length;
         persistTrees();
         if(parts.length>1) setStatus(`Synced ${done} of ${q.length}…`);
-        setTimeout(()=>sendPart(k+1), 1200);           // let the script finish before the next
+        setTimeout(()=>sendPart(k+1), 6000);           // give the Sheet time to finish this chunk
       })
       .catch(()=>{ persistTrees(); renderPins(); toast(`Stopped after ${done} — tap Sync again`,true); });
   };
   sendPart(0);
 }
 function refreshPhotoLinks(){ closeMenu(); fetchPhotoLinks(false); }
+/* Verifies what actually landed and automatically re-sends the rest. Runs a couple of
+   passes: a chunk that failed on a busy Sheet usually succeeds on the retry. */
+function verifyAndRetry(pass){
+  if(!connected || isOffline()) return;
+  const cb="__vr"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  window[cb]=resp=>{
+    try{
+      const have={}; ((resp&&resp.ids)||[]).forEach(id=>have[String(id).trim()]=1);
+      const missing = trees.filter(t=>t._sent && !have[t.TREE_ID]);
+      if(!missing.length){
+        setStatus(`${visibleTrees().length} trees on device`);
+        toast("All trees confirmed on the Sheet");
+        cleanup(); return;
+      }
+      missing.forEach(t=>t._sent=false);
+      persistTrees(); renderPins();
+      if(pass>3){
+        toast(`${missing.length} tree(s) still not on the Sheet — tap Sync again`,true);
+        cleanup(); return;
+      }
+      toast(`Re-sending ${missing.length} tree(s)…`);
+      const part = missing.slice(0,100);
+      fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+        body:JSON.stringify({_action:"treebatch", trees:part.map(payload)})})
+        .then(()=>{ part.forEach(t=>t._sent=true); persistTrees(); renderPins();
+                    setTimeout(()=>verifyAndRetry(pass+1), 8000); })
+        .catch(()=>{});
+    }catch(e){}
+    cleanup();
+  };
+  sc.onerror=cleanup;
+  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb +
+           (settings.project && !showAllProjects ? "&project="+encodeURIComponent(settings.project) : "");
+  document.body.appendChild(sc);
+}
+
 function pullFromSheet(){
   closeMenu();
   if(!connected || isOffline()){ toast("No connection",true); return; }
@@ -3872,10 +3925,11 @@ function showHelp(){
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
     <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
+    <p><b>Addresses</b><br>A tree with no address looks one up the moment you drop it, and also when you open an imported tree that arrived without one — so it is on screen while you work. With no signal it is skipped and the Sheet fills it in on sync. After a day worked offline, run Tree Tools → Fill missing addresses in the Sheet a few times to catch the rest.</p>
     <p><b>Moving a tree</b><br>Repositioning by more than about 12 m re-looks-up the address, since a real move usually means a different frontage. A small nudge leaves it alone. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
-    <p><b>Blue halo</b><br>A tree with a soft blue halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
+    <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
     <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
