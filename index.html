@@ -103,6 +103,12 @@
   .sheet-inner .btnrow button.danger{ background:#fdecea; color:#8c2318; border-color:#e0a79f }
   .sheet-inner .quick button.sel, .sheet-inner .fieldchip.on{ background:#1d7a45; color:#fff; border-color:#155e34 }
   .sheet-inner .preview{ background:#f6f8f6; border-color:#9fb0a5 }
+  /* Aurora marks touched controls in its field yellow so you can see, at a glance,
+     exactly what you changed before saving. */
+  .sheet-inner .changed, .sheet-inner select.changed, .sheet-inner textarea.changed,
+  .sheet-inner input.changed{ background:#FFDD54 !important; border-color:#E6B800 !important; font-weight:700 }
+  .sheet-inner .picker.changed, .sheet-inner .quick button.changed{ background:#FFDD54 !important; border-color:#E6B800 !important }
+  .changedot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:#E6B800; margin-left:6px; vertical-align:middle }
   .sheet-inner .statbox{ background:#eef2ee; border-color:#9fb0a5 }
   .sheet-inner .statbox .n{ color:#0d1a13 } .sheet-inner .statbox .l{ color:#3f5147 }
   .sheet-inner .statrow .track{ background:#dde4de } .sheet-inner .statrow .n{ color:#28382e }
@@ -345,7 +351,7 @@
 
     <div class="fld">
       <label>Address <button type="button" class="clr" onclick="clearField('fADDRESS')">Clear</button></label>
-      <input id="fADDRESS" type="text" placeholder="Blank — filled automatically on sync" autocomplete="off">
+      <input id="fADDRESS" type="text" placeholder="Fills in automatically…" autocomplete="off">
       <div class="mini"><a href="javascript:void(0)" style="color:var(--accent)" onclick="lookupAddress()">Look up now</a> · needs a connection</div>
     </div>
 
@@ -625,7 +631,7 @@
    1) PASTE YOUR APPS SCRIPT WEB APP URL HERE
    ==================================================================== */
 const SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
-const APP_BUILD  = "2026-08-13 · v11";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v12";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 const connected = SCRIPT_URL.indexOf("script.google.com") >= 0;
@@ -1276,6 +1282,7 @@ function newTree(lat, lon, source, acc){
   t._sent = false; t._new = true;
   editIndex = trees.push(t)-1;
   persistTrees(); renderPins();
+  queueGeocode(editIndex);      // start the address lookup while the form is being filled
   openTree(editIndex);
 }
 
@@ -1946,6 +1953,141 @@ function exportStatsCSV(){
 }
 
 /* ================================================================== *
+ *  CUSTOM PICK-LIST VALUES  (pest/disease, impediment, treatment)
+ *  Crew-added values sync to the Sheet so everyone sees the same list.
+ * ================================================================== */
+const CUSTOM_DOMAINS = ["PESTDISEAS","IMPEDMNT","RECOTREA"];
+const ADD_DOMAIN = "__adddomain__";
+let customDomains = {};   try{ customDomains = JSON.parse(STORE&&STORE.getItem("st_customdom")) || {}; }catch(e){ customDomains={}; }
+let pendingDomains = [];  try{ pendingDomains = JSON.parse(STORE&&STORE.getItem("st_penddom")) || []; }catch(e){ pendingDomains=[]; }
+let domainUse = {};       try{ domainUse = JSON.parse(STORE&&STORE.getItem("st_domuse")) || {}; }catch(e){ domainUse={}; }
+function persistCustomDomains(){ if(STORE){ try{ STORE.setItem("st_customdom",JSON.stringify(customDomains)); }catch(e){} } }
+function persistPendDomains(){ if(STORE){ try{ STORE.setItem("st_penddom",JSON.stringify(pendingDomains)); }catch(e){} } }
+function persistDomainUse(){ if(STORE){ try{ STORE.setItem("st_domuse",JSON.stringify(domainUse)); }catch(e){} } }
+
+// Built-in values plus anything the crew has added. Codes equal labels for added ones.
+function domainPairs(field){
+  const base = DOMAIN_FIELDS[field] || [];
+  const extra = (customDomains[field]||[]).filter(v=>!base.some(p=>p[0].toLowerCase()===v.toLowerCase()));
+  return base.concat(extra.map(v=>[v,v]));
+}
+function bumpDomainUse(field, code){
+  if(!code) return;
+  domainUse[field] = domainUse[field] || {};
+  domainUse[field][code] = (domainUse[field][code]||0)+1;
+}
+
+// Most-used first, then the rest in their original order — the top of a 38-item
+// pest list is where you want Confirmed EAB after a morning of finding it.
+function rankedPairs(field){
+  const pairs = domainPairs(field);
+  const use = domainUse[field] || {};
+  const hot = pairs.filter(p=>use[p[0]]).sort((a,b)=>use[b[0]]-use[a[0]]).slice(0,5);
+  const rest = pairs.filter(p=>!hot.some(h=>h[0]===p[0]));
+  return { hot, rest };
+}
+function domainOptions(field){
+  const { hot, rest } = rankedPairs(field);
+  let h = `<option value="">—</option>`;
+  if(hot.length){
+    h += `<optgroup label="Most used">` +
+         hot.map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("") + `</optgroup>`;
+    h += `<optgroup label="All values">`;
+  }
+  h += rest.map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+  if(hot.length) h += `</optgroup>`;
+  if(CUSTOM_DOMAINS.indexOf(field)>=0) h += `<option value="${ADD_DOMAIN}">＋ Add a new value…</option>`;
+  return h;
+}
+
+function onDomainChange(field){
+  const el = $("f"+field); if(!el) return;
+  if(el.value !== ADD_DOMAIN){ markChanged(el); return; }
+  const name = normText(prompt(`New ${prettyField(field).toLowerCase()} value:`) || "");
+  if(!name){ el.value = (trees[editIndex] && trees[editIndex][field]) || ""; return; }
+  addCustomDomain(field, name);
+  rebuildDomainSelect(field, name);
+  markChanged(el);
+}
+function addCustomDomain(field, value){
+  customDomains[field] = customDomains[field] || [];
+  const all = domainPairs(field);
+  if(!all.some(p=>p[0].toLowerCase()===value.toLowerCase())){
+    customDomains[field].push(value);
+    persistCustomDomains();
+    pendingDomains.push({field, value});
+    persistPendDomains();
+    flushDomains();
+    toast(`Added "${value}" — shared with the crew`);
+  }
+}
+function rebuildDomainSelect(field, keep){
+  const el = $("f"+field); if(!el) return;
+  el.innerHTML = domainOptions(field);
+  el.value = keep || "";
+}
+function flushDomains(){
+  if(!connected || isOffline() || !pendingDomains.length) return;
+  pendingDomains.slice().forEach(d=>{
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"adddomain",field:d.field,value:d.value,cruiser:settings.cruiser})})
+      .then(()=>{ pendingDomains = pendingDomains.filter(x=>!(x.field===d.field&&x.value===d.value)); persistPendDomains(); })
+      .catch(()=>{});
+  });
+}
+function fetchDomains(){
+  if(!connected || isOffline()) return;
+  const cb="__dom"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  window[cb]=resp=>{
+    try{
+      const d=(resp&&resp.domains)||{};
+      let changed=false;
+      CUSTOM_DOMAINS.forEach(f=>{
+        (d[f]||[]).forEach(v=>{
+          customDomains[f] = customDomains[f] || [];
+          if(!domainPairs(f).some(p=>p[0].toLowerCase()===String(v).toLowerCase())){
+            customDomains[f].push(v); changed=true;
+          }
+        });
+      });
+      if(changed) persistCustomDomains();
+    }catch(e){}
+    cleanup();
+  };
+  sc.onerror=cleanup;
+  sc.src = SCRIPT_URL + sep + "action=domains&callback=" + cb;
+  document.body.appendChild(sc);
+}
+
+/* ---------- changed-field highlighting ---------- */
+let formSnapshot = {};
+function markChanged(el){
+  if(!el) return;
+  const base = formSnapshot[el.id];
+  el.classList.toggle("changed", base !== undefined && String(el.value) !== String(base));
+}
+function snapshotForm(){
+  formSnapshot = {};
+  ["fDBH","fSTEMS","fCOMMENTS","fADDRESS"].concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f))
+    .forEach(id=>{ const el=$(id); if(el){ formSnapshot[id]=el.value; el.classList.remove("changed"); } });
+  formSnapshot._species = $("spVal").textContent;
+  formSnapshot._health  = (trees[editIndex] && trees[editIndex].HEALTH) || "";
+  $("spPicker").classList.remove("changed");
+}
+function wireChangeTracking(){
+  ["fDBH","fSTEMS","fCOMMENTS","fADDRESS"].forEach(id=>{
+    const el=$(id); if(el) el.addEventListener("input", ()=>markChanged(el));
+  });
+  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>markChanged(el)); });
+}
+function markSpeciesChanged(){
+  $("spPicker").classList.toggle("changed",
+    formSnapshot._species !== undefined && $("spVal").textContent !== formSnapshot._species);
+}
+
+/* ================================================================== *
  *  TREE FORM
  * ================================================================== */
 let editIndex = null;
@@ -1985,8 +2127,8 @@ function buildPickers(){
   $("fSTEMS").innerHTML = st;                    // a cedar hedge can run to dozens of stems
   Object.keys(DOMAIN_FIELDS).forEach(f=>{
     const el = $("f"+f); if(!el) return;
-    el.innerHTML = `<option value="">—</option>` +
-      DOMAIN_FIELDS[f].map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+    el.innerHTML = domainOptions(f);
+    el.onchange = ()=>onDomainChange(f);
   });
 }
 
@@ -2013,6 +2155,8 @@ function resetForNonLiving(){
   set("IMPEDMNT","None");
   set("RECOTREA","No Treatment");
   $("fCOMMENTS").value="";
+  Object.keys(DOMAIN_FIELDS).forEach(f=>markChanged($("f"+f)));
+  markChanged($("fCOMMENTS"));
   toast("Defect fields and comments cleared for a non-living tree");
 }
 function paintHealth(h){
@@ -2040,6 +2184,9 @@ function fillFromLastTree(){
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ if(L[f]!=null && $("f"+f)) $("f"+f).value = L[f]; });
   if(L.HEALTH){ t._draftHealth = L.HEALTH; paintHealth(L.HEALTH); }
   renderSpeciesQuick(); renderDbhQuick();
+  ["fDBH","fSTEMS"].forEach(id=>markChanged($(id)));
+  Object.keys(DOMAIN_FIELDS).forEach(f=>markChanged($("f"+f)));
+  markSpeciesChanged();
   toast("Copied from " + (L.SPECIES || "the last tree"));
 }
 function rememberLastTree(t){
@@ -2060,7 +2207,8 @@ function openTree(i){
   Object.keys(DOMAIN_FIELDS).forEach(f=>{
     const el=$("f"+f); if(!el) return;
     const v=String(t[f]||"");
-    el.value = DOMAIN_FIELDS[f].some(p=>p[0]===v) ? v : "";
+    el.innerHTML = domainOptions(f);                         // re-rank on every open
+    el.value = domainPairs(f).some(p=>p[0]===v) ? v : "";
   });
   $("fADDRESS").value = t.ADDRESS || "";
   $("fCOMMENTS").value = t.COMMENTS || "";
@@ -2083,6 +2231,7 @@ function openTree(i){
   } else {
     $("photoHint").textContent = currentPhotos.length ? `${currentPhotos.length} photo(s) — Drive link appears after sync` : "Saved on the phone, backed up to Drive when online.";
   }
+  snapshotForm();
   $("treeSheet").classList.add("show");
 }
 
@@ -2117,6 +2266,8 @@ function saveTree(){
   t._sent = false;
   delete t._new; delete t._draftHealth;
 
+  Object.keys(DOMAIN_FIELDS).forEach(f=>bumpDomainUse(f, t[f]));
+  persistDomainUse();
   rememberLastTree(t);
   if(t.SPECIES) speciesUse[t.SPECIES] = (speciesUse[t.SPECIES]||0)+1;
   if(t.DBH)     dbhUse[t.DBH] = (dbhUse[t.DBH]||0)+1;
@@ -2185,27 +2336,68 @@ function movePinToGPS(){
   toast(a.acc>GPS_WARN_M ? `Position updated — but only ±${Math.round(a.acc)} m` : "Position updated", a.acc>GPS_WARN_M);
 }
 
-// Free reverse geocoding: OpenStreetMap Nominatim, on explicit tap only (their policy
-// forbids bulk automated use). The Sheet back-fills anything left blank on sync.
+/* Addresses fill themselves. Three chances, in order:
+   1. automatically when a tree is dropped, if there is signal
+   2. the "Look up now" link, for an immediate retry
+   3. the Sheet's own geocoder on sync, which catches everything missed offline
+   Nominatim asks for no more than one request a second, so calls are queued
+   rather than fired in parallel. */
+let geoQueue = [], geoBusy = false;
+
+function queueGeocode(idx){
+  if(isOffline()) return;                       // the Sheet will fill it in on sync
+  if(geoQueue.indexOf(idx)<0) geoQueue.push(idx);
+  runGeoQueue();
+}
+function runGeoQueue(){
+  if(geoBusy || !geoQueue.length || isOffline()) return;
+  geoBusy = true;
+  const idx = geoQueue.shift();
+  const t = trees[idx];
+  if(!t || String(t.ADDRESS||"").trim()){ geoBusy=false; return runGeoQueue(); }
+  reverseGeocode(num(t.LAT), num(t.LON)).then(addr=>{
+    if(addr && !String(t.ADDRESS||"").trim()){
+      t.ADDRESS = addr;
+      persistTrees();
+      // If that tree is open and the field is still untouched, show it straight away.
+      if(editIndex===idx && !$("fADDRESS").value.trim()){
+        $("fADDRESS").value = addr;
+        formSnapshot["fADDRESS"] = addr;        // filled by the app, not an edit
+      }
+    }
+  }).catch(()=>{}).then(()=>{
+    setTimeout(()=>{ geoBusy=false; runGeoQueue(); }, 1100);   // stay inside the rate limit
+  });
+}
+
+function reverseGeocode(lat, lon){
+  if(lat==null||lon==null) return Promise.resolve("");
+  return fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18`,
+        {headers:{"Accept":"application/json"}})
+    .then(r=>r.json())
+    .then(j=>{
+      const a=j&&j.address; if(!a) return "";
+      const street=[a.house_number,a.road].filter(Boolean).join(" ");
+      const city=a.city||a.town||a.village||a.municipality||"";
+      return [street,city,a.state].filter(Boolean).join(", ") ||
+             (j.display_name||"").split(",").slice(0,3).join(", ");
+    });
+}
+
 function lookupAddress(){
   const lat=num($("fLAT").value), lon=num($("fLON").value);
   if(lat==null||lon==null){ toast("No position yet",true); return; }
   if(isOffline()){ toast("Needs a connection — it fills in on sync",true); return; }
   $("fADDRESS").placeholder="Looking up…";
-  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18`,
-        {headers:{"Accept":"application/json"}})
-    .then(r=>r.json())
-    .then(j=>{
-      const a=j&&j.address;
-      if(!a){ throw new Error("no result"); }
-      const street=[a.house_number,a.road].filter(Boolean).join(" ");
-      const city=a.city||a.town||a.village||a.municipality||"";
-      const out=[street,city,a.state].filter(Boolean).join(", ");
-      $("fADDRESS").value = out || (j.display_name||"").split(",").slice(0,3).join(", ");
+  reverseGeocode(lat,lon)
+    .then(out=>{
+      if(!out) throw new Error("no result");
+      $("fADDRESS").value = out;
+      formSnapshot["fADDRESS"] = out;
       toast("Address found");
     })
     .catch(()=>{ toast("Lookup failed — it fills in on sync",true); })
-    .then(()=>{ $("fADDRESS").placeholder="Blank — filled automatically on sync"; });
+    .then(()=>{ $("fADDRESS").placeholder="Fills in automatically"; });
 }
 
 /* ================================================================== *
@@ -2224,7 +2416,7 @@ function renderSpeciesQuick(){
     `<button type="button" class="${nm===cur?"sel":""}" onclick="quickSpecies(${JSON.stringify(nm).replace(/"/g,"&quot;")})">${esc(nm)}</button>`
   ).join("") + `<button type="button" class="more" onclick="openSpecies()">Search all ${species.length} ›</button>`;
 }
-function quickSpecies(nm){ setSpeciesVal(nm); renderSpeciesQuick(); }
+function quickSpecies(nm){ setSpeciesVal(nm); renderSpeciesQuick(); markSpeciesChanged(); }
 
 function renderDbhQuick(){
   const cur = String($("fDBH").value||"").trim();
@@ -2234,7 +2426,7 @@ function renderDbhQuick(){
   $("dbhQuick").innerHTML = top.map(v=>
     `<button type="button" class="${v===cur?"sel":""}" onclick="quickDbh('${esc(v)}')">${esc(v)}</button>`).join("");
 }
-function quickDbh(v){ $("fDBH").value=selValue("fDBH",v); renderDbhQuick(); }
+function quickDbh(v){ $("fDBH").value=selValue("fDBH",v); renderDbhQuick(); markChanged($("fDBH")); }
 
 // An imported value may be 38.5 or 250 — snap it to the nearest option rather than
 // silently blanking the field.
@@ -2251,7 +2443,7 @@ function setSpeciesVal(v){
 }
 function openSpecies(){ $("spSearch").value=""; renderSpecies(); $("speciesFull").classList.add("show"); setTimeout(()=>$("spSearch").focus(),60); }
 function closeSpecies(){ $("speciesFull").classList.remove("show"); }
-function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); renderSpeciesQuick(); }
+function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); renderSpeciesQuick(); markSpeciesChanged(); }
 
 // Dictation yields "sugar maple." or "Hick's yew" — strip punctuation before matching.
 function searchKey(v){ return String(v||"").toLowerCase().replace(/[‘’']/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim(); }
@@ -3273,7 +3465,7 @@ async function forceUpdate(){
 /* ================================================================== *
  *  START
  * ================================================================== */
-window.addEventListener("online", ()=>{ netDot(); flushPhotos(); flushUsers(); flushProjects(); });
+window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushDomains(); });
 // Backgrounding the app mid-entry must not leave a half-made tree on the map.
 document.addEventListener("visibilitychange", ()=>{
   if(document.visibilityState==="hidden" && editIndex!=null && trees[editIndex] && trees[editIndex]._new){
@@ -3288,6 +3480,7 @@ window.addEventListener("offline", netDot);
   $("buildStamp").textContent = "Build " + APP_BUILD + " · tap to update";
   buildHealthChips();
   buildPickers();
+  wireChangeTracking();
   const abandoned = purgeAbandoned();   // left over from a crash or a force-close
   syncLabelBtn();
   netDot();
@@ -3296,8 +3489,10 @@ window.addEventListener("offline", netDot);
   fetchSpecies();
   fetchUsers();
   fetchProjects();
+  fetchDomains();
   flushUsers();
   flushProjects();
+  flushDomains();
   updateProjBtn();
   if(abandoned) setTimeout(()=>toast(`${abandoned} unfinished tree(s) discarded`), 900);
   if(!settings.cruiser) setTimeout(openSettings, 700);
