@@ -10,7 +10,7 @@
 <meta name="googlebot" content="noindex, nofollow">
 <meta name="author" content="Silv-Econ Ltd.">
 <meta name="copyright" content="© 2026 Silv-Econ Ltd. All rights reserved.">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e1311">
 <link rel="manifest" href="./manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -30,6 +30,10 @@
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
   }
   *{box-sizing:border-box}
+  /* Stops a stray pinch scaling the interface. The map does its own pinch zoom
+     through Leaflet, which uses touch events rather than the page zoom. */
+  html{ -webkit-text-size-adjust:100%; touch-action:manipulation }
+  .appbar, .map-rail, .bottombar, .statusline, .legend, .repobar, .undobar{ touch-action:manipulation }
   html,body{margin:0;padding:0;height:100%;overflow:hidden}
   body{ font-family:var(--sans); color:var(--text); background:var(--bg); font-size:16px; line-height:1.4;
         -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; }
@@ -228,7 +232,19 @@
   .tpop td.k{ color:#4a6b52; padding-right:8px; white-space:nowrap }
   .tpop .hbadge{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px;
     font-weight:700; color:#10201a; margin-bottom:5px; font-family:var(--sans) }
-  .tpop .ph{ margin-top:7px; width:100%; border-radius:6px; display:block; background:#dfe7e0; min-height:60px }
+  .tpop .phrow{ display:flex; gap:5px; flex-wrap:wrap; margin-top:7px; align-items:center }
+  .tpop .ph{ width:46px; height:46px; object-fit:cover; border-radius:6px; display:block;
+    background:#dfe7e0; border:1px solid #b9c6bd; cursor:pointer }
+  .tpop .phn{ font-size:10px; color:#4a6b52; margin-left:2px }
+  /* full-size viewer, opened by tapping a thumbnail */
+  .lightbox{ display:none; position:fixed; inset:0; z-index:2500; background:rgba(0,0,0,.92);
+    align-items:center; justify-content:center; flex-direction:column; padding:16px }
+  .lightbox.show{ display:flex }
+  .lightbox img{ max-width:100%; max-height:78vh; border-radius:8px }
+  .lightbox .bar{ display:flex; gap:10px; margin-top:14px; align-items:center }
+  .lightbox .bar button, .lightbox .bar a{ padding:11px 18px; border-radius:10px; border:1px solid #3f5346;
+    background:#1b2520; color:#dff3e5 !important; font-size:14px; font-weight:600; cursor:pointer; text-decoration:none }
+  .lightbox .cap{ color:#9db3a5; font-size:12px; margin-top:8px; font-family:var(--mono) }
   .tpop .acts{ display:flex; gap:6px; margin-top:8px }
   .tpop .acts a{ flex:1; text-align:center; padding:7px 4px; border-radius:7px; background:#2f9d59;
     color:#fff !important; text-decoration:none; font-family:var(--sans); font-size:12.5px; font-weight:600 }
@@ -497,7 +513,7 @@
     <div class="fld"><label>DBH</label><select id="mapDBH"></select></div>
     <div class="fld"><label>Health</label><select id="mapHEALTH"></select></div>
     <div class="fld"><label>Address</label><select id="mapADDRESS"></select></div>
-    <div class="fld"><label>Notes</label><select id="mapNOTES"></select></div>
+    <div class="fld"><label>Comments</label><select id="mapCOMMENTS"></select></div>
     <div class="btnrow"><button class="primary" onclick="confirmImport()">Import</button><button onclick="cancelImport()">Cancel</button></div>
   </div>
 </div>
@@ -555,7 +571,7 @@
       <div class="fld">
         <label>Arrangement</label>
         <select id="labelSep" onchange="labelPreview()">
-          <option value="\n">Stacked (one per line)</option>
+          <option value="NL">Stacked (one per line)</option>
           <option value=" · ">Inline · separated</option>
           <option value=", ">Inline, comma</option>
           <option value=" — ">Inline — dash</option>
@@ -644,6 +660,14 @@
   <button onclick="confirmReposition()">Set here</button>
   <button class="alt" onclick="cancelReposition()">Cancel</button>
 </div>
+<div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+  <img id="lbImg" alt="tree photo">
+  <div class="cap" id="lbCap"></div>
+  <div class="bar">
+    <button onclick="closeLightbox(event,true)">Close</button>
+    <a id="lbDrive" href="#" target="_blank" rel="noopener" style="display:none">Open in Drive</a>
+  </div>
+</div>
 <div class="undobar" id="undoBar"><span class="msg" id="undoMsg"></span><button onclick="undoDelete()">Undo</button></div>
 <div class="toast" id="toast"></div>
 
@@ -657,7 +681,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v17";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v19";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1066,7 +1090,7 @@ let refGroup=null, legendOn=false;
 /* ---------- label configuration ----------
    One config per layer ("trees", or a reference layer id). fields[] is ordered by the
    sequence the user tapped them, which is what makes a multi-attribute label readable. */
-const LBL_DEFAULT = { fields:[], sep:"\n", size:"m", names:0, box:0, minZoom:17 };
+const LBL_DEFAULT = { fields:[], sep:"NL", size:"m", names:0, box:0, minZoom:17 };
 let labelCfg = { trees: Object.assign({}, LBL_DEFAULT) };
 try{ const c=JSON.parse(STORE&&STORE.getItem("st_labelcfg")); if(c&&typeof c==="object") labelCfg=c; }catch(e){}
 function cfgFor(id){ if(!labelCfg[id]) labelCfg[id]=Object.assign({},LBL_DEFAULT); return labelCfg[id]; }
@@ -1228,7 +1252,7 @@ function labelHtml(cfg, get){
   });
   if(!parts.length) return "";
   const cls = `ptlabel ${cfg.size||"m"}${cfg.box?" box":""}`;
-  return `<div class="${cls}">${parts.join(cfg.sep==="\n" ? "<br>" : esc(cfg.sep))}</div>`;
+  return `<div class="${cls}">${parts.join(isStacked(cfg.sep) ? "<br>" : esc(cfg.sep))}</div>`;
 }
 // Tree columns get proper names; a reference layer's own columns are title-cased.
 const FIELD_LABELS = {
@@ -1241,6 +1265,11 @@ const FIELD_LABELS = {
   WOUNCANK:"Wound / canker", DEADDECAY:"Dead / decay", PESTDISEAS:"Pest / disease",
   IMPEDMNT:"Impediment", RECOTREA:"Recommended treatment"
 };
+/* "Stacked" has been stored three ways across builds: the token NL, a real newline,
+   and a literal backslash-n from an HTML attribute (which is what used to print as
+   \n on the map). Accept all three so saved settings keep working. */
+function isStacked(sep){ return sep==="NL" || sep==="\n" || sep==="\\n"; }
+
 function prettyField(f){
   if(FIELD_LABELS[f]) return FIELD_LABELS[f];
   return String(f).replace(/_/g," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
@@ -1542,10 +1571,10 @@ function openXfer(layerId){
   const keys = fieldsFor(layerId);
   $("xferLayerName").textContent = `${L2.name} · ${L2.features.length} features · ${keys.length} attributes`;
   const map = L2.xfer || {};
+  const recs = L2.features.slice(0,60).map(f=>f.props);
   XFER_FIELDS.forEach(fld=>{
     const sel = $("xfer"+fld);
-    sel.innerHTML = `<option value="">— none —</option>` +
-      keys.map(k=>`<option value="${esc(k)}">${esc(k)}</option>`).join("");
+    sel.innerHTML = `<option value="">— none —</option>` + fieldOptionsWithSamples(recs, keys);
     sel.value = map[fld] || guessXfer(fld, keys) || "";
     sel.onchange = xferPreview;
   });
@@ -1591,6 +1620,29 @@ function saveXfer(){
   toast(n ? `${n} field(s) will copy from ${L2.name}` : `Field copying turned off for ${L2.name}`);
 }
 
+/* Field pickers show a sample value beside each column name. Choosing between
+   NAME1, TXT_02 and DESCR is guesswork otherwise. */
+function sampleValues(records, key, want){
+  const seen = [], lower = {};
+  for(const p of records){
+    const v = p && p[key];
+    if(v==null) continue;
+    const t = String(v).trim();
+    if(!t || lower[t.toLowerCase()]) continue;
+    lower[t.toLowerCase()] = 1;
+    seen.push(t.length>22 ? t.slice(0,21)+"…" : t);
+    if(seen.length >= (want||2)) break;
+  }
+  return seen;
+}
+function fieldOptionsWithSamples(records, keys){
+  return keys.map(k=>{
+    const s = sampleValues(records, k, 2);
+    const hint = s.length ? "  ·  " + s.join(" / ") : "  ·  (all blank)";
+    return `<option value="${esc(k)}">${esc(k)}${esc(hint)}</option>`;
+  }).join("");
+}
+
 /* ================================================================== *
  *  LABEL BUILDER
  * ================================================================== */
@@ -1631,7 +1683,7 @@ function labelPickLayer(){ labelTarget = $("labelLayerSel").value; loadLabelCfg(
 function loadLabelCfg(){
   const c = cfgFor(labelTarget);
   $("labelLayerName").textContent = layerName(labelTarget) + " · " + (c.fields.length ? c.fields.length+" field(s)" : "no labels yet");
-  $("labelSep").value = c.sep;
+  $("labelSep").value = isStacked(c.sep) ? "NL" : c.sep;   // migrate an old saved value
   $("labelSize").value = c.size;
   $("labelNames").value = String(c.names||0);
   $("labelBox").value = String(c.box||0);
@@ -1839,7 +1891,7 @@ function treePopupHtml(i){
     <span class="sp">${esc(t.SPECIES||"— no species —")}</span>
     ${t.HEALTH?`<span class="hbadge" style="background:${healthColor(t.HEALTH)}">${esc(t.HEALTH)}</span>`:""}
     <div class="rpop"><table>${rows}</table></div>
-    <div id="tpopph${i}"></div>
+    <div class="phrow" id="tpopph${i}"></div>
     <div class="acts">
       <a href="javascript:void(0)" onclick="editFromPopup(${i})">Edit ›</a>
       ${link?`<a class="alt" href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:""}
@@ -1854,17 +1906,43 @@ function fillPopupPhoto(i){
   const box = $("tpopph"+i);
   if(!box || !names.length || !HAS_IDB) return;
   const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
+  // Small thumbnails: the popup is for reading the record, not viewing photos.
+  // Tapping one opens it full size.
+  let shown = 0;
   names.forEach((fn,k)=>{
     idbGet(fn).then(r=>{
       if(!r || !r.data) return;                       // on Drive but not on this phone
-      const a = links[k] ? `<a href="${esc(links[k])}" target="_blank" rel="noopener">` : "";
-      const z = links[k] ? "</a>" : "";
       box.insertAdjacentHTML("beforeend",
-        `${a}<img class="ph" src="${r.data}" alt="photo ${k+1} of ${esc(t.TREE_ID)}">${z}` +
-        `<div style="font-size:10px;color:#4a6b52;margin:1px 0 5px">Photo ${k+1} of ${names.length}</div>`);
+        `<img class="ph" src="${r.data}" alt="photo ${k+1} of ${esc(t.TREE_ID)}"
+          onclick="openLightbox(${i},${k})">`);
+      if(++shown === 1 && names.length > 1)
+        box.insertAdjacentHTML("beforeend", `<span class="phn">${names.length} photos</span>`);
     }).catch(()=>{});
   });
 }
+/* Full-size viewer. Reads from the device archive so it works with no signal;
+   the Drive link is offered alongside when there is one. */
+function openLightbox(i,k){
+  const t = trees[i]; if(!t) return;
+  const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
+  const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
+  const fn = names[k]; if(!fn) return;
+  idbGet(fn).then(r=>{
+    if(!r || !r.data){ toast("That photo is not on this phone",true); return; }
+    $("lbImg").src = r.data;
+    $("lbCap").textContent = `${t.TREE_ID} · photo ${k+1} of ${names.length}`;
+    const d = $("lbDrive");
+    if(links[k]){ d.href = links[k]; d.style.display = "inline-block"; } else d.style.display = "none";
+    $("lightbox").classList.add("show");
+  }).catch(()=>{});
+}
+function closeLightbox(e, force){
+  // Tapping the image itself should not close it — only the backdrop or the button.
+  if(!force && e && e.target && e.target.id === "lbImg") return;
+  $("lightbox").classList.remove("show");
+  $("lbImg").src = "";
+}
+
 function editFromPopup(i){ try{ fmap.closePopup(); }catch(e){} openTree(i); }
 
 /* ================================================================== *
@@ -3009,15 +3087,17 @@ async function importPoints(file){
 
     importFeatures = feats;
     const keys=[]; feats.slice(0,300).forEach(f=>{ for(const k in f.props) if(keys.indexOf(k)<0) keys.push(k); });
-    ["EXT","SPECIES","DBH","HEALTH","ADDRESS","NOTES"].forEach(id=>{
+    const recs = feats.slice(0,60).map(f=>f.props);
+    ["EXT","SPECIES","DBH","HEALTH","ADDRESS","COMMENTS"].forEach(id=>{
       const sel=$("map"+id);
-      sel.innerHTML = `<option value="">— none —</option>` + keys.map(k=>`<option value="${esc(k)}">${esc(k)}</option>`).join("");
+      sel.innerHTML = `<option value="">— none —</option>` + fieldOptionsWithSamples(recs, keys);
       const guess = { EXT:/^(id|tree_?id|asset|objectid|fid|ext)/i, SPECIES:/spec|comm|name|tree_?type/i,
-                      DBH:/dbh|diam/i, HEALTH:/health|cond/i, ADDRESS:/addr|street|location/i, NOTES:/note|comment|remark/i }[id];
+                      DBH:/dbh|diam/i, HEALTH:/health|cond/i, ADDRESS:/addr|street|location/i,
+                      COMMENTS:/note|comment|remark|desc/i }[id];
       const hit = keys.find(k=>guess.test(k));
       if(hit) sel.value = hit;
     });
-    $("impCount").textContent = `${feats.length} points · ${keys.length} columns`;
+    $("impCount").textContent = `${feats.length} points · ${keys.length} columns · sample values shown in each list`;
     $("mapSheet").classList.add("show");
   }catch(err){
     toast("Could not read that file",true);
@@ -3027,7 +3107,7 @@ async function importPoints(file){
 function confirmImport(){
   if(!importFeatures) return;
   const pick = id => $("map"+id).value;
-  const fEXT=pick("EXT"), fSP=pick("SPECIES"), fDBH=pick("DBH"), fH=pick("HEALTH"), fA=pick("ADDRESS"), fN=pick("NOTES");
+  const fEXT=pick("EXT"), fSP=pick("SPECIES"), fDBH=pick("DBH"), fH=pick("HEALTH"), fA=pick("ADDRESS"), fN=pick("COMMENTS");
   let added=0, skipped=0;
   importFeatures.forEach(f=>{
     const ext = fEXT ? String(f.props[fEXT]==null?"":f.props[fEXT]).trim() : "";
@@ -3647,6 +3727,7 @@ function showHelp(){
     <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
+    <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
     <p><b>Moving a tree</b><br>Repositioning by more than about 12 m re-looks-up the address, since a real move usually means a different frontage. A small nudge leaves it alone. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
     <p><b>Backend URL</b><br>This build already knows your Sheet, so there is nothing to set up — open it and record. Settings still lets you point a phone somewhere else, and <i>Use built-in</i> puts it back.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
@@ -3654,7 +3735,7 @@ function showHelp(){
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>Fast entry</b><br>Your most-used species and DBH values appear as tap chips at the top of the form, so most trees need no typing at all. The full 600-name list is one tap away and the search tolerates dictated punctuation.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
-    <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and first photo. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
+    <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and small photo thumbnails — tap a thumbnail to see it full size. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
     <p><b>Importing</b><br>Menu → Import tree points takes a zipped shapefile, .geojson or .gpx. You match the incoming columns to the app's fields once, and any existing ID is kept and re-exported as EXT_ID. Re-importing the same file will not create duplicates.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
@@ -3684,6 +3765,20 @@ async function forceUpdate(){
 /* ================================================================== *
  *  START
  * ================================================================== */
+/* iOS Safari ignores user-scalable=no, so block the pinch gesture directly —
+   but only outside the map, where pinch-to-zoom is the point. */
+["gesturestart","gesturechange","gestureend"].forEach(ev=>
+  document.addEventListener(ev, e=>{
+    if(!e.target || !e.target.closest || !e.target.closest("#fmap")) e.preventDefault();
+  }, {passive:false}));
+// A double-tap outside the map zooms the page on iOS; suppress that too.
+let lastTouchEnd = 0;
+document.addEventListener("touchend", e=>{
+  const now = Date.now();
+  if(now - lastTouchEnd <= 300 && (!e.target || !e.target.closest || !e.target.closest("#fmap"))) e.preventDefault();
+  lastTouchEnd = now;
+}, {passive:false});
+
 window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushDomains(); });
 // Backgrounding the app mid-entry must not leave a half-made tree on the map.
 document.addEventListener("visibilitychange", ()=>{
