@@ -657,7 +657,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v16";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v17";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2395,7 +2395,9 @@ function saveTree(){
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ const el=$("f"+f); if(el) t[f]=el.value; });
   t.HEALTH  = t._draftHealth || "";
   t.HLTH_CODE = healthCode(t.HEALTH);
-  t.ADDRESS = normText($("fADDRESS").value);
+  const typedAddr = normText($("fADDRESS").value);
+  if(typedAddr !== String(t.ADDRESS||"").trim()) t._addrAuto = false;   // edited by hand
+  t.ADDRESS = typedAddr;
   t.COMMENTS = normText($("fCOMMENTS").value);
   t.LAT = lat.toFixed(6); t.LON = lon.toFixed(6);
   t.PHOTOS = currentPhotos.join("; ");
@@ -2460,18 +2462,26 @@ function endReposition(){
 function confirmReposition(){
   if(repoIdx==null){ endReposition(); return; }
   const c=fmap.getCenter(), t=trees[repoIdx];
+  const oldLat=num(t.LAT), oldLon=num(t.LON);
   $("fLAT").value=c.lat.toFixed(6); $("fLON").value=c.lng.toFixed(6);
+  t.LAT=c.lat.toFixed(6); t.LON=c.lng.toFixed(6);
   t.SOURCE="crosshair"; t.ACCURACY="";
   $("posHint").textContent = `crosshair · ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+  const i=repoIdx;
   endReposition();
+  persistTrees(); renderPins();
+  refreshAddressAfterMove(i, oldLat, oldLon);
   toast("Position moved to the crosshair");
 }
 function cancelReposition(){ endReposition(); }
 
 function movePinToGPS(){
   const a=avgPos(); if(!a){ toast("No GPS fix yet",true); return; }
+  const t=trees[editIndex];
+  const oldLat=t?num(t.LAT):null, oldLon=t?num(t.LON):null;
   $("fLAT").value=a.lat.toFixed(6); $("fLON").value=a.lon.toFixed(6);
-  const t=trees[editIndex]; if(t){ t.SOURCE="gps"; t.ACCURACY=Math.round(a.acc*10)/10; }
+  if(t){ t.LAT=a.lat.toFixed(6); t.LON=a.lon.toFixed(6); t.SOURCE="gps"; t.ACCURACY=Math.round(a.acc*10)/10;
+         persistTrees(); renderPins(); refreshAddressAfterMove(editIndex, oldLat, oldLon); }
   $("posHint").textContent = `gps · ±${Math.round(a.acc)} m · ${a.n} fixes · ${a.lat.toFixed(5)}, ${a.lon.toFixed(5)}`;
   toast(a.acc>GPS_WARN_M ? `Position updated — but only ±${Math.round(a.acc)} m` : "Position updated", a.acc>GPS_WARN_M);
 }
@@ -2484,10 +2494,36 @@ function movePinToGPS(){
    rather than fired in parallel. */
 let geoQueue = [], geoBusy = false;
 
-function queueGeocode(idx){
-  if(isOffline()) return;                       // the Sheet will fill it in on sync
+function queueGeocode(idx, force){
+  if(isOffline()){
+    // Offline: a moved tree must not keep an address from where it used to be.
+    if(force && trees[idx]){ trees[idx].ADDRESS=""; trees[idx]._addrAuto=true; persistTrees();
+      if(editIndex===idx){ $("fADDRESS").value=""; $("fADDRESS").placeholder="Fills in on sync"; } }
+    return;                                     // the Sheet fills it in on sync
+  }
+  if(force && trees[idx]){ trees[idx].ADDRESS=""; }   // clear so the lookup is allowed to run
   if(geoQueue.indexOf(idx)<0) geoQueue.push(idx);
   runGeoQueue();
+}
+
+const ADDR_REFRESH_M = 12;   // below this a tree has not moved enough to change frontage
+
+/* Called after any reposition. An address the app found is replaced without asking;
+   one typed by hand is only replaced with permission, since it may be a civic address
+   the geocoder cannot know. */
+function refreshAddressAfterMove(idx, oldLat, oldLon){
+  const t = trees[idx]; if(!t) return;
+  const nLat = num(t.LAT), nLon = num(t.LON);
+  if(nLat==null || nLon==null) return;
+  if(oldLat!=null && oldLon!=null && distM(oldLat,oldLon,nLat,nLon) < ADDR_REFRESH_M) return;
+
+  const had = String(t.ADDRESS||"").trim();
+  if(had && t._addrAuto === false){
+    if(!confirm(`This tree has moved.\n\nThe address "${had}" was typed in by hand — replace it with a fresh lookup?`)) return;
+  }
+  t._addrAuto = true;
+  queueGeocode(idx, true);
+  if(had) toast("Looking up the new address…");
 }
 function runGeoQueue(){
   if(geoBusy || !geoQueue.length || isOffline()) return;
@@ -2498,6 +2534,7 @@ function runGeoQueue(){
   reverseGeocode(num(t.LAT), num(t.LON)).then(addr=>{
     if(addr && !String(t.ADDRESS||"").trim()){
       t.ADDRESS = addr;
+      t._addrAuto = true;
       persistTrees();
       // If that tree is open and the field is still untouched, show it straight away.
       if(editIndex===idx && !$("fADDRESS").value.trim()){
@@ -2534,6 +2571,7 @@ function lookupAddress(){
     .then(out=>{
       if(!out) throw new Error("no result");
       $("fADDRESS").value = out;
+      const tt = trees[editIndex]; if(tt){ tt.ADDRESS = out; tt._addrAuto = true; }
       formSnapshot["fADDRESS"] = out; confirmField("fADDRESS");
       toast("Address found");
     })
@@ -3609,6 +3647,7 @@ function showHelp(){
     <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
+    <p><b>Moving a tree</b><br>Repositioning by more than about 12 m re-looks-up the address, since a real move usually means a different frontage. A small nudge leaves it alone. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
     <p><b>Backend URL</b><br>This build already knows your Sheet, so there is nothing to set up — open it and record. Settings still lets you point a phone somewhere else, and <i>Use built-in</i> puts it back.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
     <p><b>Red and yellow</b><br>On a new tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
@@ -3683,4 +3722,3 @@ window.addEventListener("offline", netDot);
 </script>
 </body>
 </html>
-
