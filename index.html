@@ -497,12 +497,6 @@
       <input id="setNewProj" type="text" placeholder="e.g. Aurora 2026">
       <div class="mini">Shared with the whole crew once you save.</div>
     </div>
-    <div class="fld">
-      <label>Backend URL <button type="button" class="clr" onclick="resetScriptUrl()">Use built-in</button></label>
-      <input id="setUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false">
-      <div class="mini" id="urlState">—</div>
-    </div>
-
     <div class="row2">
       <div class="fld"><label>ID prefix</label><input id="setPrefix" type="text" placeholder="AUR" maxlength="6"></div>
       <div class="fld"><label>Device letter</label><input id="setDevice" type="text" placeholder="A" maxlength="1"></div>
@@ -697,33 +691,20 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v23";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v24";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
 
-/* The device setting wins, except when it is stale: if a build ships a valid URL and
-   the phone is holding a different one it never deliberately set, the build wins. That
-   stops an old deployment URL on one handset quietly sending trees nowhere. */
-let SCRIPT_URL = SCRIPT_URL_DEFAULT;
-try{
-  const saved  = STORE && STORE.getItem("st_scripturl");
-  const chosen = STORE && STORE.getItem("st_urlmanual") === "1";
-  if(saved && (chosen || !isBackendUrl(SCRIPT_URL_DEFAULT))) SCRIPT_URL = saved;
-}catch(e){}
-let connected = isBackendUrl(SCRIPT_URL);
-
+/* The backend address ships with the app — there is nothing for anyone to configure,
+   and no way for a phone to end up pointing at the wrong Sheet. Any override left on a
+   device by an earlier build is discarded. */
+const SCRIPT_URL = SCRIPT_URL_DEFAULT;
+try{ if(STORE){ STORE.removeItem("st_scripturl"); STORE.removeItem("st_urlmanual"); } }catch(e){}
 function isBackendUrl(u){
   return /^https:\/\/script\.google\.com\/macros\/s\/[^\/]+\/exec/.test(String(u||"").trim());
 }
-function setScriptUrl(u){
-  u = String(u||"").trim();
-  SCRIPT_URL = u;
-  connected = isBackendUrl(u);
-  if(STORE){ try{ STORE.setItem("st_scripturl", u); STORE.setItem("st_urlmanual","1"); }catch(e){} }
-  try{ netDot(); }catch(e){}
-  return connected;
-}
+const connected = isBackendUrl(SCRIPT_URL);
 
 /* ---- Aurora domain values, verbatim from the Town of Aurora field app ---- */
 
@@ -3153,7 +3134,7 @@ function payload(t){
   return o;
 }
 function sendTree(t){
-  if(!connected){ toast("Saved on this phone — add the backend URL in Settings to sync",true); return; }
+  if(!connected){ toast("Saved on this phone",true); return; }
   if(isOffline()){ netDot(); return; }
   fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
     body:JSON.stringify(payload(t))})
@@ -3162,7 +3143,7 @@ function sendTree(t){
 }
 function syncNow(){
   closeMenu();
-  if(!connected){ toast("Add the backend URL in Settings first",true); openSettings(); return; }
+  if(!connected){ toast("This build has no backend address",true); return; }
   if(isOffline()){ toast("No connection",true); return; }
   const q = trees.filter(t=>!t._sent);
   flushPhotos();
@@ -3616,7 +3597,7 @@ function downloadPhotos(){
 // Asks the Sheet to email the workbook, the CSV and Drive links to the zipped photos.
 function emailPackage(){
   closeMenu();
-  if(!connected){ toast("Add the backend URL in Settings first",true); openSettings(); return; }
+  if(!connected){ toast("This build has no backend address",true); return; }
   if(isOffline()){ toast("Needs a connection",true); return; }
   const to = (settings.email||"").trim();
   if(!to){ toast("Set your email in settings first",true); openSettings(); return; }
@@ -3797,9 +3778,6 @@ function fetchUsers(){
 function openSettings(){
   closeMenu();
   $("setEmail").value=settings.email||"";
-  $("setUrl").value = isBackendUrl(SCRIPT_URL) ? SCRIPT_URL : "";
-  paintUrlState();
-  $("setUrl").oninput = paintUrlState;
   $("setPrefix").value=settings.prefix||"AUR";
   $("setDevice").value=settings.device||"A";
   $("setCounter").value=settings.counter||1;
@@ -3817,29 +3795,6 @@ function previewId(){
   const p=($("setPrefix").value||"AUR").toUpperCase(), d=($("setDevice").value||"A").toUpperCase().slice(0,1);
   const n=parseInt($("setCounter").value,10)||1;
   $("idPreview").textContent = `Next tree: ${p}-${pad(n,5)}-${d}`;
-}
-// Drop a device override and go back to whatever this build ships with.
-function resetScriptUrl(){
-  if(STORE){ try{ STORE.removeItem("st_scripturl"); STORE.removeItem("st_urlmanual"); }catch(e){} }
-  SCRIPT_URL = SCRIPT_URL_DEFAULT;
-  connected = isBackendUrl(SCRIPT_URL);
-  $("setUrl").value = connected ? SCRIPT_URL : "";
-  paintUrlState(); netDot();
-  toast(connected ? "Using the built-in backend URL" : "This build has no built-in URL");
-}
-
-function paintUrlState(){
-  const v = $("setUrl").value.trim();
-  const el = $("urlState");
-  if(!v){
-    el.textContent = isBackendUrl(SCRIPT_URL_DEFAULT)
-      ? "Using the URL built into this app — nothing to do."
-      : "Not set — trees stay on this phone until you add it.";
-    el.style.color = isBackendUrl(SCRIPT_URL_DEFAULT) ? "#1d7a45" : "#8c2318";
-    return;
-  }
-  if(isBackendUrl(v)){ el.textContent = "Looks right ✓"; el.style.color="#1d7a45"; }
-  else { el.textContent = "Should start https://script.google.com/macros/s/ and end /exec"; el.style.color="#8c2318"; }
 }
 function closeSettings(){ $("settingsSheet").classList.remove("show"); }
 function saveSettings(){
@@ -3863,15 +3818,6 @@ function saveSettings(){
   settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
   persistSettings();
 
-  const u = $("setUrl").value.trim();
-  if(u && !isBackendUrl(u)){ toast("That backend URL does not look right",true); return; }
-  const was = connected;
-  setScriptUrl(u);
-  if(connected && !was){
-    toast("Backend connected — syncing");
-    fetchSpecies(); fetchUsers(); fetchProjects(); fetchDomains();
-    setTimeout(syncNow, 800);
-  }
 
   // Share the name and the project with the rest of the crew (queued if offline).
   queueUser(settings.cruiser, settings.email, settings.device);
@@ -3927,7 +3873,6 @@ function showHelp(){
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
     <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
     <p><b>Moving a tree</b><br>Repositioning by more than about 12 m re-looks-up the address, since a real move usually means a different frontage. A small nudge leaves it alone. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
-    <p><b>Backend URL</b><br>This build already knows your Sheet, so there is nothing to set up — open it and record. Settings still lets you point a phone somewhere else, and <i>Use built-in</i> puts it back.</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
     <p><b>Blue halo</b><br>A tree with a soft blue halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
@@ -4014,7 +3959,7 @@ window.addEventListener("offline", netDot);
   flushDomains();
   updateProjBtn();
   if(abandoned) setTimeout(()=>toast(`${abandoned} unfinished tree(s) discarded`), 900);
-  if(!settings.cruiser || !connected) setTimeout(openSettings, 700);
+  if(!settings.cruiser) setTimeout(openSettings, 700);
   else setTimeout(()=>verifySync(true), 6000);   // catch anything a previous session only thought it sent
   if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
 })();
