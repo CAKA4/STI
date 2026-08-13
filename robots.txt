@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /
+
+# Street Tree Inventory — © 2026 Silv-Econ Ltd. All rights reserved.
+# Proprietary and confidential. No license granted; not for redistribution or reuse.
