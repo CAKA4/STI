@@ -78,6 +78,45 @@
   .sheet{ display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.55);
     align-items:flex-end; justify-content:center }
   .sheet.show{ display:flex }
+  /* Forms are white for sun readability — a dark full-screen panel also drives the
+     phone's screen power and heat up on a bright day. */
+  .sheet-inner, .full{
+    --surface:#ffffff; --surface2:#eef2ee; --card:#ffffff; --field:#ffffff; --bg:#ffffff;
+    --line:#c3cec6; --line2:#9fb0a5; --text:#0d1a13; --muted:#3f5147; --faint:#76867c;
+    --accent:#1d7a45; --accent-dk:#1d7a45;
+    color:#0d1a13;
+  }
+  .sheet-inner input, .sheet-inner select, .sheet-inner textarea,
+  .full input, .full select, .full textarea{
+    background:#fff; color:#0d1a13; border:1.5px solid #9fb0a5; font-weight:500;
+  }
+  .sheet-inner .fld label, .full .fld label{ color:#2c4638; font-weight:700 }
+  .sheet-inner h2{ color:#0d1a13 }
+  .sheet-inner .idline{ color:#1d7a45; font-weight:700 }
+  .sheet-inner .hint, .sheet-inner .mini, .sheet-inner .dictate{ color:#41564a }
+  .sheet-inner .grab{ background:#c3cec6 }
+  .sheet-inner .btnrow button, .sheet-inner .menuitem, .sheet-inner .stepper button,
+  .sheet-inner .chips button, .sheet-inner .quick button, .sheet-inner .fieldchip{
+    background:#eef2ee; color:#0d1a13; border-color:#9fb0a5; font-weight:600;
+  }
+  .sheet-inner .btnrow button.primary{ background:#1d7a45; color:#fff; border-color:#155e34 }
+  .sheet-inner .btnrow button.danger{ background:#fdecea; color:#8c2318; border-color:#e0a79f }
+  .sheet-inner .quick button.sel, .sheet-inner .fieldchip.on{ background:#1d7a45; color:#fff; border-color:#155e34 }
+  .sheet-inner .preview{ background:#f6f8f6; border-color:#9fb0a5 }
+  .sheet-inner .statbox{ background:#eef2ee; border-color:#9fb0a5 }
+  .sheet-inner .statbox .n{ color:#0d1a13 } .sheet-inner .statbox .l{ color:#3f5147 }
+  .sheet-inner .statrow .track{ background:#dde4de } .sheet-inner .statrow .n{ color:#28382e }
+  .sheet-inner .stath{ color:#1d7a45; border-bottom-color:#c3cec6 }
+  .sheet-inner .layerrow{ background:#eef2ee; border-color:#9fb0a5 }
+  .sheet-inner .layerrow button{ background:#fff; color:#0d1a13 }
+  .sheet-inner .clr{ background:#fdecea; color:#8c2318; border-color:#e0a79f; font-weight:700 }
+  .full{ background:#fff }
+  .full header{ background:#eef2ee; border-bottom-color:#c3cec6 }
+  .full .list button{ color:#0d1a13; border-bottom-color:#dde4de; font-weight:500 }
+  .full .list button:active{ background:#e3ebe4 }
+  .full .list .hdr{ background:#dde4de; color:#245c3b; border-bottom-color:#c3cec6 }
+  .full .pillbtn{ background:#1d7a45; color:#fff; border-color:#155e34 }
+
   .sheet-inner{ width:100%; max-width:620px; max-height:92vh; overflow-y:auto; background:var(--surface);
     border:1px solid var(--line); border-radius:16px 16px 0 0; padding:14px 14px calc(18px + env(safe-area-inset-bottom));
     box-shadow:0 -8px 30px rgba(0,0,0,.6); -webkit-overflow-scrolling:touch }
@@ -139,6 +178,15 @@
   .thumb img{ width:100%; height:100%; object-fit:cover }
   .thumb b{ position:absolute; right:2px; bottom:1px; font-size:10px; background:rgba(0,0,0,.65);
     padding:1px 4px; border-radius:4px; font-family:var(--mono) }
+
+  .repobar{ display:none; position:fixed; left:12px; right:12px; bottom:calc(14px + env(safe-area-inset-bottom));
+    z-index:1950; background:#12201a; border:1px solid var(--accent); border-radius:12px; padding:10px 12px;
+    align-items:center; gap:8px; box-shadow:0 4px 18px rgba(0,0,0,.6) }
+  .repobar.show{ display:flex }
+  .repobar .msg{ flex:1; font-size:12.5px; color:#dff3e5 }
+  .repobar button{ padding:9px 14px; border-radius:9px; border:1px solid var(--accent);
+    background:var(--accent-dk); color:#fff; font-weight:700; font-size:13px; cursor:pointer }
+  .repobar button.alt{ background:#26332c; border-color:#3f5346; color:#cfe6d6 }
 
   .undobar{ display:none; position:fixed; left:12px; right:12px; bottom:calc(78px + env(safe-area-inset-bottom));
     z-index:1900; background:#2a2320; border:1px solid #6d5535; border-radius:11px; padding:11px 13px;
@@ -249,6 +297,10 @@
     <h2 id="sheetTitle">New tree</h2>
     <div class="idline" id="sheetId">—</div>
 
+    <div class="btnrow" id="sameAsLastRow" style="display:none;margin-bottom:12px">
+      <button type="button" class="primary" onclick="fillFromLastTree()" id="sameAsLastBtn">⧉ Same as last tree</button>
+    </div>
+
     <div class="fld">
       <label>Species</label>
       <div class="quick" id="spQuick"></div>
@@ -260,19 +312,11 @@
     <div class="row2">
       <div class="fld">
         <label>DBH (cm)</label>
-        <div class="stepper">
-          <button type="button" onclick="bumpDbh(-1)">−</button>
-          <input id="fDBH" type="number" inputmode="decimal" step="0.1" min="0" placeholder="—">
-          <button type="button" onclick="bumpDbh(1)">+</button>
-        </div>
+        <select id="fDBH" onchange="renderDbhQuick()"></select>
       </div>
       <div class="fld">
         <label>Stems</label>
-        <div class="stepper">
-          <button type="button" onclick="bumpStems(-1)">−</button>
-          <input id="fSTEMS" type="number" inputmode="numeric" step="1" min="1" value="1">
-          <button type="button" onclick="bumpStems(1)">+</button>
-        </div>
+        <select id="fSTEMS"></select>
       </div>
     </div>
 
@@ -282,9 +326,22 @@
     </div>
 
     <div class="fld">
-      <label>Health</label>
+      <label>Overall health</label>
       <div class="chips" id="healthChips"></div>
     </div>
+
+    <div class="fld"><label>Site location</label><select id="fSITELOCA"></select></div>
+    <div class="row2">
+      <div class="fld"><label>Structural</label><select id="fSTRUDEFE"></select></div>
+      <div class="fld"><label>Failure potential</label><select id="fFAILPOTE"></select></div>
+    </div>
+    <div class="row2">
+      <div class="fld"><label>Wound / canker</label><select id="fWOUNCANK"></select></div>
+      <div class="fld"><label>Dead / decay</label><select id="fDEADDECAY"></select></div>
+    </div>
+    <div class="fld"><label>Pest / disease</label><select id="fPESTDISEAS"></select></div>
+    <div class="fld"><label>Impediment</label><select id="fIMPEDMNT"></select></div>
+    <div class="fld"><label>Recommended treatment</label><select id="fRECOTREA"></select></div>
 
     <div class="fld">
       <label>Address <button type="button" class="clr" onclick="clearField('fADDRESS')">Clear</button></label>
@@ -293,28 +350,30 @@
     </div>
 
     <div class="fld">
-      <label>Notes <button type="button" class="clr" onclick="clearField('fNOTES')">Clear</button></label>
-      <textarea id="fNOTES" placeholder="Defects, wires, clearance, work required… (tap the mic on the keyboard to dictate)"></textarea>
-      <div class="dictate">Dictation works in this field, the address, DBH and the species search.</div>
+      <label>Comments <button type="button" class="clr" onclick="clearField('fCOMMENTS')">Clear</button></label>
+      <textarea id="fCOMMENTS" placeholder="Defects, wires, clearance, work required… (tap the mic on the keyboard to dictate)"></textarea>
+      <div class="dictate">Dictation works in this field, the address and the species search.</div>
     </div>
 
     <div class="fld">
       <label>Photos</label>
       <input id="photoInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)">
-      <div class="btnrow"><button type="button" onclick="document.getElementById('photoInput').click()">📷 Take photo</button></div>
+      <div class="btnrow">
+        <button type="button" onclick="document.getElementById('photoInput').click()">📷 Take photo</button>
+        <button type="button" onclick="document.getElementById('photoPick').click()">🖼 From library</button>
+      </div>
+      <input id="photoPick" type="file" accept="image/*" multiple style="display:none" onchange="handlePhoto(this)">
       <div class="thumbs" id="photoThumbs"></div>
       <div class="mini" id="photoHint">Saved on the phone, backed up to Drive when online.</div>
     </div>
 
+    <input id="fLAT" type="hidden"><input id="fLON" type="hidden">
     <div class="fld">
       <label>Position</label>
-      <div class="row2">
-        <input id="fLAT" type="text" inputmode="decimal" placeholder="lat">
-        <input id="fLON" type="text" inputmode="decimal" placeholder="lon">
-      </div>
       <div class="mini" id="posHint">—</div>
       <div class="btnrow" style="margin-top:7px">
-        <button type="button" onclick="movePinToGPS()">⌖ Move to my GPS</button>
+        <button type="button" onclick="movePinToGPS()">⌖ To my GPS</button>
+        <button type="button" onclick="startReposition()">✛ To crosshair</button>
       </div>
     </div>
 
@@ -440,7 +499,7 @@
     <div class="fld"><label>Stems</label><select id="xferSTEMS"></select></div>
     <div class="fld"><label>Health</label><select id="xferHEALTH"></select></div>
     <div class="fld"><label>Address</label><select id="xferADDRESS"></select></div>
-    <div class="fld"><label>Notes</label><select id="xferNOTES"></select></div>
+    <div class="fld"><label>Comments</label><select id="xferCOMMENTS"></select></div>
     <div class="fld">
       <label>Preview from the first feature</label>
       <div class="preview" id="xferPreview" style="display:block;text-align:left"></div>
@@ -551,6 +610,11 @@
 
 <input id="pointsInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<div class="repobar" id="repoBar">
+  <span class="msg" id="repoMsg">Pan the map so the crosshair sits on the tree</span>
+  <button onclick="confirmReposition()">Set here</button>
+  <button class="alt" onclick="cancelReposition()">Cancel</button>
+</div>
 <div class="undobar" id="undoBar"><span class="msg" id="undoMsg"></span><button onclick="undoDelete()">Undo</button></div>
 <div class="toast" id="toast"></div>
 
@@ -560,21 +624,138 @@
 /* ====================================================================
    1) PASTE YOUR APPS SCRIPT WEB APP URL HERE
    ==================================================================== */
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-12 · v8";   // bump alongside the service-worker cache version
+const SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+const APP_BUILD  = "2026-08-13 · v11";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 const connected = SCRIPT_URL.indexOf("script.google.com") >= 0;
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
 
-const HEALTH = [
-  ["Good",              "#4caf50"],
-  ["Satisfactory",      "#9ccc65"],
-  ["Potential Trouble", "#ffd54f"],
-  ["Declining",         "#ffa726"],
-  ["Death Imminent",    "#ef6c50"],
-  ["Dead",              "#c62828"]
+/* ---- Aurora domain values, verbatim from the Town of Aurora field app ---- */
+
+const HEALTH_D = [
+  ["Good","Good"],
+  ["Satisfactory","Satisfactory"],
+  ["Potential trouble","Potential trouble"],
+  ["Declining","Declining"],
+  ["Death imminent","Death imminent"],
+  ["Dead","Dead"],
+  ["Removed","Removed"],
+  ["Stump","Stump"],
+  ["Stump carving","Stump carving"]
 ];
+
+const SITELOCA_D = [
+  ["Boulevard","Boulevard"],
+  ["Lawn","Lawn"],
+  ["Centre median","Centre median"],
+  ["Raised planter","Raised planter"],
+  ["Ground level planter","Ground level planter"],
+  ["Other","Other"]
+];
+
+const STRUDEFE_D = [
+  ["No problem","No problem"],
+  ["MINOR (<34%)","MINOR (<34%)"],
+  ["MAJOR (35-65%)","MAJOR (35-65%)"],
+  ["EXTREME (>65%)","EXTREME (>65%)"]
+];
+
+const WOUNCANK_D = [
+  ["No problem","No problem"],
+  ["MINOR (<34%)","MINOR (<34%)"],
+  ["MAJOR (35-65%)","MAJOR (35-65%)"],
+  ["EXTREME (>65%)","EXTREME (>65%)"]
+];
+
+const DEADDECAY_D = [
+  ["NO PROBLEM (no visible problem)","NO PROBLEM (no visible problem)"],
+  ["MINOR (<5%)","MINOR (<5%)"],
+  ["MAJOR (10-30%)","MAJOR (10-30%)"],
+  ["EXTREME (>30%)","EXTREME (>30%)"]
+];
+
+const FAILPOTE_D = [
+  ["Low","Low"],
+  ["Medium","Medium"],
+  ["High","High"]
+];
+
+const PESTDISEAS_D = [
+  ["None observed","None observed"],
+  ["Aphids","Aphids"],
+  ["Bacterial infection","Bacterial infection"],
+  ["Black knot","Black knot"],
+  ["Bladder gall mites","Bladder gall mites"],
+  ["Blight (general)","Blight (general)"],
+  ["Borers","Borers"],
+  ["Canker (general)","Canker (general)"],
+  ["Confirmed EAB","Confirmed EAB"],
+  ["Deer browse","Deer browse"],
+  ["Deer or rodent debarking","Deer or rodent debarking"],
+  ["Diplodia","Diplodia"],
+  ["EAB (evidence)","EAB (evidence)"],
+  ["Eutypella canker","Eutypella canker"],
+  ["Fungal infection","Fungal infection"],
+  ["Gall (general)","Gall (general)"],
+  ["Ganoderma fungus","Ganoderma fungus"],
+  ["Gypsy moth / LDD moth","Gypsy moth / LDD moth"],
+  ["Hackberry gall","Hackberry gall"],
+  ["Hackberry psyllid (galls)","Hackberry psyllid (galls)"],
+  ["Internal decay","Internal decay"],
+  ["Leaf feeding (general)","Leaf feeding (general)"],
+  ["Mossy top","Mossy top"],
+  ["Nectria canker","Nectria canker"],
+  ["Plant bug","Plant bug"],
+  ["Possible needle blight","Possible needle blight"],
+  ["Possible needle cast","Possible needle cast"],
+  ["Potential EAB","Potential EAB"],
+  ["Rodent damage","Rodent damage"],
+  ["Spindle gall","Spindle gall"],
+  ["Rust","Rust"],
+  ["Tar spot","Tar spot"],
+  ["Anthracnose","Anthracnose"],
+  ["Chlorosis","Chlorosis"],
+  ["Leaf blotch","Leaf blotch"],
+  ["Leaf scorch","Leaf scorch"],
+  ["Drought stress","Drought stress"],
+  ["Other","Other"]
+];
+
+const IMPEDMNT_D = [
+  ["None","None"],
+  ["Fence","Fence"],
+  ["Hydrant","Fire Hydrant"],
+  ["Ohwire","Overhead wire"],
+  ["Sign","Sign"],
+  ["Buildstruct","Building-structure"],
+  ["Stlight","Street light"],
+  ["Trstake","Tree stake"],
+  ["Mailbox","Mailbox"],
+  ["Ugutility","Underground utilities"],
+  ["Astroturf","Astroturf"],
+  ["Other","Other"]
+];
+
+const RECOTREA_D = [
+  ["No Treatment","No Treatment"],
+  ["Pruning - Immediate","Pruning - Immediate"],
+  ["Pruning - High Priority","Pruning - High Priority"],
+  ["Routine Pruning","Routine Pruning"],
+  ["Training Pruning","Training Pruning"],
+  ["Removal-Immediate","Removal-Immediate"],
+  ["Removal - High Priority","Removal - High Priority"],
+  ["Removal - Low Priority","Removal - Low Priority"],
+  ["Potential planting site","Potential planting site"],
+  ["Remove stump, potential planting site","Remove stump, potential planting site"],
+  ["Other","Other"]
+];
+
+// Aurora's own health palette.
+const HEALTH_COLOR = {"Good":"#3FA45B","Satisfactory":"#7CB342","Potential trouble":"#E0B400",
+  "Declining":"#E8862B","Death imminent":"#D0402B","Dead":"#D0402B",
+  "Removed":"#7A868E","Stump":"#7A868E","Stump carving":"#7A868E"};
+const HEALTH = HEALTH_D.map(p=>[p[0], HEALTH_COLOR[p[0]] || "#90a4ae"]);
 const healthCode = h => { const i = HEALTH.findIndex(x=>x[0]===h); return i<0 ? "" : i+1; };
 const healthColor = h => { const r = HEALTH.find(x=>x[0]===h); return r ? r[1] : "#90a4ae"; };
 
@@ -583,8 +764,11 @@ const FIELDS = [
   {k:"TREE_ID", t:"C", w:20}, {k:"PROJECT", t:"C", w:40},
   {k:"EXT_ID", t:"C", w:24}, {k:"SPECIES", t:"C", w:40},
   {k:"DBH", t:"N", w:6, d:1}, {k:"STEMS", t:"N", w:3, d:0},
-  {k:"HEALTH", t:"C", w:18}, {k:"HLTH_CODE", t:"N", w:1, d:0},
-  {k:"NOTES", t:"C", w:180},
+  {k:"HEALTH", t:"C", w:20}, {k:"HLTH_CODE", t:"N", w:1, d:0},
+  {k:"SITELOCA", t:"C", w:22}, {k:"STRUDEFE", t:"C", w:16}, {k:"FAILPOTE", t:"C", w:8},
+  {k:"WOUNCANK", t:"C", w:16}, {k:"DEADDECAY", t:"C", w:32}, {k:"PESTDISEAS", t:"C", w:28},
+  {k:"IMPEDMNT", t:"C", w:14}, {k:"RECOTREA", t:"C", w:40},
+  {k:"COMMENTS", t:"C", w:180},
   {k:"LAT", t:"N", w:12, d:6}, {k:"LON", t:"N", w:13, d:6},
   {k:"ADDRESS", t:"C", w:80}, {k:"PHOTOS", t:"C", w:180},
   {k:"PHOTO_LINK", t:"C", w:254},   // exactly 10 chars — the DBF field-name limit
@@ -966,7 +1150,11 @@ const FIELD_LABELS = {
   TREE_ID:"Tree ID", EXT_ID:"Existing ID", SPECIES:"Species", DBH:"DBH", STEMS:"Stems",
   HEALTH:"Health", HLTH_CODE:"Health #", NOTES:"Notes", LAT:"Lat", LON:"Lon",
   ADDRESS:"Address", PHOTOS:"Photos", PHOTO_LINK:"Photo link", CRUISER:"Recorded by",
-  EMAIL:"Email", DATE:"Date", SOURCE:"Source", ACCURACY:"Accuracy"
+  EMAIL:"Email", DATE:"Date", SOURCE:"Source", ACCURACY:"Accuracy",
+  PROJECT:"Project", COMMENTS:"Comments",
+  SITELOCA:"Site location", STRUDEFE:"Structural", FAILPOTE:"Failure potential",
+  WOUNCANK:"Wound / canker", DEADDECAY:"Dead / decay", PESTDISEAS:"Pest / disease",
+  IMPEDMNT:"Impediment", RECOTREA:"Recommended treatment"
 };
 function prettyField(f){
   if(FIELD_LABELS[f]) return FIELD_LABELS[f];
@@ -1078,6 +1266,8 @@ function newTree(lat, lon, source, acc){
   t.TREE_ID = nextTreeId();
   t.LAT = lat.toFixed(6); t.LON = lon.toFixed(6);
   t.STEMS = "1";
+  Object.keys(FIELD_DEFAULTS).forEach(k=>t[k]=FIELD_DEFAULTS[k]);
+  t.HLTH_CODE = healthCode(t.HEALTH);
   t.SOURCE = source;
   t.ACCURACY = acc!=null ? Math.round(acc*10)/10 : "";
   t.CRUISER = settings.cruiser; t.EMAIL = settings.email;
@@ -1201,7 +1391,7 @@ function renderLayerList(){
  *  attributes across, so an existing asset layer seeds the new inventory.
  * ================================================================== */
 let refPick = null;                                     // what was last tapped
-const XFER_FIELDS = ["EXT_ID","SPECIES","DBH","STEMS","HEALTH","ADDRESS","NOTES"];
+const XFER_FIELDS = ["EXT_ID","SPECIES","DBH","STEMS","HEALTH","ADDRESS","COMMENTS"];
 
 function refLayerById(id){ return refLayers.find(x=>x.id===id) || null; }
 
@@ -1244,6 +1434,7 @@ function treeFromRef(){
     else if(fld==="HEALTH")  v = matchHealth(v);
     else if(fld==="DBH")     v = normNumber(v);
     else if(fld==="STEMS")   v = normNumber(v).split(".")[0];
+    else if(fld==="DBH")     v = selValue("fDBH", v);
     if(v==="") return;
     t[fld] = v; copied++;
   });
@@ -1546,27 +1737,23 @@ function purgeAbandoned(){
  * ================================================================== */
 function popRow(k,v){ return (v==null||String(v).trim()==="") ? "" : `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`; }
 
+// Everything collected, in schema order, with every photo — the popup is the record.
+const POPUP_SKIP = { TREE_ID:1, SPECIES:1, HEALTH:1, PHOTOS:1, PHOTO_LINK:1, HLTH_CODE:1, LAT:1, LON:1, SOURCE:1, ACCURACY:1, EMAIL:1 };
 function treePopupHtml(i){
   const t = trees[i]; if(!t) return "";
   const photos = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
-  const dbh = t.DBH ? `${t.DBH} cm${parseInt(t.STEMS,10)>1?` · ${t.STEMS} stems`:""}` : "";
   const link = String(t.PHOTO_LINK||"").split(";")[0].trim();
+  let rows = "";
+  KEYS.forEach(k=>{ if(!POPUP_SKIP[k]) rows += popRow(prettyField(k), DOMAIN_FIELDS[k] ? domainLabel(k,t[k]) : t[k]); });
+  rows += popRow("Position", (t.LAT&&t.LON) ? `${Number(t.LAT).toFixed(5)}, ${Number(t.LON).toFixed(5)}` : "");
+  rows += popRow("Fix", (t.SOURCE||"") + (t.ACCURACY?` ±${t.ACCURACY} m`:""));
+  rows += popRow("Synced", t._sent?"yes":"not yet");
   return `<div class="tpop" id="tpop${i}">
-    <b class="id">${esc(t.TREE_ID)}${t.EXT_ID?` <span style="color:#4a6b52">· ${esc(t.EXT_ID)}</span>`:""}</b>
+    <b class="id">${esc(t.TREE_ID)}</b>
     <span class="sp">${esc(t.SPECIES||"— no species —")}</span>
     ${t.HEALTH?`<span class="hbadge" style="background:${healthColor(t.HEALTH)}">${esc(t.HEALTH)}</span>`:""}
-    <table>
-      ${popRow("DBH",dbh)}
-      ${popRow("Address",t.ADDRESS)}
-      ${popRow("Notes",t.NOTES)}
-      ${popRow("By",t.CRUISER)}
-      ${popRow("Date",String(t.DATE||"").slice(0,16))}
-      ${popRow("Position",`${t.LAT}, ${t.LON}`)}
-      ${popRow("Fix",t.SOURCE + (t.ACCURACY?` ±${t.ACCURACY} m`:""))}
-      ${popRow("Synced",t._sent?"yes":"not yet")}
-    </table>
-    ${photos.length?`<img class="ph" id="tpopimg${i}" alt="photo of ${esc(t.TREE_ID)}">`:""}
-    ${photos.length>1?`<div style="font-size:10.5px;color:#4a6b52;margin-top:3px">1 of ${photos.length} photos</div>`:""}
+    <div class="rpop"><table>${rows}</table></div>
+    <div id="tpopph${i}"></div>
     <div class="acts">
       <a href="javascript:void(0)" onclick="editFromPopup(${i})">Edit ›</a>
       ${link?`<a class="alt" href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:""}
@@ -1577,13 +1764,20 @@ function treePopupHtml(i){
 // The thumbnail is fetched after the popup opens — reading it inline would block the tap.
 function fillPopupPhoto(i){
   const t = trees[i]; if(!t) return;
-  const first = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean)[0];
-  if(!first || !HAS_IDB) return;
-  idbGet(first).then(r=>{
-    const el = $("tpopimg"+i);
-    if(el && r && r.data){ el.src = r.data; }
-    else if(el){ el.style.display="none"; }   // on Drive but no longer on this phone
-  }).catch(()=>{});
+  const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
+  const box = $("tpopph"+i);
+  if(!box || !names.length || !HAS_IDB) return;
+  const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
+  names.forEach((fn,k)=>{
+    idbGet(fn).then(r=>{
+      if(!r || !r.data) return;                       // on Drive but not on this phone
+      const a = links[k] ? `<a href="${esc(links[k])}" target="_blank" rel="noopener">` : "";
+      const z = links[k] ? "</a>" : "";
+      box.insertAdjacentHTML("beforeend",
+        `${a}<img class="ph" src="${r.data}" alt="photo ${k+1} of ${esc(t.TREE_ID)}">${z}` +
+        `<div style="font-size:10px;color:#4a6b52;margin:1px 0 5px">Photo ${k+1} of ${names.length}</div>`);
+    }).catch(()=>{});
+  });
 }
 function editFromPopup(i){ try{ fmap.closePopup(); }catch(e){} openTree(i); }
 
@@ -1706,6 +1900,14 @@ function renderStats(){
   const dEnt = Object.entries(dt).sort((a,b)=>a[0]<b[0]?1:-1).slice(0,14);
   h += barBlock("By day (most recent first)", dEnt, n, ()=>"#8e7cc3");
 
+  [["RECOTREA","Recommended treatment","#c98a4b"],["SITELOCA","Site location","#5aa9a3"],
+   ["FAILPOTE","Failure potential","#d1685e"],["PESTDISEAS","Pest / disease","#9c8ac9"],
+   ["IMPEDMNT","Impediment","#8b9aa5"]].forEach(([f,lab,col])=>{
+    const m = tally(list,t=>t[f]?domainLabel(f,t[f]):"");
+    const e = Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,12);
+    if(e.length) h += barBlock(lab, e, n, ()=>col);
+  });
+
   const src = tally(list,t=>t.SOURCE||"unknown");
   h += barBlock("How the position was set", Object.entries(src).sort((a,b)=>b[1]-a[1]), n, ()=>"#7b8f84");
 
@@ -1749,6 +1951,45 @@ function exportStatsCSV(){
 let editIndex = null;
 let currentPhotos = [];
 
+// Each domain is stored by its code and shown by its label — IMPEDMNT is the one where
+// they differ ("Ohwire" stores, "Overhead wire" displays), matching Aurora exactly.
+const DOMAIN_FIELDS = {
+  SITELOCA:SITELOCA_D, STRUDEFE:STRUDEFE_D, FAILPOTE:FAILPOTE_D, WOUNCANK:WOUNCANK_D,
+  DEADDECAY:DEADDECAY_D, PESTDISEAS:PESTDISEAS_D, IMPEDMNT:IMPEDMNT_D, RECOTREA:RECOTREA_D
+};
+function domainLabel(field, code){
+  const d = DOMAIN_FIELDS[field]; if(!d) return code;
+  const hit = d.find(p=>p[0]===code);
+  return hit ? hit[1] : code;
+}
+const DBH_MAX = 249, STEMS_MAX = 200;
+
+/* Aurora seeds a new tree with the healthy baseline, so the crew only touches the
+   fields that actually deviate. Copied exactly from its new-tree form. */
+const FIELD_DEFAULTS = {
+  HEALTH:"Good", SITELOCA:"Boulevard", STRUDEFE:"No problem", WOUNCANK:"No problem",
+  DEADDECAY:"NO PROBLEM (no visible problem)", FAILPOTE:"Low",
+  PESTDISEAS:"None observed", IMPEDMNT:"None", RECOTREA:"No Treatment"
+};
+
+/* Once a tree is gone its defect ratings mean nothing, so Aurora resets them.
+   DBH is deliberately KEPT — size still matters after removal. */
+const NON_LIVING = ["Removed","Dead","Stump","Stump carving"];
+
+function buildPickers(){
+  let o = `<option value="">—</option>`;
+  for(let i=0;i<=DBH_MAX;i++) o += `<option value="${i}">${i}</option>`;
+  $("fDBH").innerHTML = o;                       // 0–249, same range as Aurora
+  let st = "";
+  for(let i=1;i<=STEMS_MAX;i++) st += `<option value="${i}"${i===1?" selected":""}>${i}</option>`;
+  $("fSTEMS").innerHTML = st;                    // a cedar hedge can run to dozens of stems
+  Object.keys(DOMAIN_FIELDS).forEach(f=>{
+    const el = $("f"+f); if(!el) return;
+    el.innerHTML = `<option value="">—</option>` +
+      DOMAIN_FIELDS[f].map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+  });
+}
+
 function buildHealthChips(){
   $("healthChips").innerHTML = HEALTH.map(([h,c])=>
     `<button type="button" data-h="${esc(h)}" onclick="pickHealth('${esc(h)}')">${esc(h)}</button>`).join("");
@@ -1757,6 +1998,22 @@ function pickHealth(h){
   const t = trees[editIndex]; if(!t) return;
   t._draftHealth = (t._draftHealth===h) ? "" : h;
   paintHealth(t._draftHealth);
+  if(NON_LIVING.indexOf(t._draftHealth)>=0) resetForNonLiving();
+}
+
+// Mirrors Aurora's onHealthChange: defect ratings go back to their no-problem value,
+// treatment becomes an explicit "No Treatment", and comments about the living tree clear.
+function resetForNonLiving(){
+  const set=(f,v)=>{ const el=$("f"+f); if(el) el.value=v; };
+  set("STRUDEFE","No problem");
+  set("WOUNCANK","No problem");
+  set("DEADDECAY","NO PROBLEM (no visible problem)");
+  set("FAILPOTE","Low");
+  set("PESTDISEAS","None observed");
+  set("IMPEDMNT","None");
+  set("RECOTREA","No Treatment");
+  $("fCOMMENTS").value="";
+  toast("Defect fields and comments cleared for a non-living tree");
 }
 function paintHealth(h){
   [...$("healthChips").children].forEach(b=>{
@@ -1766,6 +2023,31 @@ function paintHealth(h){
   });
 }
 
+/* Copies species, size, condition and defects forward. Location, photo and comments
+   stay blank — those are the fields that must be unique to each tree. */
+const CARRY_FIELDS = ["SPECIES","DBH","STEMS","HEALTH","SITELOCA","STRUDEFE","WOUNCANK",
+                      "DEADDECAY","FAILPOTE","PESTDISEAS","IMPEDMNT","RECOTREA"];
+let lastTreeAttrs = null;
+try{ lastTreeAttrs = JSON.parse(STORE&&STORE.getItem("st_lasttree")) || null; }catch(e){}
+
+function fillFromLastTree(){
+  if(!lastTreeAttrs){ toast("No previous tree yet",true); return; }
+  const t = trees[editIndex]; if(!t) return;
+  const L = lastTreeAttrs;
+  if(L.SPECIES) setSpeciesVal(L.SPECIES);
+  if(L.DBH!=null) $("fDBH").value = selValue("fDBH", L.DBH);
+  if(L.STEMS) $("fSTEMS").value = L.STEMS;
+  Object.keys(DOMAIN_FIELDS).forEach(f=>{ if(L[f]!=null && $("f"+f)) $("f"+f).value = L[f]; });
+  if(L.HEALTH){ t._draftHealth = L.HEALTH; paintHealth(L.HEALTH); }
+  renderSpeciesQuick(); renderDbhQuick();
+  toast("Copied from " + (L.SPECIES || "the last tree"));
+}
+function rememberLastTree(t){
+  const o = {}; CARRY_FIELDS.forEach(k=>o[k]=t[k]);
+  lastTreeAttrs = o;
+  if(STORE){ try{ STORE.setItem("st_lasttree", JSON.stringify(o)); }catch(e){} }
+}
+
 function openTree(i){
   editIndex = i;
   const t = trees[i];
@@ -1773,16 +2055,26 @@ function openTree(i){
   $("sheetTitle").textContent = t._new ? "New tree" : "Edit tree";
   $("sheetId").textContent = t.TREE_ID + (t.EXT_ID ? " · was " + t.EXT_ID : "");
   setSpeciesVal(t.SPECIES);
-  $("fDBH").value = t.DBH || "";
-  $("fSTEMS").value = t.STEMS || "1";
+  $("fDBH").value = selValue("fDBH", t.DBH);
+  $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
+  Object.keys(DOMAIN_FIELDS).forEach(f=>{
+    const el=$("f"+f); if(!el) return;
+    const v=String(t[f]||"");
+    el.value = DOMAIN_FIELDS[f].some(p=>p[0]===v) ? v : "";
+  });
   $("fADDRESS").value = t.ADDRESS || "";
-  $("fNOTES").value = t.NOTES || "";
+  $("fCOMMENTS").value = t.COMMENTS || "";
   $("fLAT").value = t.LAT || "";
   $("fLON").value = t.LON || "";
   paintHealth(t._draftHealth);
+  $("sameAsLastRow").style.display = (t._new && lastTreeAttrs) ? "flex" : "none";
+  if(lastTreeAttrs && lastTreeAttrs.SPECIES)
+    $("sameAsLastBtn").textContent = "⧉ Same as last tree · " + lastTreeAttrs.SPECIES;
   renderSpeciesQuick();
   renderDbhQuick();
-  $("posHint").textContent = t.SOURCE ? `${t.SOURCE}${t.ACCURACY?` · ±${t.ACCURACY} m`:""}` : "—";
+  $("posHint").textContent = t.LAT
+    ? `${t.SOURCE||"set"}${t.ACCURACY?` · ±${t.ACCURACY} m`:""} · ${Number(t.LAT).toFixed(5)}, ${Number(t.LON).toFixed(5)}`
+    : "no position yet";
   currentPhotos = String(t.PHOTOS||"").split(";").map(s=>s.trim()).filter(Boolean);
   renderThumbs();
   if(t.PHOTO_LINK){
@@ -1807,16 +2099,16 @@ function saveTree(){
   const t = trees[editIndex]; if(!t) return;
   const lat = num($("fLAT").value), lon = num($("fLON").value);
   if(lat==null||lon==null){ toast("A tree needs a latitude and longitude",true); return; }
-  $("fDBH").value = normNumber($("fDBH").value);   // show the cleaned value if dictation added words
   if(!$("spVal").textContent || $("spVal").classList.contains("empty")){ toast("Choose a species",true); return; }
 
   t.SPECIES = $("spVal").textContent;
-  t.DBH     = normNumber($("fDBH").value);
-  t.STEMS   = normNumber($("fSTEMS").value).split(".")[0] || "1";
+  t.DBH     = $("fDBH").value;
+  t.STEMS   = $("fSTEMS").value || "1";
+  Object.keys(DOMAIN_FIELDS).forEach(f=>{ const el=$("f"+f); if(el) t[f]=el.value; });
   t.HEALTH  = t._draftHealth || "";
   t.HLTH_CODE = healthCode(t.HEALTH);
   t.ADDRESS = normText($("fADDRESS").value);
-  t.NOTES   = normText($("fNOTES").value);
+  t.COMMENTS = normText($("fCOMMENTS").value);
   t.LAT = lat.toFixed(6); t.LON = lon.toFixed(6);
   t.PHOTOS = currentPhotos.join("; ");
   t.CRUISER = settings.cruiser; t.EMAIL = settings.email;
@@ -1825,6 +2117,7 @@ function saveTree(){
   t._sent = false;
   delete t._new; delete t._draftHealth;
 
+  rememberLastTree(t);
   if(t.SPECIES) speciesUse[t.SPECIES] = (speciesUse[t.SPECIES]||0)+1;
   if(t.DBH)     dbhUse[t.DBH] = (dbhUse[t.DBH]||0)+1;
   if(t.SPECIES || t.DBH) persistUse();
@@ -1852,20 +2145,43 @@ function deleteTree(){
   if(lastDeleted) showUndo(`Deleted ${id}`); else toast("Discarded " + id);
 }
 
-function bumpDbh(d){
-  const el=$("fDBH"); const v=num(normNumber(el.value));
-  el.value = String(Math.max(0, Math.round(((v==null?0:v)+d)*10)/10));
-  renderDbhQuick();
+
+let repoIdx=null;
+function startReposition(){
+  if(editIndex==null) return;
+  repoIdx = editIndex;
+  $("treeSheet").classList.remove("show");
+  $("crosshair").style.display="block";
+  $("repoBar").classList.add("show");
+  const t=trees[repoIdx];
+  const lat=num(t.LAT), lon=num(t.LON);
+  if(lat!=null&&lon!=null) fmap.setView([lat,lon], Math.max(fmap.getZoom(),19));
+  $("repoMsg").textContent = mePos
+    ? "Crosshair = new spot · blue dot = your GPS"
+    : "Pan the map so the crosshair sits on the tree";
 }
-function bumpStems(d){
-  const el=$("fSTEMS"); const v=parseInt(normNumber(el.value),10)||1;
-  el.value = String(Math.max(1, v+d));
+function endReposition(){
+  $("crosshair").style.display="none";
+  $("repoBar").classList.remove("show");
+  const i=repoIdx; repoIdx=null;
+  if(i!=null){ editIndex=i; $("treeSheet").classList.add("show"); }
 }
+function confirmReposition(){
+  if(repoIdx==null){ endReposition(); return; }
+  const c=fmap.getCenter(), t=trees[repoIdx];
+  $("fLAT").value=c.lat.toFixed(6); $("fLON").value=c.lng.toFixed(6);
+  t.SOURCE="crosshair"; t.ACCURACY="";
+  $("posHint").textContent = `crosshair · ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+  endReposition();
+  toast("Position moved to the crosshair");
+}
+function cancelReposition(){ endReposition(); }
+
 function movePinToGPS(){
   const a=avgPos(); if(!a){ toast("No GPS fix yet",true); return; }
   $("fLAT").value=a.lat.toFixed(6); $("fLON").value=a.lon.toFixed(6);
   const t=trees[editIndex]; if(t){ t.SOURCE="gps"; t.ACCURACY=Math.round(a.acc*10)/10; }
-  $("posHint").textContent = `gps · ±${Math.round(a.acc)} m · ${a.n} fixes`;
+  $("posHint").textContent = `gps · ±${Math.round(a.acc)} m · ${a.n} fixes · ${a.lat.toFixed(5)}, ${a.lon.toFixed(5)}`;
   toast(a.acc>GPS_WARN_M ? `Position updated — but only ±${Math.round(a.acc)} m` : "Position updated", a.acc>GPS_WARN_M);
 }
 
@@ -1918,7 +2234,15 @@ function renderDbhQuick(){
   $("dbhQuick").innerHTML = top.map(v=>
     `<button type="button" class="${v===cur?"sel":""}" onclick="quickDbh('${esc(v)}')">${esc(v)}</button>`).join("");
 }
-function quickDbh(v){ $("fDBH").value=v; renderDbhQuick(); }
+function quickDbh(v){ $("fDBH").value=selValue("fDBH",v); renderDbhQuick(); }
+
+// An imported value may be 38.5 or 250 — snap it to the nearest option rather than
+// silently blanking the field.
+function selValue(id, v){
+  const n = parseFloat(normNumber(v));
+  if(!isFinite(n) || n<=0) return "";
+  return String(Math.min(200, Math.max(1, Math.round(n))));
+}
 
 function setSpeciesVal(v){
   const el=$("spVal");
@@ -2065,9 +2389,16 @@ async function encodeToTarget(file){
 
 // Filenames are unique by construction: tree id + sequence + cruiser + timestamp + random.
 function handlePhoto(input){
-  const file = input.files && input.files[0]; input.value="";
-  if(!file) return;
-  const t = trees[editIndex]; if(!t){ toast("Open a tree first",true); return; }
+  const files = Array.prototype.slice.call(input.files||[]); input.value="";
+  if(!files.length) return;
+  if(!trees[editIndex]){ toast("Open a tree first",true); return; }
+  // Sequential, not parallel: several full-size encodes at once will stall a phone.
+  files.reduce((p,f)=>p.then(()=>addOnePhoto(f)), Promise.resolve())
+       .then(()=>{ if(files.length>1) toast(`${files.length} photos added`); });
+}
+
+function addOnePhoto(file){
+  const t = trees[editIndex]; if(!t) return Promise.resolve();
   const seq = currentPhotos.length + 1;
   const d=new Date();
   const ts = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
@@ -2076,23 +2407,35 @@ function handlePhoto(input){
   const filename = `${t.TREE_ID}_p${pad(seq)}_${who}_${ts}_${rnd}.jpg`.replace(/[^A-Za-z0-9_.\-]/g,"-");
 
   $("photoHint").textContent = "Processing photo…";
-  encodeToTarget(file).then(enc=>{
+  return encodeToTarget(file).then(enc=>{
     currentPhotos.push(filename);
     addThumb(enc.dataUrl, seq);
     const rec = { filename, tree:t.TREE_ID, cruiser:settings.cruiser, time:new Date().toISOString(),
                   lat:num($("fLAT").value), lon:num($("fLON").value), data:enc.dataUrl, uploaded:false,
                   bytes:enc.bytes, w:enc.w, h:enc.h };
     const done = HAS_IDB ? idbPut(rec).catch(()=>{ pendingMem.push(rec); }) : (pendingMem.push(rec), Promise.resolve());
-    done.then(()=>{
-      $("photoHint").textContent = `Photo ${seq} saved · ${Math.round(enc.bytes/1024)} KB · ${enc.w}×${enc.h}`;
+    return done.then(()=>{
+      $("photoHint").textContent = `${currentPhotos.length} photo(s) · last ${Math.round(enc.bytes/1024)} KB · ${enc.w}×${enc.h}`;
       updateArchCount(); flushPhotos();
     });
   }).catch(()=>{ $("photoHint").textContent = "That image could not be processed on this device."; });
 }
 function addThumb(dataUrl,seq){
   const d=document.createElement("div"); d.className="thumb";
-  d.innerHTML=`<img src="${dataUrl}" alt="photo ${seq}"><b>${seq}</b>`;
+  d.innerHTML=`<img src="${dataUrl}" alt="photo ${seq}"><b>${seq}</b>` +
+    `<i onclick="removePhoto(${seq-1})" style="position:absolute;top:1px;left:1px;background:rgba(140,35,24,.9);` +
+    `color:#fff;font:700 11px/1 sans-serif;font-style:normal;padding:3px 5px;border-radius:5px;cursor:pointer">✕</i>`;
   $("photoThumbs").appendChild(d);
+}
+// Removes the link from this tree. The image itself stays in the archive and on Drive.
+function removePhoto(i){
+  if(i<0||i>=currentPhotos.length) return;
+  const fn=currentPhotos[i];
+  if(!confirm(`Remove photo ${i+1} from this tree?\n\nThe file stays in the photo archive.`)) return;
+  currentPhotos.splice(i,1);
+  renderThumbs();
+  $("photoHint").textContent = currentPhotos.length ? `${currentPhotos.length} photo(s)` : "No photos on this tree";
+  toast("Photo unlinked");
 }
 function renderThumbs(){
   $("photoThumbs").innerHTML="";
@@ -2285,7 +2628,13 @@ async function importPoints(file){
       if(g.type==="Point") feats.push({lon:g.coordinates[0], lat:g.coordinates[1], props:f.properties||{}});
       else if(g.type==="MultiPoint") g.coordinates.forEach(c=>feats.push({lon:c[0], lat:c[1], props:f.properties||{}}));
     }));
-    if(!feats.length){ toast("No point features found",true); return; }
+    if(!feats.length){
+      const any = (Array.isArray(gj)?gj:[gj]).some(fc=>((fc&&fc.features)||[]).length);
+      toast(any ? "That file holds lines or polygons — add it under Layers instead"
+                : "No features found in that file", true);
+      if(any) setTimeout(openLayers, 900);
+      return;
+    }
 
     importFeatures = feats;
     const keys=[]; feats.slice(0,300).forEach(f=>{ for(const k in f.props) if(keys.indexOf(k)<0) keys.push(k); });
@@ -2323,7 +2672,7 @@ function confirmImport(){
     t.HEALTH  = fH ? matchHealth(String(f.props[fH]==null?"":f.props[fH]).trim()) : "";
     t.HLTH_CODE = healthCode(t.HEALTH);
     t.ADDRESS = fA ? String(f.props[fA]==null?"":f.props[fA]).trim() : "";
-    t.NOTES   = fN ? String(f.props[fN]==null?"":f.props[fN]).trim() : "";
+    t.COMMENTS = fN ? String(f.props[fN]==null?"":f.props[fN]).trim() : "";
     t.STEMS = "1";
     t.PROJECT = settings.project;
     t.SOURCE = "import";
@@ -2346,16 +2695,19 @@ function matchSpecies(v){
 }
 function matchHealth(v){
   if(!v) return "";
-  const l=v.toLowerCase();
+  const l=String(v).trim().toLowerCase();
   const hit = HEALTH.find(h=>h[0].toLowerCase()===l);
   if(hit) return hit[0];
   // Anchored patterns only: a loose /^d/ would turn "Damaged" into "Dead".
   if(/^(g|good|healthy|1)$/.test(l)) return "Good";
   if(/^(s|sat|satisfactory|fair|f|2)$/.test(l)) return "Satisfactory";
-  if(/^(p|poor|3)$/.test(l) || /troubl/.test(l)) return "Potential Trouble";
+  if(/^(p|poor|3)$/.test(l) || /troubl/.test(l)) return "Potential trouble";
   if(/declin|^4$/.test(l)) return "Declining";
-  if(/immin|dying|^5$/.test(l)) return "Death Imminent";
+  if(/immin|dying|^5$/.test(l)) return "Death imminent";
   if(/^(d|dead|x|6)$/.test(l)) return "Dead";
+  if(/carv/.test(l)) return "Stump carving";
+  if(/stump|^8$/.test(l)) return "Stump";
+  if(/remov|vacant|missing|^7$/.test(l)) return "Removed";
   return "";
 }
 
@@ -2888,6 +3240,7 @@ function showHelp(){
     <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
+    <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>Fast entry</b><br>Your most-used species and DBH values appear as tap chips at the top of the form, so most trees need no typing at all. The full 600-name list is one tap away and the search tolerates dictated punctuation.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and first photo. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
@@ -2934,6 +3287,7 @@ window.addEventListener("offline", netDot);
 (function start(){
   $("buildStamp").textContent = "Build " + APP_BUILD + " · tap to update";
   buildHealthChips();
+  buildPickers();
   const abandoned = purgeAbandoned();   // left over from a crash or a force-close
   syncLabelBtn();
   netDot();
