@@ -533,7 +533,10 @@
     <h2>Layers</h2>
     <div class="idline" id="layerStats">—</div>
     <div id="layerList"></div>
-    <div class="btnrow"><button onclick="document.getElementById('refInput').click()">＋ Add reference layer</button></div>
+    <div class="btnrow">
+      <button onclick="document.getElementById('refInput').click()">＋ Add reference layer</button>
+      <button onclick="removeAllRefLayers()">✕ Remove all</button>
+    </div>
     <div class="mini">Reference layers are for context only — parcels, streets, boundaries. They are drawn and labelled but never edited or exported. To bring in trees you will edit, use Menu → Import tree points.</div>
     <div class="btnrow"><button onclick="closeLayers()">Close</button></div>
   </div>
@@ -689,7 +692,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v20";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v21";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1109,6 +1112,12 @@ function persistLabelCfg(){ if(STORE){ try{ STORE.setItem("st_labelcfg",JSON.str
 const REF_PALETTE = ["#ff7043","#80cbc4","#ffe082","#ce93d8","#a5d6a7","#90caf9","#f48fb1","#bcaaa4"];
 let refLayers = [];
 try{ refLayers = JSON.parse(STORE&&STORE.getItem("st_reflayers")) || []; }catch(e){ refLayers=[]; }
+
+/* Each tree-point import is recorded as a batch, so a file loaded by mistake can be
+   taken back out again without hunting for individual trees. */
+let importBatches = [];
+try{ importBatches = JSON.parse(STORE&&STORE.getItem("st_impbatches")) || []; }catch(e){ importBatches=[]; }
+function persistBatches(){ if(STORE){ try{ STORE.setItem("st_impbatches", JSON.stringify(importBatches)); }catch(e){} } }
 function persistRefLayers(){
   if(!STORE) return;
   try{ STORE.setItem("st_reflayers", JSON.stringify(refLayers)); }
@@ -1522,6 +1531,57 @@ function removeRef(id){
   toast("Layer removed");
 }
 
+/* Removes every tree that came in with one import — locally, and from the Sheet in
+   one request rather than one per tree. */
+function removeImportBatch(id){
+  const b = importBatches.find(x=>x.id===id); if(!b) return;
+  const mine = trees.filter(t=>t._imp===id);
+  const edited = mine.filter(t=>t._sent===false && t.DATE && t.SPECIES).length;
+  if(!confirm(`Remove the ${mine.length} tree(s) imported from "${b.name}"?\n\n` +
+              (edited?`Careful: some have been edited since.\n\n`:"") +
+              `They are deleted from this phone and from the Sheet. This cannot be undone.`)) return;
+
+  const ids = mine.map(t=>t.TREE_ID);
+  const synced = mine.filter(t=>t._sent).map(t=>t.TREE_ID);
+  trees = trees.filter(t=>t._imp!==id);
+  importBatches = importBatches.filter(x=>x.id!==id);
+  persistTrees(); persistBatches(); renderPins(); renderLayerList();
+
+  if(synced.length && connected && !isOffline()){
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"deletebatch", ids:synced})}).catch(()=>{});
+  }
+  toast(`Removed ${ids.length} imported tree(s)`);
+}
+
+// Trees imported before batches were tracked, or whose batch record is gone.
+function untrackedImports(){
+  const known = {}; importBatches.forEach(b=>known[b.id]=1);
+  return trees.filter(t=>t.SOURCE==="import" && (!t._imp || !known[t._imp]));
+}
+function removeUntrackedImports(){
+  const mine = untrackedImports();
+  if(!mine.length) return;
+  if(!confirm(`Remove ${mine.length} imported tree(s) from an earlier session?\n\nThis cannot be undone.`)) return;
+  const synced = mine.filter(t=>t._sent).map(t=>t.TREE_ID);
+  const drop = {}; mine.forEach(t=>drop[t.TREE_ID]=1);
+  trees = trees.filter(t=>!drop[t.TREE_ID]);
+  persistTrees(); renderPins(); renderLayerList();
+  if(synced.length && connected && !isOffline()){
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"deletebatch", ids:synced})}).catch(()=>{});
+  }
+  toast(`Removed ${mine.length} imported tree(s)`);
+}
+function removeAllRefLayers(){
+  if(!refLayers.length) return;
+  if(!confirm(`Remove all ${refLayers.length} reference layer(s)? Trees are not affected.`)) return;
+  refLayers.forEach(l=>{ delete labelCfg[l.id]; });
+  refLayers = [];
+  persistLabelCfg(); persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+  toast("Reference layers removed");
+}
+
 function openLayers(){ renderLayerList(); $("layersSheet").classList.add("show"); }
 function closeLayers(){ $("layersSheet").classList.remove("show"); }
 function renderLayerList(){
@@ -1541,6 +1601,24 @@ function renderLayerList(){
       <button onclick="openXfer('${L2.id}')">⇥</button>
       <button onclick="removeRef('${L2.id}')">✕</button>
     </div>`).join("");
+  // imported tree points, removable as the batch they arrived in
+  const untracked = untrackedImports();
+  if(importBatches.length || untracked.length){
+    h += `<div class="stath" style="margin:14px 0 7px">Imported tree points</div>`;
+    h += importBatches.map(b=>`
+      <div class="layerrow">
+        <span class="sw" style="width:14px;height:14px;border-radius:50%;background:#4caf50;border:2px solid #fff"></span>
+        <span class="nm">${esc(b.name)}<br><span class="ct">${b.n} trees · ${esc(b.when)}${b.project?" · "+esc(b.project):""}</span></span>
+        <button onclick="removeImportBatch('${b.id}')">✕ Remove</button>
+      </div>`).join("");
+    if(untracked.length){
+      h += `<div class="layerrow">
+        <span class="sw" style="width:14px;height:14px;border-radius:50%;background:#9e9e9e;border:2px solid #fff"></span>
+        <span class="nm">Earlier imports<br><span class="ct">${untracked.length} trees · batch not recorded</span></span>
+        <button onclick="removeUntrackedImports()">✕ Remove</button>
+      </div>`;
+    }
+  }
   $("layerList").innerHTML = h;
   $("layerStats").textContent = `${refLayers.length} reference layer(s) · ${trees.length} trees`;
 }
@@ -3081,7 +3159,7 @@ function pullFromSheet(){
 /* ================================================================== *
  *  IMPORT
  * ================================================================== */
-let importFeatures = null;
+let importFeatures = null, importName = "";
 $("pointsInput").addEventListener("change", e=>{
   const f=e.target.files[0]; e.target.value="";
   if(f) importPoints(f);
@@ -3146,6 +3224,7 @@ function confirmImport(){
   if(!importFeatures) return;
   const pick = id => $("map"+id).value;
   const fEXT=pick("EXT"), fSP=pick("SPECIES"), fDBH=pick("DBH"), fH=pick("HEALTH"), fA=pick("ADDRESS"), fN=pick("COMMENTS");
+  const batchId = "imp"+Date.now().toString(36);
   let added=0, skipped=0;
   importFeatures.forEach(f=>{
     const ext = fEXT ? String(f.props[fEXT]==null?"":f.props[fEXT]).trim() : "";
@@ -3165,10 +3244,16 @@ function confirmImport(){
     t.STEMS = "1";
     t.PROJECT = settings.project;
     t.SOURCE = "import";
+    t._imp = batchId;
     t._sent = false;
     trees.push(t); added++;
   });
   importFeatures=null;
+  if(added){
+    importBatches.push({id:batchId, name:importName||"import", n:added,
+                        when:nowStr().slice(0,16), project:settings.project||""});
+    persistBatches();
+  }
   $("mapSheet").classList.remove("show");
   persistTrees(); renderPins(); fitTrees();
   toast(`Imported ${added}${skipped?` · ${skipped} already present`:""}`);
@@ -3775,6 +3860,7 @@ function showHelp(){
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and small photo thumbnails — tap a thumbnail to see it full size. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
+    <p><b>Removing an import</b><br>Menu → Layers lists both reference layers and every batch of tree points you have imported, with the file name, count and date. Removing a batch deletes exactly those trees from the phone and the Sheet — useful when a file goes in by mistake. It warns if any of them have been edited since.</p>
     <p><b>Importing</b><br>Menu → Import tree points takes a zipped shapefile, .geojson or .gpx. You match the incoming columns to the app's fields once, and any existing ID is kept and re-exported as EXT_ID. Re-importing the same file will not create duplicates.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
     <p><b>Addresses</b><br>Leave blank and the Sheet fills them in on sync. <i>Look up now</i> fetches one immediately if you have signal.</p>
