@@ -467,6 +467,7 @@
     <button class="menuitem" onclick="refreshPhotoLinks()">🔗 Refresh photo links</button>
     <button class="menuitem" onclick="openArchive()">🖼 Photo archive (<span id="archCount">0</span>)</button>
     <button class="menuitem" onclick="showHelp()">? How this app works</button>
+    <button class="menuitem" onclick="clearProjectLocal()">🧹 Clear a project from this phone</button>
     <button class="menuitem" onclick="clearAllData()">🗑 Clear all data on this device</button>
     <div class="btnrow"><button onclick="closeMenu()">Close</button></div>
     <div class="mini" id="buildStamp" onclick="forceUpdate()" style="text-align:center;margin-top:10px;cursor:pointer"></div>
@@ -691,7 +692,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v27";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v28";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2943,6 +2944,8 @@ function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO
 function idbPut(rec){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"); tx.objectStore(PHOTO_STORE).put(rec); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
 function idbGet(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readonly"), g=tx.objectStore(PHOTO_STORE).get(fn);
   g.onsuccess=()=>{ db.close(); res(g.result||null); }; g.onerror=()=>{ db.close(); res(null); }; }).catch(()=>res(null)); }); }
+function idbDelete(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite");
+  tx.objectStore(PHOTO_STORE).delete(fn); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }).catch(()=>res()); }); }
 function idbAll(){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readonly"); const rq=tx.objectStore(PHOTO_STORE).getAll(); rq.onsuccess=()=>{db.close();res(rq.result||[]);}; rq.onerror=()=>{db.close();rej(rq.error);}; }).catch(rej); }); }
 function idbClear(){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"); tx.objectStore(PHOTO_STORE).clear(); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
 function idbSetUploaded(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"), st=tx.objectStore(PHOTO_STORE), g=st.get(fn);
@@ -3907,7 +3910,55 @@ function reattribute(oldName){
   return n;
 }
 
+/* Local only. Removing shared data lives in the Sheet, behind Google access — this
+   just frees up a phone that has finished with a job, and refuses to discard work
+   that has not reached the Sheet yet. */
+function clearProjectLocal(){
+  closeMenu();
+  const counts = {};
+  trees.forEach(t=>{ const p=projectOf(t)||"(no project)"; counts[p]=(counts[p]||0)+1; });
+  const names = Object.keys(counts);
+  if(!names.length){ toast("No trees on this phone"); return; }
+
+  const pick = prompt("Clear which project from THIS PHONE?\n\n" +
+    names.map(n=>`  ${n} (${counts[n]})`).join("\n") +
+    "\n\nNothing is removed from the Sheet — this only frees up the device.\n\nType the project name:");
+  if(pick===null) return;
+  const name = normText(pick);
+  if(!name || !counts[name]){ toast("No trees for that project on this phone",true); return; }
+
+  const mine = trees.filter(t=>(projectOf(t)||"(no project)")===name);
+  const unsent = mine.filter(t=>!t._sent).length;
+  if(unsent){
+    toast(`${unsent} tree(s) have not synced — sync first`,true);
+    alert(`${unsent} of these ${mine.length} tree(s) have not reached the Sheet yet.\n\n` +
+          `Clearing now would lose them. Run Sync, then Verify what reached the Sheet, and try again.`);
+    return;
+  }
+  if(!confirm(`Remove ${mine.length} tree(s) in "${name}" from this phone?\n\n` +
+              `They stay in the Sheet and can be pulled back with "Load trees from Sheet".`)) return;
+
+  const photoNames = {};
+  mine.forEach(t=>String(t.PHOTOS||"").split(";").forEach(x=>{ const f=x.trim(); if(f) photoNames[f]=1; }));
+  trees = trees.filter(t=>(projectOf(t)||"(no project)")!==name);
+  persistTrees(); renderPins();
+
+  // Only drop photos already backed up; anything still waiting to upload stays put.
+  if(HAS_IDB){
+    idbAll().then(list=>{
+      const drop = list.filter(r=>photoNames[r.filename] && r.uploaded);
+      const kept = list.filter(r=>photoNames[r.filename] && !r.uploaded).length;
+      drop.forEach(r=>idbDelete(r.filename));
+      updateArchCount();
+      if(kept) toast(`${kept} photo(s) kept — not yet backed up`);
+    }).catch(()=>{});
+  }
+  toast(`Cleared ${mine.length} tree(s) from this phone`);
+}
+
 function clearAllData(){
+  const unsent = trees.filter(t=>!t._sent).length;
+  if(unsent && !confirm(`${unsent} tree(s) on this phone have NOT reached the Sheet.\n\nClearing now loses them for good. Continue anyway?`)) return;
   if(!confirm("Delete every tree and photo stored on this phone?\n\nAnything already synced stays in the Google Sheet. This cannot be undone.")) return;
   if(!confirm("Really delete? Last chance.")) return;
   trees=[]; persistTrees();
