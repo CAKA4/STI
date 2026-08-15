@@ -410,6 +410,7 @@
     <div class="fld">
       <label>Address <button type="button" class="clr" onclick="clearField('fADDRESS')">Clear</button></label>
       <input id="fADDRESS" type="text" placeholder="Fills in automatically…" autocomplete="off">
+      <div class="mini" id="addrWhy">—</div>
       <div class="mini"><a href="javascript:void(0)" style="color:var(--accent)" onclick="lookupAddress()">Look up now</a> · needs a connection</div>
     </div>
 
@@ -744,7 +745,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-15 · v34";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-15 · v36";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1153,8 +1154,7 @@ function persistLabelCfg(){ if(STORE){ try{ STORE.setItem("st_labelcfg",JSON.str
 /* ---------- reference layers ----------
    Context only: drawn and labelled, never edited, never exported. */
 const REF_PALETTE = ["#ff7043","#80cbc4","#ffe082","#ce93d8","#a5d6a7","#90caf9","#f48fb1","#bcaaa4"];
-let refLayers = [];
-try{ refLayers = JSON.parse(STORE&&STORE.getItem("st_reflayers")) || []; }catch(e){ refLayers=[]; }
+let refLayers = [];        // loaded from IndexedDB at startup, see loadRefLayers()
 
 /* Each tree-point import is recorded as a batch, so a file loaded by mistake can be
    taken back out again without hunting for individual trees. */
@@ -1162,9 +1162,25 @@ let importBatches = [];
 try{ importBatches = JSON.parse(STORE&&STORE.getItem("st_impbatches")) || []; }catch(e){ importBatches=[]; }
 function persistBatches(){ if(STORE){ try{ STORE.setItem("st_impbatches", JSON.stringify(importBatches)); }catch(e){} } }
 function persistRefLayers(){
-  if(!STORE) return;
-  try{ STORE.setItem("st_reflayers", JSON.stringify(refLayers)); }
-  catch(e){ toast("Layer too big to keep on this device — it will vanish on restart",true); }
+  if(!HAS_IDB){ toast("No layer store on this device — layers last until you close the app",true); return; }
+  // Settings are small and change often; geometry is large and changes rarely, so
+  // they are written separately.
+  refLayers.forEach(l=>{
+    idbPutLayer({ id:l.id, name:l.name, color:l.color, visible:l.visible,
+                  role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
+                  features:l.features })
+      .catch(()=>toast("Could not save "+l.name+" to this device",true));
+  });
+}
+function loadRefLayers(){
+  if(!HAS_IDB) return Promise.resolve();
+  return idbAllLayers().then(list=>{
+    if(!list.length) return;
+    refLayers = list;
+    drawRefLayers(); renderLayerList(); buildLegend();
+    const n = list.reduce((a,l)=>a+l.features.length,0);
+    if(n>5000) setStatus(`${list.length} layer(s), ${n.toLocaleString()} features loaded`);
+  }).catch(()=>{});
 }
 
 const BASES = [
@@ -1185,7 +1201,7 @@ async function initMap(){
   refGroup = L.layerGroup().addTo(fmap);    // context layers sit under the trees
   pinLayer = L.layerGroup().addTo(fmap);
   labelLayer = L.layerGroup().addTo(fmap);
-  drawRefLayers();
+  loadRefLayers();
   buildLegend();
   fmap.on("moveend zoomend", scheduleRedraw);
   fmap.on("zoomstart", ()=>{ if(labelLayer) labelLayer.clearLayers(); });   // labels are the costly part
@@ -1360,6 +1376,7 @@ function scheduleRedraw(){
     // clear the very marker the popup belongs to, so it vanishes as you tap it.
     if(popupOpen) return;
     renderPins();
+    if(refLayers.length) drawRefLayers();
   }, 140);
 }
 
@@ -1524,12 +1541,24 @@ function newTree(lat, lon, source, acc){
 /* ================================================================== *
  *  REFERENCE LAYERS
  * ================================================================== */
+const REF_DRAW_MAX = 1200;    // polygons drawn in one pass, across all layers
+
 function drawRefLayers(){
-  if(!refGroup) return;
+  if(!refGroup || !fmap) return;
   refGroup.clearLayers();
+  // A parcel fabric is far too big to draw whole: only features touching the current
+  // view are drawn, with a ceiling. Lookups still search the entire layer — this is
+  // about what is painted, not what is known.
+  const view = fmap.getBounds().pad(0.25);
+  const vb = { n:view.getNorth(), s:view.getSouth(), e:view.getEast(), w:view.getWest() };
+  let drawn = 0, skipped = 0;
   refLayers.forEach(L2=>{
     if(!L2.visible) return;
     L2.features.forEach((f,fi)=>{
+      if(drawn >= REF_DRAW_MAX){ skipped++; return; }
+      const bb = featureBBox(f);
+      if(bb && (bb.s > vb.n || bb.n < vb.s || bb.w > vb.e || bb.e < vb.w)) return;   // off screen
+      drawn++;
       const g=f.geom; if(!g) return;
       const opts={maxWidth:280,autoPanPadding:[24,24]};
       // The tap position matters for lines and polygons: a tree goes where you touched,
@@ -1549,6 +1578,7 @@ function drawRefLayers(){
       }
     });
   });
+  if(skipped) setStatus(`Showing ${drawn} of the layer features here — zoom in for the rest`);
   renderLabels();
 }
 function eachRing(co,fn){ if(typeof co[0][0]==="number") fn(co); else co.forEach(c=>eachRing(c,fn)); }
@@ -1603,7 +1633,7 @@ function removeRef(id){
   if(!confirm(`Remove the layer "${L2.name}"? Trees are not affected.`)) return;
   refLayers = refLayers.filter(x=>x.id!==id);
   delete labelCfg[id]; persistLabelCfg();
-  persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+  idbDelLayer(id); drawRefLayers(); renderLayerList(); buildLegend();
   toast("Layer removed");
 }
 
@@ -1652,9 +1682,9 @@ function removeUntrackedImports(){
 function removeAllRefLayers(){
   if(!refLayers.length) return;
   if(!confirm(`Remove all ${refLayers.length} reference layer(s)? Trees are not affected.`)) return;
-  refLayers.forEach(l=>{ delete labelCfg[l.id]; });
+  refLayers.forEach(l=>{ delete labelCfg[l.id]; idbDelLayer(l.id); });
   refLayers = [];
-  persistLabelCfg(); persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+  persistLabelCfg(); drawRefLayers(); renderLayerList(); buildLegend();
   toast("Reference layers removed");
 }
 
@@ -3375,31 +3405,72 @@ function paintAutoFields(idx){
     const el=$(id); if(!el) return;
     if(!el.value.trim() && t[k]){ el.value=t[k]; formSnapshot[id]=t[k]; confirmField(id); }
   });
+  const noParcels = !layersWithRole("parcel").length;
   $("fADDRESS").placeholder = "Fills in automatically...";
+  if(t._addrSrc){
+    $("crownWhy") && null;
+    const el = $("addrWhy");
+    if(el) el.textContent = "Address " + t._addrSrc +
+      (noParcels ? " · load a parcel layer for exact addresses" : "");
+  }
   if(t._addrSrc) $("posHint").textContent = ($("posHint").textContent||"") .replace(/ · address .*$/,"") + " · address " + t._addrSrc;
 }
 
-/* Two free geocoders, no keys. Photon returns structured OSM fields and is more
-   forgiving of a point in a road allowance; Nominatim is the fallback. Neither is as
-   good as a parcel layer, which is why they are only reached when there isn't one. */
-function reverseGeocode(lat, lon){
-  return photonReverse(lat,lon).then(r=>{
-    if(r && (r.address||r.street)) return r;
-    return nominatimReverse(lat,lon);
-  }).catch(()=>nominatimReverse(lat,lon));
+/* Two free geocoders, no keys — and both are asked, not one then the other.
+
+   A reverse geocoder returns the nearest thing it has an address for. That object
+   can be tens of metres away: a building centroid set back from the street, or the
+   house opposite. So each result is now scored, and a result whose own coordinates
+   are far from the tree is rejected outright rather than written down as fact.
+   This is a guard, not a cure — the cure is a parcel layer. */
+const GEOCODE_MAX_M   = 45;   // beyond this the result is not about this tree
+const GEOCODE_GOOD_M  = 20;   // close enough to quote a house number with confidence
+
+function scoreGeo(r, lat, lon){
+  if(!r) return null;
+  r.dist = (r.glat!=null && r.glon!=null) ? distM(lat,lon,r.glat,r.glon) : null;
+  r.hasNum = /^\s*\d/.test(String(r.address||""));
+  return r;
 }
+
+function reverseGeocode(lat, lon){
+  return Promise.all([
+    photonReverse(lat,lon).then(r=>scoreGeo(r,lat,lon)).catch(()=>null),
+    nominatimReverse(lat,lon).then(r=>scoreGeo(r,lat,lon)).catch(()=>null)
+  ]).then(list=>{
+    const ok = list.filter(r=>r && (r.dist==null || r.dist <= GEOCODE_MAX_M));
+    if(!ok.length){
+      // Everything on offer is too far away to be this tree. Keep the street name if
+      // one came back — that is usually still right — and leave the address blank.
+      const any = list.filter(Boolean).sort((a,b)=>(a.dist??999)-(b.dist??999))[0];
+      if(any) return { address:"", street:any.street||"", park:"",
+                       how:`no address within ${GEOCODE_MAX_M} m` };
+      return null;
+    }
+    // A house number beats no house number; then whichever is nearer.
+    ok.sort((a,b)=> (b.hasNum?1:0)-(a.hasNum?1:0) || (a.dist??999)-(b.dist??999) );
+    const best = ok[0];
+    best.how = `${best.how}${best.dist!=null?` ${Math.round(best.dist)} m`:""}` +
+               (best.dist!=null && best.dist > GEOCODE_GOOD_M ? " — check it" : "");
+    return best;
+  });
+}
+
 function photonReverse(lat, lon){
   return fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&limit=1`)
     .then(r=>r.json())
     .then(j=>{
-      const p = j && j.features && j.features[0] && j.features[0].properties;
+      const f = j && j.features && j.features[0];
+      const p = f && f.properties;
       if(!p) return null;
       const street = p.street || (p.osm_key==="highway" ? p.name : "") || "";
       const num = p.housenumber || "";
       const city = p.city || p.town || p.village || p.district || "";
       const addr = [ [num,street].filter(Boolean).join(" "), city, p.state ].filter(Boolean).join(", ");
+      const c = f.geometry && f.geometry.coordinates;
       const park = (p.osm_value==="park" || p.osm_value==="garden") ? (p.name||"") : "";
-      return { address: addr || "", street: street, park: park, how: "photon" };
+      return { address: addr || "", street: street, park: park, how: "photon",
+               glat: c?c[1]:null, glon: c?c[0]:null };
     });
 }
 function nominatimReverse(lat, lon){
@@ -3411,7 +3482,8 @@ function nominatimReverse(lat, lon){
       const street=a.road||"";
       const city=a.city||a.town||a.village||a.municipality||"";
       const addr=[[a.house_number,street].filter(Boolean).join(" "), city, a.state].filter(Boolean).join(", ");
-      return { address: addr, street: street, park: a.leisure||"", how: "nominatim" };
+      return { address: addr, street: street, park: a.leisure||"", how: "osm",
+               glat: parseFloat(j.lat), glon: parseFloat(j.lon) };
     });
 }
 
@@ -3545,12 +3617,29 @@ function fetchSpecies(){
  *  PHOTOS
  * ================================================================== */
 const HAS_IDB = !!window.indexedDB;
-const PHOTO_DB="st_photos_db", PHOTO_STORE="photos";
+const PHOTO_DB="st_photos_db", PHOTO_STORE="photos", LAYER_STORE="layers";
 let pendingMem=[];
 
-function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO_DB,1);
-  r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE,{keyPath:"filename"}); };
+function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO_DB,2);
+  r.onupgradeneeded=()=>{ const db=r.result;
+    if(!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE,{keyPath:"filename"});
+    if(!db.objectStoreNames.contains(LAYER_STORE)) db.createObjectStore(LAYER_STORE,{keyPath:"id"}); };
   r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+
+/* Reference layers live in IndexedDB, not localStorage.
+   A municipal parcel fabric is tens of megabytes as JSON — 20,000 parcels measured
+   at 20.8 MB — and localStorage caps out around 5 MB on iOS. Trying to keep one
+   there fails silently and the layer disappears on restart. IndexedDB has no
+   practical limit. */
+function idbPutLayer(l){ return new Promise((res,rej)=>{ idbOpen().then(db=>{
+  const tx=db.transaction(LAYER_STORE,"readwrite"); tx.objectStore(LAYER_STORE).put(l);
+  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
+function idbDelLayer(id){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(LAYER_STORE,"readwrite"); tx.objectStore(LAYER_STORE).delete(id);
+  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }).catch(()=>res()); }); }
+function idbAllLayers(){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(LAYER_STORE,"readonly"); const rq=tx.objectStore(LAYER_STORE).getAll();
+  rq.onsuccess=()=>{db.close();res(rq.result||[]);}; rq.onerror=()=>{db.close();res([]);}; }).catch(()=>res([])); }); }
 function idbPut(rec){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"); tx.objectStore(PHOTO_STORE).put(rec); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
 function idbGet(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readonly"), g=tx.objectStore(PHOTO_STORE).get(fn);
   g.onsuccess=()=>{ db.close(); res(g.result||null); }; g.onerror=()=>{ db.close(); res(null); }; }).catch(()=>res(null)); }); }
