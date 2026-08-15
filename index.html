@@ -745,7 +745,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-15 · v36";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-15 · v38";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2096,20 +2096,38 @@ function addressFromParcels(lat, lon){
 const PARCEL_SNAP_M = 35;
 const STREET_SNAP_M = 60;
 
-function streetFromLayer(lat, lon){
-  let best=null;
+// Road name fields are often ALL CAPS ("MARALIM ROAD") while addresses are mixed
+// case. Normalised so the two read consistently in a report.
+function tidyStreet(v){
+  const t = String(v||"").trim();
+  if(!t || /[a-z]/.test(t)) return t;               // already mixed case, leave alone
+  return t.toLowerCase().replace(/\b[a-z]/g, c=>c.toUpperCase())
+          .replace(/\bMc([a-z])/g, (m,c)=>"Mc"+c.toUpperCase());
+}
+function streetKey(v){ return String(v||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+
+/* The nearest centreline is not always the right street: a corner lot backs onto an
+   arterial, so a tree in its front yard on a side street would take the arterial's
+   name. When the address is known, its street wins — the centreline layer is then
+   only used to get the official spelling. */
+function streetFromLayer(lat, lon, addressHint){
+  const want = streetKey(streetFromAddress(addressHint));
+  let best=null, named=null;
   const pad = 0.0008;
   for(const L2 of layersWithRole("street")){
     for(const f of L2.features){
       if(!bboxHit(featureBBox(f), lat, lon, pad)) continue;
+      const raw = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
+      if(!raw) continue;
       const d = distToFeature(f, lat, lon);
-      if(d<=STREET_SNAP_M && (!best || d<best.d)){
-        const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
-        if(v) best={d, value:v};
-      }
+      if(d<=STREET_SNAP_M && (!best || d<best.d)) best={d, value:raw};
+      // a match on the address's street, wherever it is within reach
+      if(want && streetKey(raw).indexOf(want)>=0 && (!named || d<named.d)) named={d, value:raw};
     }
   }
-  return best ? best.value : "";
+  if(named) return tidyStreet(named.value);
+  if(best)  return tidyStreet(best.value);
+  return tidyStreet(streetFromAddress(addressHint));   // no layer match: use the address
 }
 function parkFromLayer(lat, lon){
   for(const L2 of layersWithRole("park")){
@@ -3367,14 +3385,14 @@ function runGeoQueue(){
   if(lat==null||lon==null){ geoBusy=false; return runGeoQueue(); }
 
   // 1. Local layers first. Exact, instant, and works with no signal.
-  const street = streetFromLayer(lat,lon);
+  const parcelFirst = String(t.ADDRESS||"").trim() ? null : addressFromParcels(lat,lon);
+  if(parcelFirst){ t.ADDRESS = parcelFirst.value; t._addrAuto = true; t._addrSrc = parcelFirst.how; }
+  const street = streetFromLayer(lat, lon, t.ADDRESS);
   const park   = parkFromLayer(lat,lon);
   if(street && !String(t.STREET||"").trim()) t.STREET = street;
   if(park) t.PARK = park;
 
-  const parcel = String(t.ADDRESS||"").trim() ? null : addressFromParcels(lat,lon);
-  if(parcel){
-    t.ADDRESS = parcel.value; t._addrAuto = true; t._addrSrc = parcel.how;
+  if(parcelFirst){
     persistTrees(); paintAutoFields(idx);
     geoBusy=false; return runGeoQueue();          // no web request needed at all
   }
@@ -4672,35 +4690,43 @@ function showHelp(){
   closeMenu();
   $("infoTitle").textContent="How this app works";
   $("infoBody").innerHTML=`
+    <div class="stath" style="margin:16px 0 8px">GETTING STARTED</div>
     <p><b>Adding a tree</b><br>
     <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
-    <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
-    <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
-    <p><b>i-Tree type</b><br>Every species carries an i-Tree Streets type code — BDL for broadleaf deciduous large, CES for conifer evergreen small, and so on. It shows under the species picker, exports as ITREE, and appears in the statistics. The codes live in an editable column on the Species tab — correct one there and every phone picks it up. Columnar and dwarf cultivars drop a size class, since the code describes mature size.</p>
-    <p><b>Height</b><br>Height is calculated from DBH using the same equation the Town of Aurora ArcPad build used, so new records stay comparable with the old ones. It caps at 26 m above 54 cm DBH, as the original did. Typing your own value marks it measured.</p>
-    <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
-    <p><b>Accurate addresses</b><br>Load your parcel fabric under Menu → Layers and tell it which column holds the address. After that every tree takes the address of the parcel it sits in, or — for a tree in the road allowance — the nearest parcel frontage. That is exact, instant and works with no signal, unlike an online lookup which can only snap to whatever it knows about nearby. Street centreline and park layers fill the Street and Park fields the same way. Without those layers the app falls back to Photon and then OpenStreetMap.</p>
-    <p><b>Addresses</b><br>A tree with no address looks one up the moment you drop it, and also when you open an imported tree that arrived without one — so it is on screen while you work. With no signal it is skipped and the Sheet fills it in on sync. After a day worked offline, run Tree Tools → Fill missing addresses in the Sheet a few times to catch the rest.</p>
-    <p><b>Moving a tree</b><br>Any reposition re-looks-up the address, however small — a tree on a property line can change frontage with a metre of movement. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
-    <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
-    <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
+    <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
+    <div class="stath" style="margin:16px 0 8px">WORKING FROM EXISTING DATA</div>
+    <p><b>Starting from an existing tree layer</b><br>You do not have to record a street from nothing. <b>Menu → Import tree points</b> takes a zipped shapefile (.zip), .geojson or .gpx of tree locations — a previous inventory, a planting list, or just bare points with no attributes at all. The points become editable trees in this app, and whatever data they carry is transferred across: you match each incoming column to a field once, with two real sample values shown beside each column name so you can tell which is which. Anything left as “— none —” is simply blank for you to fill in the field.</p>
+    <p>Their original ID is kept in <b>EXT_ID</b> and travels through to the export, so the old numbering survives even though each tree also gets a new ID. Imported trees start red in the form and gain a halo once you have visited them, so a street shows you how much is left. Re-importing the same file will not duplicate anything, and <b>Menu → Layers</b> can take a whole import back out again if it was the wrong file.</p>
+    <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
+    <p><b>Building from an existing layer</b><br>Tap any feature on a reference layer to see its attributes, then <b>＋ Tree here</b> to create a tree at that spot. Use <b>Set fields</b> (or the ⇥ button in Layers) to choose once which of the layer's attributes fill species, DBH, stems, health, address, notes and the existing ID — after that every tap carries them across. Species and health text is matched to the app's own lists, and a live preview shows exactly what will be copied before you commit.</p>
+    <p><b>Removing an import</b><br>Menu → Layers lists both reference layers and every batch of tree points you have imported, with the file name, count and date. Removing a batch deletes exactly those trees from the phone and the Sheet — useful when a file goes in by mistake. It warns if any of them have been edited since.</p>
+    <p><b>Parcel and road layers — where accurate addresses come from</b><br>Load your parcel fabric and street centrelines the same way, as zipped shapefiles, under <b>Menu → Layers → Add reference layer</b>. When each one loads you are asked what it is for, and which column holds the value:</p>
+    <p><b>Any other layer you find useful</b><br>Load as many as you like: aerial-derived boundaries, hydro corridors, sidewalks, ward boundaries, last year's plantings. Points, lines and polygons all draw. A layer left as <i>Backdrop only</i> is never edited and never exported — it is there to help you work. Each gets its own colour, an on/off switch, a zoom-to button, and its own label settings, so you can label parcels with their roll number while trees show species and DBH.</p>
+    <div class="stath" style="margin:16px 0 8px">FILLING THE FORM</div>
     <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
+    <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
+    <p><b>Height</b><br>Height is calculated from DBH using the same equation the Town of Aurora ArcPad build used, so new records stay comparable with the old ones. It caps at 26 m above 54 cm DBH, as the original did. Typing your own value marks it measured.</p>
+    <p><b>i-Tree type</b><br>Every species carries an i-Tree Streets type code — BDL for broadleaf deciduous large, CES for conifer evergreen small, and so on. It shows under the species picker, exports as ITREE, and appears in the statistics. The codes live in an editable column on the Species tab — correct one there and every phone picks it up. Columnar and dwarf cultivars drop a size class, since the code describes mature size.</p>
+    <div class="stath" style="margin:16px 0 8px">ADDRESSES AND POSITION</div>
+    <p><b>Accurate addresses</b><br>Load your parcel fabric under Menu → Layers and tell it which column holds the address. After that every tree takes the address of the parcel it sits in, or — for a tree in the road allowance — the nearest parcel frontage. That is exact, instant and works with no signal, unlike an online lookup which can only snap to whatever it knows about nearby. Street centreline and park layers fill the Street and Park fields the same way. Without those layers the app falls back to Photon and then OpenStreetMap.</p>
+    <p>A tree with no address looks one up the moment you drop it, and also when you open an imported tree that arrived without one — so it is on screen while you work. With no signal it is skipped and the Sheet fills it in on sync. After a day worked offline, run Tree Tools → Fill missing addresses in the Sheet a few times to catch the rest.</p>
+    <p><b>Moving a tree</b><br>Any reposition re-looks-up the address, however small — a tree on a property line can change frontage with a metre of movement. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
+    <div class="stath" style="margin:16px 0 8px">ON THE MAP</div>
     <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and small photo thumbnails — tap a thumbnail to see it full size. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
-    <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
-    <p><b>Removing an import</b><br>Menu → Layers lists both reference layers and every batch of tree points you have imported, with the file name, count and date. Removing a batch deletes exactly those trees from the phone and the Sheet — useful when a file goes in by mistake. It warns if any of them have been edited since.</p>
-    <p><b>Importing</b><br>Menu → Import tree points takes a zipped shapefile, .geojson or .gpx. You match the incoming columns to the app's fields once, and any existing ID is kept and re-exported as EXT_ID. Re-importing the same file will not create duplicates.</p>
+    <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
+    <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
-    <p><b>Addresses</b><br>Leave blank and the Sheet fills them in on sync. <i>Look up now</i> fetches one immediately if you have signal.</p>
+    <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
+    <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
-    <p><b>Building from an existing layer</b><br>Tap any feature on a reference layer to see its attributes, then <b>＋ Tree here</b> to create a tree at that spot. Use <b>Set fields</b> (or the ⇥ button in Layers) to choose once which of the layer's attributes fill species, DBH, stems, health, address, notes and the existing ID — after that every tap carries them across. Species and health text is matched to the app's own lists, and a live preview shows exactly what will be copied before you commit.</p>
     <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
     <p><b>Offline</b><br>Everything works with no signal. Trees queue on the phone and go up on the next sync. Only the map imagery needs a connection.</p>
-    <p style="color:#8fb59c;font-size:12px">© 2026 Silv-Econ Ltd. Build ${esc(APP_BUILD)}</p>`;
+    `;
   $("infoSheet").classList.add("show");
 }
 function closeInfo(){ $("infoSheet").classList.remove("show"); }
