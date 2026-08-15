@@ -692,7 +692,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v28";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-13 · v29";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2764,21 +2764,24 @@ function queueGeocode(idx, force){
   runGeoQueue();
 }
 
-const ADDR_REFRESH_M = 12;   // below this a tree has not moved enough to change frontage
-
-/* Called after any reposition. An address the app found is replaced without asking;
-   one typed by hand is only replaced with permission, since it may be a civic address
-   the geocoder cannot know. */
+/* Called after ANY reposition, however small. There is no minimum distance: a tree on
+   a property line can change frontage with a metre of movement, which is precisely the
+   kind of nudge people make. An address the app found is replaced without asking; one
+   typed by hand is only replaced with permission, since it may be a civic address the
+   geocoder cannot know. */
 function refreshAddressAfterMove(idx, oldLat, oldLon){
   const t = trees[idx]; if(!t) return;
   const nLat = num(t.LAT), nLon = num(t.LON);
   if(nLat==null || nLon==null) return;
-  if(oldLat!=null && oldLon!=null && distM(oldLat,oldLon,nLat,nLon) < ADDR_REFRESH_M) return;
+  if(oldLat!=null && oldLon!=null && distM(oldLat,oldLon,nLat,nLon) < 0.5) return;   // no real movement
 
   const had = String(t.ADDRESS||"").trim();
   if(had && t._addrAuto === false){
     if(!confirm(`This tree has moved.\n\nThe address "${had}" was typed in by hand — replace it with a fresh lookup?`)) return;
   }
+  // Clear it on screen straight away so a stale address is never left showing next to
+  // a pin that has already moved.
+  if(editIndex===idx){ $("fADDRESS").value=""; $("fADDRESS").placeholder="Looking up address..."; }
   t._addrAuto = true;
   queueGeocode(idx, true);
   if(had) toast("Looking up the new address…");
@@ -3977,7 +3980,7 @@ function showHelp(){
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
     <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
     <p><b>Addresses</b><br>A tree with no address looks one up the moment you drop it, and also when you open an imported tree that arrived without one — so it is on screen while you work. With no signal it is skipped and the Sheet fills it in on sync. After a day worked offline, run Tree Tools → Fill missing addresses in the Sheet a few times to catch the rest.</p>
-    <p><b>Moving a tree</b><br>Repositioning by more than about 12 m re-looks-up the address, since a real move usually means a different frontage. A small nudge leaves it alone. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
+    <p><b>Moving a tree</b><br>Any reposition re-looks-up the address, however small — a tree on a property line can change frontage with a metre of movement. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
     <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
