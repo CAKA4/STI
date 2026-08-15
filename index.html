@@ -363,17 +363,30 @@
       <div class="picker" onclick="openSpecies()" id="spPicker">
         <span class="val empty" id="spVal">Tap to choose species</span><span style="color:var(--faint)">▸</span>
       </div>
+      <div class="mini" id="itreeWhy">—</div>
     </div>
 
     <div class="row2">
       <div class="fld">
         <label>DBH (cm)</label>
-        <select id="fDBH"></select>
+        <select id="fDBH" onchange="refreshCrown()"></select>
       </div>
       <div class="fld">
         <label>Stems</label>
-        <select id="fSTEMS"></select>
+        <select id="fSTEMS" onchange="refreshCrown()"></select>
       </div>
+    </div>
+
+    <div class="fld">
+      <label>Height (m) <button type="button" class="clr" onclick="heightMeasured()">Measured</button></label>
+      <input id="fHEIGHT" type="text" inputmode="decimal" autocomplete="off" oninput="heightMeasured()">
+      <div class="mini" id="heightWhy">—</div>
+    </div>
+
+    <div class="fld">
+      <label>Crown radius (m) <button type="button" class="clr" onclick="crownMeasured()">Measured</button></label>
+      <input id="fCROWN_RAD" type="text" inputmode="decimal" autocomplete="off" oninput="crownMeasured()">
+      <div class="mini" id="crownWhy">—</div>
     </div>
 
     <div class="fld">
@@ -398,6 +411,11 @@
       <label>Address <button type="button" class="clr" onclick="clearField('fADDRESS')">Clear</button></label>
       <input id="fADDRESS" type="text" placeholder="Fills in automatically…" autocomplete="off">
       <div class="mini"><a href="javascript:void(0)" style="color:var(--accent)" onclick="lookupAddress()">Look up now</a> · needs a connection</div>
+    </div>
+
+    <div class="row2">
+      <div class="fld"><label>Street</label><input id="fSTREET" type="text" autocomplete="off" placeholder="auto"></div>
+      <div class="fld"><label>Park</label><input id="fPARK" type="text" autocomplete="off" placeholder="auto / none"></div>
     </div>
 
     <div class="fld">
@@ -498,6 +516,15 @@
       <input id="setNewProj" type="text" placeholder="e.g. Aurora 2026">
       <div class="mini">Shared with the whole crew once you save.</div>
     </div>
+    <div class="fld">
+      <label>Crown size method</label>
+      <select id="setCrownMethod">
+        <option value="species">By species — differentiates columnar, dwarf, weeping</option>
+        <option value="aurora">Aurora equation — matches the historical data</option>
+      </select>
+      <div class="mini">Height always uses the Aurora equation, so it stays comparable either way.</div>
+    </div>
+
     <div class="row2">
       <div class="fld"><label>ID prefix</label><input id="setPrefix" type="text" placeholder="AUR" maxlength="6"></div>
       <div class="fld"><label>Device letter</label><input id="setDevice" type="text" placeholder="A" maxlength="1"></div>
@@ -560,6 +587,31 @@
       <div class="preview" id="xferPreview" style="display:block;text-align:left"></div>
     </div>
     <div class="btnrow"><button class="primary" onclick="saveXfer()">Save</button><button onclick="closeXfer()">Cancel</button></div>
+  </div>
+</div>
+
+<!-- ===== layer role ===== -->
+<div class="sheet" id="roleSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>What is this layer for?</h2>
+    <div class="idline" id="roleLayerName">—</div>
+    <div class="hint">A parcel, street or park layer is used to fill tree fields automatically — far more accurate than looking the address up online.</div>
+    <div class="fld">
+      <label>Use this layer as</label>
+      <select id="roleKind" onchange="roleKindChanged()">
+        <option value="reference">Backdrop only</option>
+        <option value="parcel">Parcel fabric — supplies the ADDRESS</option>
+        <option value="street">Street centrelines — supplies the STREET</option>
+        <option value="park">Parks — supplies the PARK</option>
+      </select>
+    </div>
+    <div class="fld" id="roleFieldRow" style="display:none">
+      <label id="roleFieldLabel">Which column holds the value</label>
+      <select id="roleField" onchange="rolePreview()"></select>
+      <div class="mini" id="rolePreviewBox">—</div>
+    </div>
+    <div class="btnrow"><button class="primary" onclick="saveRole()">Save</button><button onclick="closeRole()">Cancel</button></div>
   </div>
 </div>
 
@@ -692,7 +744,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-13 · v29";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-08-15 · v34";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -840,13 +892,17 @@ const FIELDS = [
   {k:"TREE_ID", t:"C", w:20}, {k:"PROJECT", t:"C", w:40},
   {k:"EXT_ID", t:"C", w:24}, {k:"SPECIES", t:"C", w:40},
   {k:"DBH", t:"N", w:6, d:1}, {k:"STEMS", t:"N", w:3, d:0},
+  {k:"ITREE", t:"C", w:4},
+  {k:"HEIGHT", t:"N", w:4, d:1},
+  {k:"CROWN_RAD", t:"N", w:5, d:1}, {k:"CROWN_DIA", t:"N", w:6, d:1}, {k:"CROWN_BAS", t:"C", w:30},
   {k:"HEALTH", t:"C", w:20}, {k:"HLTH_CODE", t:"N", w:1, d:0},
   {k:"SITELOCA", t:"C", w:22}, {k:"STRUDEFE", t:"C", w:16}, {k:"FAILPOTE", t:"C", w:8},
   {k:"WOUNCANK", t:"C", w:16}, {k:"DEADDECAY", t:"C", w:32}, {k:"PESTDISEAS", t:"C", w:28},
   {k:"IMPEDMNT", t:"C", w:14}, {k:"RECOTREA", t:"C", w:40},
   {k:"COMMENTS", t:"C", w:180},
   {k:"LAT", t:"N", w:12, d:6}, {k:"LON", t:"N", w:13, d:6},
-  {k:"ADDRESS", t:"C", w:80}, {k:"PHOTOS", t:"C", w:180},
+  {k:"ADDRESS", t:"C", w:80}, {k:"STREET", t:"C", w:40}, {k:"PARK", t:"C", w:40},
+  {k:"PHOTOS", t:"C", w:180},
   {k:"PHOTO_LINK", t:"C", w:254},   // exactly 10 chars — the DBF field-name limit
   {k:"CRUISER", t:"C", w:24}, {k:"EMAIL", t:"C", w:40},
   {k:"DATE", t:"C", w:19}, {k:"SOURCE", t:"C", w:10}, {k:"ACCURACY", t:"N", w:6, d:1}
@@ -1331,7 +1387,10 @@ const FIELD_LABELS = {
   PROJECT:"Project", COMMENTS:"Comments",
   SITELOCA:"Site location", STRUDEFE:"Structural", FAILPOTE:"Failure potential",
   WOUNCANK:"Wound / canker", DEADDECAY:"Dead / decay", PESTDISEAS:"Pest / disease",
-  IMPEDMNT:"Impediment", RECOTREA:"Recommended treatment"
+  IMPEDMNT:"Impediment", RECOTREA:"Recommended treatment",
+  STREET:"Street", PARK:"Park",
+  CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
+  HEIGHT:"Height", ITREE:"i-Tree type"
 };
 /* "Stacked" has been stored three ways across builds: the token NL, a real newline,
    and a literal backslash-n from an HTML attribute (which is what used to print as
@@ -1523,7 +1582,10 @@ async function importRefLayer(file){
     zoomToRef(id);
     renderLayerList();
     buildLegend();
-    toast(`Added ${feats.length} features as a reference layer`);
+    toast(`Added ${feats.length} features`);
+    // Ask what it is for while the file is fresh in mind — a parcel layer is only
+    // useful once we know which column holds the address.
+    setTimeout(()=>openRole(id), 600);
   }catch(e){ toast("Could not read that file",true); }
 }
 
@@ -1613,6 +1675,7 @@ function renderLayerList(){
       <button onclick="zoomToRef('${L2.id}')">⤢</button>
       <button onclick="openLabels('${L2.id}')">🏷</button>
       <button onclick="openXfer('${L2.id}')">⇥</button>
+      <button onclick="openRole('${L2.id}')" title="Role">${L2.role&&L2.role!=="reference"?"★":"☆"}</button>
       <button onclick="removeRef('${L2.id}')">✕</button>
     </div>`).join("");
   // imported tree points, removable as the batch they arrived in
@@ -1635,6 +1698,404 @@ function renderLayerList(){
   }
   $("layerList").innerHTML = h;
   $("layerStats").textContent = `${refLayers.length} reference layer(s) · ${trees.length} trees`;
+}
+
+/* ================================================================== *
+ *  i-TREE SPECIES TYPE
+ *  Leaf type + leaf persistence + mature size class, as used by i-Tree
+ *  Streets for species that have no direct match:
+ *      B/C/P = broadleaf, conifer, palm
+ *      D/E   = deciduous, evergreen
+ *      L/M/S = mature height  >15 m,  7.6-15 m,  <7.6 m
+ *  So BDL is broadleaf deciduous large, CES conifer evergreen small.
+ *  Assignment here is by genus and cultivar form for the Ontario growing
+ *  conditions this list is used in — the same tree is a different size class in
+ *  a warmer region, which is why i-Tree keys its own tables by climate zone.
+ * ================================================================== */
+const ITREE_RULES = [
+  // deciduous conifers first — they would otherwise read as evergreen
+  [/larch|tamarack/i,                                   "CDL"],
+  [/dawn ?redwood|metasequoia/i,                        "CDL"],
+  [/bald ?cypress|taxodium/i,                           "CDL"],
+  [/ginkgo|maidenhair ?tree/i,                          "BDL"],   // broadleaf by convention
+
+  // broadleaf evergreen — few survive here, but they appear on the list
+  [/holly\b|ilex/i,                                     "BES"],
+  [/boxwood|buxus/i,                                    "BES"],
+  [/rhododendron|azalea/i,                              "BES"],
+
+  // conifers
+  [/mugo|dwarf pine/i,                                  "CES"],
+  [/\byew\b|taxus/i,                                    "CES"],
+  [/juniper/i,                                          "CES"],
+  [/cedar|arborvitae|thuja|cypress|chamaecyparis/i,     "CEM"],
+  [/hemlock/i,                                          "CEL"],
+  [/spruce|\bfir\b|douglas|pine\b/i,                    "CEL"],
+
+  // broadleaf deciduous, large
+  [/chestnut|cucumber ?tree|\boak\b|beech|linden|basswood|lime\b|\belm\b|maple|ash\b|poplar|cottonwood|aspen|willow|walnut|butternut|hickory|pecan|hackberry|nettle ?tree|coffee ?tree|tulip ?tree|sweet ?gum|plane|sycamore|honey ?locust|black ?locust|horse.?chestnut|buckeye|catalpa|zelkova|corktree|kentucky|liquidambar|silver ?maple/i, "BDL"],
+
+  // broadleaf deciduous, medium
+  [/birch|hornbeam|ironwood|hop ?hornbeam|mountain ?ash|rowan|whitebeam|katsura|black ?gum|tupelo|yellowwood|pagoda|mulberry|alder|\bpear\b|persimmon|sassafras|hardy ?rubber|rubber ?hardy|wingnut|goldenrain|osage|amur ?maackia|maackia|hop ?tree|sugarberry|tree ?of ?heaven|ailanthus|turkish ?hazel/i, "BDM"],
+
+  // broadleaf deciduous, small
+  [/crab ?apple|\bapple\b|cherry|plum|apricot|peach|nectarine|almond|paw ?paw|nannyberry|russian ?olive|tamarix|tamarisk|red ?bud|chokeberry|elderberry|blueberry|currant|caragana|potentilla|weigela|forsythia|mock ?orange|snowberry|willow ?leaf|sea ?buckthorn|standard\b|seven.?son|euonymos|euonymus|spicebush|filbert|hazel\b|prunus|viburum|viburnum|witch.?hazel|hamamelis|hawthorn|serviceberry|juneberry|magnolia|redbud|dogwood|lilac|goldenchain|fringe ?tree|smoke ?tree|hazelnut|corylus|witch ?hazel|spindle|euonymus|euyonomous|viburnum|elder|sumac|buckthorn|spirea|spiraea|hydrangea|cotoneaster|honeysuckle|privet|barberry|\brose\b|ninebark|beauty ?bush|buffalo ?berry|buttonbush|shrub/i, "BDS"]
+];
+
+// A columnar or dwarf cultivar does not reach the species' mature height, so it
+// drops a size class — the whole point of the code is mature size.
+let speciesITree = {};
+try{ speciesITree = JSON.parse(STORE&&STORE.getItem("st_itree")) || {}; }catch(e){ speciesITree={}; }
+
+/* A code set on the Species tab is the authority — that is where anyone reviews or
+   corrects them. The built-in rules are only the fallback, for a species typed in the
+   field that is not on the list yet. */
+function itreeType(speciesName){
+  const nm = String(speciesName||"");
+  const fromSheet = speciesITree[nm.trim()];
+  if(fromSheet) return fromSheet;
+  let code = "";
+  for(const r of ITREE_RULES) if(r[0].test(nm)){ code = r[1]; break; }
+  if(!code) return "";
+  // Only genuinely compact forms drop a class. A Weeping Willow is still a large
+  // tree — the weeping habit changes its shape, not its mature height.
+  const f = crownForm(nm);
+  if(f.k <= 0.6){
+    const drop = { L:"M", M:"S", S:"S" };
+    code = code.slice(0,2) + drop[code.charAt(2)];
+  }
+  return code;
+}
+const ITREE_LABEL = {
+  BDL:"broadleaf deciduous, large", BDM:"broadleaf deciduous, medium", BDS:"broadleaf deciduous, small",
+  BEL:"broadleaf evergreen, large", BEM:"broadleaf evergreen, medium", BES:"broadleaf evergreen, small",
+  CDL:"conifer deciduous, large",   CDM:"conifer deciduous, medium",   CDS:"conifer deciduous, small",
+  CEL:"conifer evergreen, large",   CEM:"conifer evergreen, medium",   CES:"conifer evergreen, small"
+};
+
+/* ================================================================== *
+ *  CROWN SIZE FROM DBH
+ *
+ *  Allometry from Pretzsch et al. (2015), Urban Forestry & Urban Greening
+ *  14: 466-479, ln(cr) = a + alpha * ln(d), fitted at the 95% quantile.
+ *
+ *  READ THIS BEFORE TRUSTING A NUMBER:
+ *  - The 95% quantile is the OPEN-GROWN MAXIMUM: the crown a tree of that
+ *    diameter could reach with no lateral restriction. A tree hemmed in by
+ *    buildings, or pruned back off wires, will be narrower. These are planning
+ *    estimates of potential, not descriptions of the tree in front of you.
+ *  - The paper measured 22 species. Only a handful of ours are among them.
+ *    For everything else the genus is assigned to one of the paper's five
+ *    allometric types by growth habit — a reasonable guess, not a measurement,
+ *    and the paper explicitly warns that species of one genus need not share a
+ *    type.
+ *  - Cultivar form factors (columnar, weeping, dwarf) are NOT from the paper.
+ *    They are a coarse correction so a Fastigiate Hornbeam is not credited with
+ *    the crown of a full-sized one.
+ *  Every tree records which of these applied, in CROWN_BAS.
+ * ================================================================== */
+
+// [a, alpha, label]. Species-specific values from Table 2; types from Table 3.
+const ALLOM_TYPE = {
+  T1:[-0.3512,0.5812,"type 1 large/moderate"],
+  T2:[-1.0065,0.6575,"type 2 medium/medium"],
+  T3:[-1.4936,0.7985,"type 3 medium/steep"],
+  T4:[-0.3947,0.4821,"type 4 medium/flat"],
+  T5:[-0.6754,0.3899,"type 5 small/flat"]
+};
+
+// Checked in order: an exact species match beats a genus rule.
+const ALLOM_RULES = [
+  // --- measured species (Pretzsch Table 2) ---
+  [/sycamore maple|acer pseudoplatanus/i,      -0.4446,0.5339,"Acer pseudoplatanus (measured)"],
+  [/english oak|pedunculate oak/i,             -1.4370,0.8157,"Quercus robur (measured)"],
+  [/european beech/i,                           0.0111,0.4710,"Fagus sylvatica (measured)"],
+  [/littleleaf linden|small.?leaf(ed)? lime/i, -0.3375,0.5728,"Tilia cordata (measured)"],
+  [/wych elm|scotch elm/i,                     -0.2066,0.5763,"Ulmus glabra (measured)"],
+  [/european ash\b/i,                          -0.8089,0.6052,"Fraxinus excelsior (measured)"],
+  [/european white birch|silver birch/i,       -0.9688,0.6483,"Betula pendula (measured)"],
+  [/european hornbeam/i,                       -0.1744,0.5470,"Carpinus betulus (measured)"],
+  [/horse.?chestnut/i,                         -0.5481,0.6011,"Aesculus hippocastanum (measured)"],
+  [/london plane/i,                            -0.5540,0.6532,"Platanus x hispanica (measured)"],
+  [/black locust/i,                            -0.4345,0.5822,"Robinia pseudoacacia (measured)"],
+  [/european mountain ash|european rowan/i,    -0.3534,0.4621,"Sorbus aucuparia (measured)"],
+  [/norway spruce/i,                           -0.6713,0.5083,"Picea abies (measured)"],
+  [/white spruce/i,                            -1.7910,0.8276,"Picea glauca (measured)"],
+  [/scots pine|scotch pine/i,                  -1.0345,0.6381,"Pinus sylvestris (measured)"],
+  [/douglas.?fir/i,                            -1.2808,0.7522,"Pseudotsuga menziesii (measured)"],
+  [/silver fir/i,                              -0.1366,0.4239,"Abies alba (measured)"],
+  [/european larch/i,                          -1.2919,0.7131,"Larix decidua (measured)"],
+  [/\balder\b/i,                               -0.8563,0.6507,"Alnus (measured)"],
+
+  // --- genus assigned to a type by growth habit (not measured) ---
+  ["T1", /elm|linden|basswood|lime\b|beech|hornbeam|plane|sycamore|chestnut|buckeye|locust|hackberry|nettle tree|walnut|butternut|catalpa|mulberry|coffee ?tree|tulip ?tree|sweet ?gum|zelkova|corktree|yellowwood|pagoda|poplar|cottonwood|aspen|willow|wingnut|silver ?maple/i],
+  ["T3", /\boak\b/i],
+  ["T4", /maple|spruce|\bfir\b|hemlock|box ?elder/i],
+  ["T2", /ash\b|birch|pine\b|larch|tamarack|crab ?apple|\bapple\b|cherry|plum|apricot|peach|almond|\bpear\b|hawthorn|serviceberry|juneberry|magnolia|redbud|dogwood|ironwood|hop ?hornbeam|hickory|pecan|honey ?locust|ginkgo|katsura|black ?gum|tupelo|mountain ?ash|whitebeam|rowan|goldenchain|fringe ?tree|hardy rubber|persimmon|sassafras|birch/i],
+  ["T5", /cedar|arborvitae|juniper|yew|cypress|thuja|columnar|hazelnut|corylus|lilac|spirea|spiraea|euonymus|euyonomous|spindle|viburnum|honeysuckle|privet|barberry|\brose\b|ninebark|hydrangea|cotoneaster|sumac|elder|buckthorn|witch ?hazel|smoke ?tree|beauty ?bush|buffalo ?berry|buttonbush|shrub/i]
+];
+
+// Coarse form corrections. Not from the paper — a columnar cultivar simply is not
+// the same tree as the species, and crediting it with a full crown would be worse.
+const FORM_FACTORS = [
+  [/fastigiat|columnar|column\b|pyramidal|obelisk|sentry|spire|skyrocket|pencil|upright|narrow|slender|sentinel|tower|stately/i, 0.45, "columnar form"],
+  [/dwarf|globe|globosum|globosa|compact|nana|\bmini|bush form|umbrella/i,                                                       0.55, "dwarf/globe form"],
+  [/weeping|pendula|pendulous|cascade|cascading/i,                                                                              0.80, "weeping form"]
+];
+
+/* The Town of Aurora ArcPad build calculated both from DBH alone, species-independent.
+   Kept verbatim so records collected then and now stay comparable.
+   From Sub calculate in STRTREES.VBS. */
+function auroraCrownDia(dbhCm){
+  const d = parseFloat(dbhCm);
+  if(!isFinite(d) || d<=0) return null;
+  if(d < 3) return 1;
+  return Math.round(-0.0011*d*d + 0.2705*d + 1);
+}
+function auroraHeight(dbhCm){
+  const d = parseFloat(dbhCm);
+  if(!isFinite(d) || d<=0) return null;
+  if(d < 2)  return 1;
+  if(d > 54) return 26;                 // the original caps here
+  return Math.round(0.0003*d*d*d - 0.0226*d*d + 0.771*d + 0.6769);
+}
+// Which crown method this phone is using. "aurora" matches the historical data;
+// "species" differentiates columnar, dwarf and weeping forms.
+let crownMethod = "species";
+try{ crownMethod = (STORE&&STORE.getItem("st_crownmethod")) || "species"; }catch(e){}
+function setCrownMethod(m){
+  crownMethod = m;
+  if(STORE){ try{ STORE.setItem("st_crownmethod", m); }catch(e){} }
+}
+
+function crownAllometry(speciesName){
+  const nm = String(speciesName||"");
+  for(const r of ALLOM_RULES){
+    if(typeof r[0] === "string"){                       // genus -> type
+      if(r[1].test(nm)){ const t = ALLOM_TYPE[r[0]]; return {a:t[0], al:t[1], why:t[2]}; }
+    } else if(r[0].test(nm)){                           // measured species
+      return {a:r[1], al:r[2], why:r[3]};
+    }
+  }
+  const t = ALLOM_TYPE.T2;                              // commonest case in the paper
+  return {a:t[0], al:t[1], why:"unmatched, "+t[2]};
+}
+function crownForm(speciesName){
+  const nm = String(speciesName||"");
+  for(const f of FORM_FACTORS) if(f[0].test(nm)) return {k:f[1], why:f[2]};
+  return {k:1, why:""};
+}
+
+/* Returns the open-grown crown radius in metres, or null when it cannot be
+   estimated. Multi-stem clumps are widened a little: a three-stem clump reads a
+   smaller DBH per stem than its spread implies. */
+function estimateCrown(speciesName, dbhCm, stems){
+  const d = parseFloat(dbhCm);
+  if(!isFinite(d) || d <= 0) return null;
+  const A = crownAllometry(speciesName), F = crownForm(speciesName);
+  let cr = Math.exp(A.a) * Math.pow(d, A.al) * F.k;
+  const n = parseInt(stems,10)||1;
+  if(n > 1) cr *= Math.min(1.6, Math.pow(n, 0.18));     // clump spread, capped
+  cr = Math.round(cr*10)/10;
+  const why = [A.why, F.why, n>1 ? n+" stems" : ""].filter(Boolean).join(", ");
+  return { r: cr, d: Math.round(cr*20)/10, why: why };
+}
+
+// Recomputes whenever species, DBH or stem count changes, unless a measured value
+// has been typed in — a real measurement always outranks an estimate.
+function refreshITree(){
+  const sp = $("spVal").classList.contains("empty") ? "" : $("spVal").textContent;
+  const c = itreeType(sp);
+  const src = (c && speciesITree[sp.trim()]) ? "from the Species tab" : "worked out from the name";
+  $("itreeWhy").textContent = c ? `i-Tree ${c} — ${ITREE_LABEL[c]||""} · ${src}` : "i-Tree type not assigned";
+}
+
+function refreshCrown(){
+  const t = trees[editIndex]; if(!t) return;
+  refreshHeight();
+  refreshITree();
+  if(t.CROWN_BAS === "measured") return;
+  const dbh = $("fDBH").value;
+
+  if(crownMethod === "aurora"){
+    const dia = auroraCrownDia(dbh);
+    if(dia==null){ $("fCROWN_RAD").value=""; $("crownWhy").textContent="Needs a DBH."; return; }
+    $("fCROWN_RAD").value = Math.round(dia/2*10)/10;
+    $("crownWhy").textContent = `≈ ${dia} m spread · Aurora equation, all species alike`;
+    return;
+  }
+  const sp = $("spVal").classList.contains("empty") ? "" : $("spVal").textContent;
+  const est = estimateCrown(sp, dbh, $("fSTEMS").value);
+  if(!est){ $("fCROWN_RAD").value=""; $("crownWhy").textContent="Needs species and DBH."; return; }
+  $("fCROWN_RAD").value = est.r;
+  $("crownWhy").textContent = `≈ ${est.d} m spread · ${est.why}`;
+}
+
+function refreshHeight(){
+  const t = trees[editIndex]; if(!t) return;
+  if(t.HGT_BAS === "measured") return;
+  const h = auroraHeight($("fDBH").value);
+  $("fHEIGHT").value = (h==null) ? "" : h;
+  $("heightWhy").textContent = (h==null) ? "Needs a DBH."
+    : (parseFloat($("fDBH").value) > 54 ? "Aurora equation, capped at 26 m above 54 cm DBH"
+                                        : "Aurora equation, from DBH");
+}
+function heightMeasured(){
+  const t = trees[editIndex]; if(!t) return;
+  t.HGT_BAS = "measured";
+  $("heightWhy").textContent = "Measured — entered by hand, not estimated.";
+  markChanged($("fHEIGHT"));
+}
+function crownMeasured(){
+  const t = trees[editIndex]; if(!t) return;
+  t.CROWN_BAS = "measured";
+  $("crownWhy").textContent = "Measured — entered by hand, not estimated.";
+  markChanged($("fCROWN_RAD"));
+}
+
+/* ================================================================== *
+ *  SPATIAL LOOKUP
+ *  A reverse geocoder can only snap a tree to the nearest addressable thing it
+ *  knows about, which for a tree in the road allowance is often the wrong side of
+ *  the street. A parcel layer with real address attributes is exact, so it is
+ *  used first and the web geocoders are only the fallback.
+ * ================================================================== */
+
+// Bounding box per feature, computed once at import — the prefilter that keeps a
+// point-in-polygon scan over thousands of parcels fast enough to run per tree.
+function featureBBox(f){
+  if(f.bb) return f.bb;
+  let n=-90, s=90, e=-180, w=180, any=false;   // n/s are max/min latitude
+  (function walk(a){
+    if(typeof a[0]==="number"){ const lo=a[0], la=a[1];
+      if(la>n) n=la; if(la<s) s=la; if(lo>e) e=lo; if(lo<w) w=lo; any=true; return; }
+    a.forEach(walk);
+  })(f.geom.c);
+  f.bb = any ? {n,s,e,w} : null;
+  return f.bb;
+}
+function bboxHit(bb, lat, lon, padDeg){
+  if(!bb) return false;
+  const p = padDeg||0;
+  return lat >= bb.s-p && lat <= bb.n+p && lon >= bb.w-p && lon <= bb.e+p;
+}
+
+// Ray casting, run per ring. Odd number of crossings means inside; holes therefore
+// exclude correctly because a hole ring flips the result back.
+function ringContains(ring, lat, lon){
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0], yi=ring[i][1], xj=ring[j][0], yj=ring[j][1];
+    if(((yi>lat)!==(yj>lat)) && (lon < (xj-xi)*(lat-yi)/((yj-yi)||1e-12) + xi)) inside=!inside;
+  }
+  return inside;
+}
+function polygonContains(coords, lat, lon){
+  // coords is either one polygon (array of rings) or a multipolygon
+  const isMulti = Array.isArray(coords[0]) && Array.isArray(coords[0][0]) && Array.isArray(coords[0][0][0]);
+  const polys = isMulti ? coords : [coords];
+  for(const rings of polys){
+    let hit=false;
+    for(let r=0;r<rings.length;r++) if(ringContains(rings[r], lat, lon)) hit = !hit;
+    if(hit) return true;
+  }
+  return false;
+}
+function featureContains(f, lat, lon){
+  if(f.geom.t!=="pg") return false;
+  if(!bboxHit(featureBBox(f), lat, lon, 0)) return false;
+  return polygonContains(f.geom.c, lat, lon);
+}
+
+// Metres from a point to a line segment, flat-earth — accurate enough at street scale.
+function distToSegment(lat,lon, aLat,aLon, bLat,bLon){
+  const kx = 111320*Math.cos(lat*Math.PI/180), ky = 110540;
+  const x=(lon-aLon)*kx, y=(lat-aLat)*ky;
+  const dx=(bLon-aLon)*kx, dy=(bLat-aLat)*ky;
+  const len = dx*dx+dy*dy;
+  let t = len ? (x*dx + y*dy)/len : 0;
+  t = Math.max(0, Math.min(1, t));
+  const ex = x-dx*t, ey = y-dy*t;
+  return Math.sqrt(ex*ex+ey*ey);
+}
+function distToFeature(f, lat, lon){
+  let best = Infinity;
+  (function walk(a){
+    if(typeof a[0][0]==="number"){
+      for(let i=1;i<a.length;i++){
+        const d = distToSegment(lat,lon, a[i-1][1],a[i-1][0], a[i][1],a[i][0]);
+        if(d<best) best=d;
+      }
+      return;
+    }
+    a.forEach(walk);
+  })(f.geom.c);
+  return best;
+}
+
+function layersWithRole(role){ return refLayers.filter(l=>l.role===role && l.roleField); }
+
+/* Address from the parcel fabric. A tree inside a parcel takes that parcel's address;
+   one in the road allowance takes the nearest parcel within a short distance, which is
+   the frontage it belongs to. */
+function addressFromParcels(lat, lon){
+  const layers = layersWithRole("parcel");
+  for(const L2 of layers){
+    for(const f of L2.features){
+      if(featureContains(f, lat, lon)){
+        const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
+        if(v) return { value: v, how: "in parcel" };
+      }
+    }
+  }
+  // not inside one — take the closest frontage
+  let best=null;
+  const pad = 0.0006;                    // ~60 m, keeps the scan tight
+  for(const L2 of layers){
+    for(const f of L2.features){
+      if(!bboxHit(featureBBox(f), lat, lon, pad)) continue;
+      const d = distToFeature(f, lat, lon);
+      if(d<=PARCEL_SNAP_M && (!best || d<best.d)){
+        const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
+        if(v) best={d, value:v};
+      }
+    }
+  }
+  return best ? { value: best.value, how: `nearest parcel ${Math.round(best.d)} m` } : null;
+}
+const PARCEL_SNAP_M = 35;
+const STREET_SNAP_M = 60;
+
+function streetFromLayer(lat, lon){
+  let best=null;
+  const pad = 0.0008;
+  for(const L2 of layersWithRole("street")){
+    for(const f of L2.features){
+      if(!bboxHit(featureBBox(f), lat, lon, pad)) continue;
+      const d = distToFeature(f, lat, lon);
+      if(d<=STREET_SNAP_M && (!best || d<best.d)){
+        const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
+        if(v) best={d, value:v};
+      }
+    }
+  }
+  return best ? best.value : "";
+}
+function parkFromLayer(lat, lon){
+  for(const L2 of layersWithRole("park")){
+    for(const f of L2.features){
+      if(featureContains(f, lat, lon)){
+        const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
+        if(v) return v;
+      }
+    }
+  }
+  return "";
+}
+// Last resort for a street name: pull it off the front of an address.
+function streetFromAddress(addr){
+  const first = String(addr||"").split(",")[0].trim();
+  return first.replace(/^\d+[A-Za-z]?\s+/, "").trim();
 }
 
 /* ================================================================== *
@@ -1699,6 +2160,55 @@ function treeFromRef(){
 
 /* ---------- field transfer configuration ---------- */
 let xferTarget = null;
+
+const ROLE_LABEL = { parcel:"address", street:"street name", park:"park name" };
+let roleTarget = null;
+
+function openRole(layerId){
+  const L2 = refLayerById(layerId); if(!L2) return;
+  try{ fmap.closePopup(); }catch(e){}
+  closeLayers();
+  roleTarget = layerId;
+  $("roleLayerName").textContent = `${L2.name} · ${L2.features.length} features`;
+  $("roleKind").value = L2.role || "reference";
+  const keys = fieldsFor(layerId);
+  const recs = L2.features.slice(0,60).map(f=>f.props);
+  $("roleField").innerHTML = `<option value="">— none —</option>` + fieldOptionsWithSamples(recs, keys);
+  if(L2.roleField) $("roleField").value = L2.roleField;
+  else {
+    const guess = keys.find(k=>/addr|civic|street_?no|full_?add/i.test(k)) ||
+                  keys.find(k=>/st_?name|street|road|rdname/i.test(k)) ||
+                  keys.find(k=>/park|name/i.test(k));
+    if(guess) $("roleField").value = guess;
+  }
+  roleKindChanged();
+  $("roleSheet").classList.add("show");
+}
+function closeRole(){ $("roleSheet").classList.remove("show"); roleTarget=null; }
+function roleKindChanged(){
+  const k = $("roleKind").value;
+  $("roleFieldRow").style.display = (k==="reference") ? "none" : "block";
+  $("roleFieldLabel").textContent = "Which column holds the " + (ROLE_LABEL[k]||"value");
+  rolePreview();
+}
+function rolePreview(){
+  const L2 = refLayerById(roleTarget); if(!L2) return;
+  const f = $("roleField").value;
+  if(!f){ $("rolePreviewBox").textContent = "Choose the column."; return; }
+  const vals = sampleValues(L2.features.slice(0,80).map(x=>x.props), f, 3);
+  $("rolePreviewBox").textContent = vals.length ? "e.g. " + vals.join("  ·  ") : "That column is empty.";
+}
+function saveRole(){
+  const L2 = refLayerById(roleTarget); if(!L2) return;
+  const kind = $("roleKind").value;
+  const fld  = $("roleField").value;
+  if(kind!=="reference" && !fld){ toast("Choose the column holding the value",true); return; }
+  L2.role = kind;
+  L2.roleField = (kind==="reference") ? "" : fld;
+  persistRefLayers(); renderLayerList(); closeRole();
+  toast(kind==="reference" ? `${L2.name} is backdrop only`
+                           : `${L2.name} will supply the ${ROLE_LABEL[kind]}`);
+}
 
 function openXfer(layerId){
   const L2 = refLayerById(layerId); if(!L2){ toast("Layer not found",true); return; }
@@ -2233,6 +2743,10 @@ function renderStats(){
     if(e.length) h += barBlock(lab, e, n, ()=>col);
   });
 
+  const it = tally(list,t=>t.ITREE ? `${t.ITREE} — ${ITREE_LABEL[t.ITREE]||""}` : "");
+  const itE = Object.entries(it).sort((a,b)=>b[1]-a[1]);
+  if(itE.length) h += barBlock("By i-Tree type", itE, n, ()=>"#5f9ea0");
+
   const src = tally(list,t=>t.SOURCE||"unknown");
   h += barBlock("How the position was set", Object.entries(src).sort((a,b)=>b[1]-a[1]), n, ()=>"#7b8f84");
 
@@ -2385,7 +2899,7 @@ function fetchDomains(){
    have confirmed. For an existing tree only the empty fields start pending, since
    the rest already hold real recorded data. */
 let formSnapshot = {}, pendingFields = {};
-const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID"];
+const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID","fSTREET","fPARK","fCROWN_RAD","fHEIGHT"];
 function trackedIds(){ return TRACKED.concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f)); }
 
 function setState(el, state){
@@ -2449,7 +2963,7 @@ function wireChangeTracking(){
     const el=$(id); if(el) el.addEventListener("input", ()=>markChanged(el));
   });
   // A select is dealt with the moment you touch it, default kept or not.
-  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>confirmField(id)); });
+  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>{ confirmField(id); refreshCrown(); }); });
 }
 function markSpeciesChanged(){
   pendingFields._species = false;
@@ -2601,6 +3115,13 @@ function openTree(i){
   });
   $("fADDRESS").value = t.ADDRESS || "";
   $("fCOMMENTS").value = t.COMMENTS || "";
+  $("fSTREET").value = t.STREET || "";
+  $("fCROWN_RAD").value = t.CROWN_RAD || "";
+  $("fHEIGHT").value = t.HEIGHT || "";
+  if(t.HGT_BAS === "measured") $("heightWhy").textContent = "Measured — entered by hand, not estimated.";
+  if(t.CROWN_BAS === "measured") $("crownWhy").textContent = "Measured — entered by hand, not estimated.";
+  else refreshCrown();
+  $("fPARK").value = t.PARK || "";
   $("fLAT").value = t.LAT || "";
   $("fLON").value = t.LON || "";
   paintHealth(t._draftHealth);
@@ -2647,6 +3168,7 @@ function saveTree(){
 
   t.EXT_ID  = normText($("fEXT_ID").value);
   t.SPECIES = $("spVal").textContent;
+  t.ITREE   = itreeType(t.SPECIES);
   t.DBH     = $("fDBH").value;
   t.STEMS   = $("fSTEMS").value || "1";
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ const el=$("f"+f); if(el) t[f]=el.value; });
@@ -2656,6 +3178,23 @@ function saveTree(){
   if(typedAddr !== String(t.ADDRESS||"").trim()) t._addrAuto = false;   // edited by hand
   t.ADDRESS = typedAddr;
   t.COMMENTS = normText($("fCOMMENTS").value);
+  t.STREET = normText($("fSTREET").value);
+  const hv = parseFloat(normNumber($("fHEIGHT").value));
+  t.HEIGHT = (isFinite(hv) && hv>0) ? Math.round(hv*10)/10 : "";
+
+  const crv = parseFloat(normNumber($("fCROWN_RAD").value));
+  if(isFinite(crv) && crv>0){
+    t.CROWN_RAD = Math.round(crv*10)/10;
+    t.CROWN_DIA = Math.round(crv*20)/10;
+    if(t.CROWN_BAS !== "measured"){
+      if(crownMethod === "aurora"){ t.CROWN_BAS = "estimated: Aurora equation"; }
+      else {
+        const e = estimateCrown(t.SPECIES, t.DBH, t.STEMS);
+        t.CROWN_BAS = e ? ("estimated: " + e.why).slice(0,30) : "estimated";
+      }
+    }
+  } else { t.CROWN_RAD=""; t.CROWN_DIA=""; t.CROWN_BAS=""; }
+  t.PARK   = normText($("fPARK").value);
   t.LAT = lat.toFixed(6); t.LON = lon.toFixed(6);
   t.PHOTOS = currentPhotos.join("; ");
   t.CRUISER = settings.cruiser; t.EMAIL = settings.email;
@@ -2783,45 +3322,96 @@ function refreshAddressAfterMove(idx, oldLat, oldLon){
   // a pin that has already moved.
   if(editIndex===idx){ $("fADDRESS").value=""; $("fADDRESS").placeholder="Looking up address..."; }
   t._addrAuto = true;
+  t.STREET = ""; t.PARK = "";        // both are position-derived, so both are stale now
+  if(editIndex===idx){ $("fSTREET").value=""; $("fPARK").value=""; }
   queueGeocode(idx, true);
   if(had) toast("Looking up the new address…");
 }
 function runGeoQueue(){
-  if(geoBusy || !geoQueue.length || isOffline()) return;
+  if(geoBusy || !geoQueue.length) return;
   geoBusy = true;
   const idx = geoQueue.shift();
   const t = trees[idx];
-  if(!t || String(t.ADDRESS||"").trim()){ geoBusy=false; return runGeoQueue(); }
+  if(!t){ geoBusy=false; return runGeoQueue(); }
+  const lat = num(t.LAT), lon = num(t.LON);
+  if(lat==null||lon==null){ geoBusy=false; return runGeoQueue(); }
+
+  // 1. Local layers first. Exact, instant, and works with no signal.
+  const street = streetFromLayer(lat,lon);
+  const park   = parkFromLayer(lat,lon);
+  if(street && !String(t.STREET||"").trim()) t.STREET = street;
+  if(park) t.PARK = park;
+
+  const parcel = String(t.ADDRESS||"").trim() ? null : addressFromParcels(lat,lon);
+  if(parcel){
+    t.ADDRESS = parcel.value; t._addrAuto = true; t._addrSrc = parcel.how;
+    persistTrees(); paintAutoFields(idx);
+    geoBusy=false; return runGeoQueue();          // no web request needed at all
+  }
+
+  if(String(t.ADDRESS||"").trim() && t.STREET){ persistTrees(); paintAutoFields(idx); geoBusy=false; return runGeoQueue(); }
+  if(isOffline()){ persistTrees(); paintAutoFields(idx); geoBusy=false; return; }
+
   if(editIndex===idx && !$("fADDRESS").value.trim()) $("fADDRESS").placeholder = "Looking up address...";
-  reverseGeocode(num(t.LAT), num(t.LON)).then(addr=>{
-    if(addr && !String(t.ADDRESS||"").trim()){
-      t.ADDRESS = addr;
-      t._addrAuto = true;
-      persistTrees();
-      // If that tree is open and the field is still untouched, show it straight away.
-      if(editIndex===idx && !$("fADDRESS").value.trim()){
-        $("fADDRESS").value = addr;
-        formSnapshot["fADDRESS"] = addr;        // filled by the app, not an edit
-        confirmField("fADDRESS");
-        $("fADDRESS").placeholder = "Fills in automatically...";
-      }
+
+  reverseGeocode(lat, lon).then(r=>{
+    if(r && r.address && !String(t.ADDRESS||"").trim()){
+      t.ADDRESS = r.address; t._addrAuto = true; t._addrSrc = r.how;
     }
+    if(r && r.street && !String(t.STREET||"").trim()) t.STREET = r.street;
+    if(r && r.park && !String(t.PARK||"").trim()) t.PARK = r.park;
+    if(!String(t.STREET||"").trim()) t.STREET = streetFromAddress(t.ADDRESS);
+    persistTrees(); paintAutoFields(idx);
   }).catch(()=>{}).then(()=>{
     setTimeout(()=>{ geoBusy=false; runGeoQueue(); }, 1100);   // stay inside the rate limit
   });
 }
 
+// Push whatever was found into the open form, without it counting as your edit.
+function paintAutoFields(idx){
+  if(editIndex!==idx) return;
+  const t = trees[idx]; if(!t) return;
+  [["fADDRESS","ADDRESS"],["fSTREET","STREET"],["fPARK","PARK"]].forEach(([id,k])=>{
+    const el=$(id); if(!el) return;
+    if(!el.value.trim() && t[k]){ el.value=t[k]; formSnapshot[id]=t[k]; confirmField(id); }
+  });
+  $("fADDRESS").placeholder = "Fills in automatically...";
+  if(t._addrSrc) $("posHint").textContent = ($("posHint").textContent||"") .replace(/ · address .*$/,"") + " · address " + t._addrSrc;
+}
+
+/* Two free geocoders, no keys. Photon returns structured OSM fields and is more
+   forgiving of a point in a road allowance; Nominatim is the fallback. Neither is as
+   good as a parcel layer, which is why they are only reached when there isn't one. */
 function reverseGeocode(lat, lon){
-  if(lat==null||lon==null) return Promise.resolve("");
+  return photonReverse(lat,lon).then(r=>{
+    if(r && (r.address||r.street)) return r;
+    return nominatimReverse(lat,lon);
+  }).catch(()=>nominatimReverse(lat,lon));
+}
+function photonReverse(lat, lon){
+  return fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&limit=1`)
+    .then(r=>r.json())
+    .then(j=>{
+      const p = j && j.features && j.features[0] && j.features[0].properties;
+      if(!p) return null;
+      const street = p.street || (p.osm_key==="highway" ? p.name : "") || "";
+      const num = p.housenumber || "";
+      const city = p.city || p.town || p.village || p.district || "";
+      const addr = [ [num,street].filter(Boolean).join(" "), city, p.state ].filter(Boolean).join(", ");
+      const park = (p.osm_value==="park" || p.osm_value==="garden") ? (p.name||"") : "";
+      return { address: addr || "", street: street, park: park, how: "photon" };
+    });
+}
+function nominatimReverse(lat, lon){
   return fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18`,
         {headers:{"Accept":"application/json"}})
     .then(r=>r.json())
     .then(j=>{
-      const a=j&&j.address; if(!a) return "";
-      const street=[a.house_number,a.road].filter(Boolean).join(" ");
+      const a=j&&j.address; if(!a) return null;
+      const street=a.road||"";
       const city=a.city||a.town||a.village||a.municipality||"";
-      return [street,city,a.state].filter(Boolean).join(", ") ||
-             (j.display_name||"").split(",").slice(0,3).join(", ");
+      const addr=[[a.house_number,street].filter(Boolean).join(" "), city, a.state].filter(Boolean).join(", ");
+      return { address: addr, street: street, park: a.leisure||"", how: "nominatim" };
     });
 }
 
@@ -2830,12 +3420,23 @@ function lookupAddress(){
   if(lat==null||lon==null){ toast("No position yet",true); return; }
   if(isOffline()){ toast("Needs a connection — it fills in on sync",true); return; }
   $("fADDRESS").placeholder="Looking up…";
+  const local = addressFromParcels(lat,lon);
+  if(local){
+    $("fADDRESS").value = local.value;
+    const tt = trees[editIndex]; if(tt){ tt.ADDRESS = local.value; tt._addrAuto = true; tt._addrSrc = local.how; }
+    formSnapshot["fADDRESS"] = local.value; confirmField("fADDRESS");
+    toast("Address from parcel layer");
+    $("fADDRESS").placeholder="Fills in automatically";
+    return;
+  }
   reverseGeocode(lat,lon)
-    .then(out=>{
+    .then(r=>{
+      const out = r && r.address;
       if(!out) throw new Error("no result");
       $("fADDRESS").value = out;
-      const tt = trees[editIndex]; if(tt){ tt.ADDRESS = out; tt._addrAuto = true; }
+      const tt = trees[editIndex]; if(tt){ tt.ADDRESS = out; tt._addrAuto = true; tt._addrSrc = r.how; }
       formSnapshot["fADDRESS"] = out; confirmField("fADDRESS");
+      if(r.street && !$("fSTREET").value.trim()){ $("fSTREET").value = r.street; formSnapshot["fSTREET"]=r.street; }
       toast("Address found");
     })
     .catch(()=>{ toast("Lookup failed — it fills in on sync",true); })
@@ -2866,7 +3467,7 @@ function setSpeciesVal(v){
 }
 function openSpecies(){ $("spSearch").value=""; renderSpecies(); $("speciesFull").classList.add("show"); setTimeout(()=>$("spSearch").focus(),60); }
 function closeSpecies(){ $("speciesFull").classList.remove("show"); }
-function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); markSpeciesChanged(); }
+function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); markSpeciesChanged(); refreshCrown(); }
 
 // Dictation yields "sugar maple." or "Hick's yew" — strip punctuation before matching.
 function searchKey(v){ return String(v||"").toLowerCase().replace(/[‘’']/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim(); }
@@ -2926,6 +3527,12 @@ function fetchSpecies(){
     try{
       const list = (resp&&resp.species)||[];
       if(list.length){ species = list.slice().sort((a,b)=>a.localeCompare(b)); persistSpecies(); }
+      const map = (resp&&resp.itree)||null;
+      if(map && Object.keys(map).length){
+        speciesITree = map;
+        if(STORE){ try{ STORE.setItem("st_itree", JSON.stringify(map)); }catch(e){} }
+        if($("treeSheet").classList.contains("show")) refreshITree();
+      }
     }catch(e){}
     cleanup();
   };
@@ -3842,6 +4449,7 @@ function openSettings(){
   $("setCounter").value=settings.counter||1;
   $("setNewUser").value="";
   $("setNewProj").value="";
+  $("setCrownMethod").value = crownMethod;
   userSelect();
   projectSelect();
   previewId();
@@ -3875,6 +4483,7 @@ function saveSettings(){
   settings.prefix=($("setPrefix").value.trim()||"AUR").toUpperCase();
   settings.device=($("setDevice").value.trim()||"A").toUpperCase().slice(0,1);
   settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
+  setCrownMethod($("setCrownMethod").value);
   persistSettings();
 
 
@@ -3979,6 +4588,10 @@ function showHelp(){
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
     <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
+    <p><b>i-Tree type</b><br>Every species carries an i-Tree Streets type code — BDL for broadleaf deciduous large, CES for conifer evergreen small, and so on. It shows under the species picker, exports as ITREE, and appears in the statistics. The codes live in an editable column on the Species tab — correct one there and every phone picks it up. Columnar and dwarf cultivars drop a size class, since the code describes mature size.</p>
+    <p><b>Height</b><br>Height is calculated from DBH using the same equation the Town of Aurora ArcPad build used, so new records stay comparable with the old ones. It caps at 26 m above 54 cm DBH, as the original did. Typing your own value marks it measured.</p>
+    <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
+    <p><b>Accurate addresses</b><br>Load your parcel fabric under Menu → Layers and tell it which column holds the address. After that every tree takes the address of the parcel it sits in, or — for a tree in the road allowance — the nearest parcel frontage. That is exact, instant and works with no signal, unlike an online lookup which can only snap to whatever it knows about nearby. Street centreline and park layers fill the Street and Park fields the same way. Without those layers the app falls back to Photon and then OpenStreetMap.</p>
     <p><b>Addresses</b><br>A tree with no address looks one up the moment you drop it, and also when you open an imported tree that arrived without one — so it is on screen while you work. With no signal it is skipped and the Sheet fills it in on sync. After a day worked offline, run Tree Tools → Fill missing addresses in the Sheet a few times to catch the rest.</p>
     <p><b>Moving a tree</b><br>Any reposition re-looks-up the address, however small — a tree on a property line can change frontage with a metre of movement. An address the app found is replaced silently; one you typed by hand is only replaced if you say so. With no signal the old address is cleared rather than kept, so the Sheet fills in the correct one on sync instead of leaving the wrong one in place.</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
