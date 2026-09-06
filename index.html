@@ -824,7 +824,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-05 · v47";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-05 · v48";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -972,7 +972,8 @@ const FIELDS = [
   {k:"TREE_ID", t:"C", w:20}, {k:"PROJECT", t:"C", w:40},
   {k:"EXT_ID", t:"C", w:24}, {k:"SPECIES", t:"C", w:40},
   {k:"DBH", t:"N", w:6, d:1}, {k:"STEMS", t:"N", w:3, d:0},
-  {k:"BOTANICAL", t:"C", w:60}, {k:"ITREE", t:"C", w:4},
+  {k:"BOTANICAL", t:"C", w:60}, {k:"FAMILY", t:"C", w:24}, {k:"GENUS", t:"C", w:24},
+  {k:"ITREE", t:"C", w:4},
   {k:"TARGET", t:"C", w:12}, {k:"IMPACT", t:"C", w:10}, {k:"CONSEQ", t:"C", w:12}, {k:"RISK", t:"C", w:10},
   {k:"ACTIVITY", t:"C", w:16}, {k:"REMOV_RSN", t:"C", w:26},
   {k:"HEIGHT", t:"N", w:4, d:1},
@@ -1491,7 +1492,7 @@ const FIELD_LABELS = {
   CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
   HEIGHT:"Height", ITREE:"i-Tree type",
   ADDR_DIST:"Distance to parcel", STREET_M:"Distance to street",
-  BOTANICAL:"Botanical name", TARGET:"Target occupancy", IMPACT:"Likelihood of impact", CONSEQ:"Consequences",
+  BOTANICAL:"Botanical name", FAMILY:"Family", GENUS:"Genus", TARGET:"Target occupancy", IMPACT:"Likelihood of impact", CONSEQ:"Consequences",
   RISK:"Risk rating", ACTIVITY:"Activity", REMOV_RSN:"Removal reason"
 };
 /* "Stacked" has been stored three ways across builds: the token NL, a real newline,
@@ -1978,7 +1979,14 @@ const ITREE_RULES = [
 let speciesITree = {}, speciesBotanical = {};
 try{ speciesITree = JSON.parse(STORE&&STORE.getItem("st_itree")) || {}; }catch(e){ speciesITree={}; }
 try{ speciesBotanical = JSON.parse(STORE&&STORE.getItem("st_botanical")) || {}; }catch(e){ speciesBotanical={}; }
-function botanicalFor(sp){ return speciesBotanical[String(sp||"").trim()] || ""; }
+/* [botanical, family, genus] from the Species tab. Stamped on every tree but never
+   shown on the form — the field crew works in common names. */
+function taxonFor(sp){
+  const v = speciesBotanical[String(sp||"").trim()];
+  if(!v) return ["","",""];
+  return Array.isArray(v) ? v : [v,"",""];      // tolerate the older string-only form
+}
+function botanicalFor(sp){ return taxonFor(sp)[0]; }
 
 /* A code set on the Species tab is the authority — that is where anyone reviews or
    corrects them. The built-in rules are only the fallback, for a species typed in the
@@ -3458,7 +3466,8 @@ function saveTree(){
   t.EXT_ID  = normText($("fEXT_ID").value);
   t.SPECIES = $("spVal").textContent;
   t.ITREE   = itreeType(t.SPECIES);
-  t.BOTANICAL = botanicalFor(t.SPECIES);
+  const tax = taxonFor(t.SPECIES);
+  t.BOTANICAL = tax[0]; t.FAMILY = tax[1]; t.GENUS = tax[2];
   t.DBH     = $("fDBH").value;
   t.STEMS   = $("fSTEMS").value || "1";
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ const el=$("f"+f); if(el) t[f]=el.value; });
@@ -4630,6 +4639,8 @@ function exportDataDictionary(){
     EXT_ID:"Identifier carried in from an imported layer, if any.",
     PROJECT:"Job this tree belongs to.",
     BOTANICAL:"Genus and species, from the Species tab. \"sp.\" means genus only.",
+    FAMILY:"Plant family, current APG placement.",
+    GENUS:"Genus, from the Species tab.",
     ITREE:"i-Tree Streets type. B/C broadleaf-conifer, D/E deciduous-evergreen, L/M/S mature size.",
     HLTH_CODE:"1-9, matching the HEALTH classes in order.",
     CROWN_BAS:"How CROWN_RAD was arrived at: measured, or which allometry was used.",
