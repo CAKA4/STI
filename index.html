@@ -177,6 +177,12 @@
   .row2{ display:flex; gap:10px } .row2>*{ flex:1 }
   .picker{ display:flex; align-items:center; justify-content:space-between; cursor:pointer }
   .picker span.val{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  /* The species box holds names up to 35 characters. It gets the full width of the
+     form and a larger face so the whole name is readable without truncation. */
+  #spPicker{ min-height:56px; padding:14px 12px; align-items:center }
+  #spPicker span.val{ font-size:18px; font-weight:700; white-space:normal;
+    overflow:visible; text-overflow:clip; line-height:1.25; flex:1 }
+  #spPicker span.val.empty{ font-weight:500; font-size:16px }
   .picker span.val.empty{ color:var(--faint) }
   .chips{ display:flex; flex-wrap:wrap; gap:6px }
   .chips button{ padding:9px 11px; font-size:13px; border-radius:999px; border:1px solid var(--line2);
@@ -194,6 +200,21 @@
   .mini{ font-size:11.5px; color:var(--muted); margin-top:5px; font-family:var(--mono) }
   .menuitem{ display:block; width:100%; text-align:left; padding:14px 12px; margin-bottom:7px; font-size:15px;
     border-radius:11px; border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
+  /* Twenty-odd flat entries were hard to scan on a phone. Grouped into five, closed
+     by default, and the group you opened last is remembered. */
+  .mgroup{ margin-bottom:8px }
+  .mhead{ display:flex; align-items:center; justify-content:space-between; width:100%;
+    padding:14px 12px; font-size:15px; font-weight:700; border-radius:11px;
+    border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
+  .mhead .caret{ transition:transform .15s; color:var(--muted) }
+  .mgroup.open .mhead{ border-bottom-left-radius:0; border-bottom-right-radius:0; background:#e3ebe4 }
+  .mgroup.open .mhead .caret{ transform:rotate(90deg) }
+  .mbody{ display:none; padding:8px 8px 2px; border:1px solid var(--line2); border-top:0;
+    border-radius:0 0 11px 11px; background:rgba(0,0,0,.03) }
+  .mgroup.open .mbody{ display:block }
+  .mbody .menuitem{ font-size:14.5px; padding:12px 11px }
+  .menuitem.prime{ background:var(--accent-dk); border-color:var(--accent); color:#fff; font-weight:700 }
+  .menuitem.danger{ background:#fdecea; color:#8c2318; border-color:#e0a79f }
 
   /* full-screen species search */
   .full{ display:none; position:fixed; inset:0; z-index:1100; background:var(--bg); flex-direction:column }
@@ -352,6 +373,18 @@
       <button type="button" class="primary" onclick="fillFromLastTree()" id="sameAsLastBtn">⧉ Same as last tree</button>
     </div>
 
+    <div class="fld">
+      <label>Photos</label>
+      <input id="photoInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)">
+      <div class="btnrow">
+        <button type="button" onclick="document.getElementById('photoInput').click()">📷 Take photo</button>
+        <button type="button" onclick="document.getElementById('photoPick').click()">🖼 From library</button>
+      </div>
+      <input id="photoPick" type="file" accept="image/*" multiple style="display:none" onchange="handlePhoto(this)">
+      <div class="thumbs" id="photoThumbs"></div>
+      <div class="mini" id="photoHint">Saved on the phone, backed up to Drive when online.</div>
+    </div>
+
     <div class="fld" id="extRow" style="display:none">
       <label>Prior / existing ID</label>
       <input id="fEXT_ID" type="text" autocomplete="off" placeholder="from the imported layer">
@@ -407,6 +440,22 @@
     <div class="fld"><label>Impediment</label><select id="fIMPEDMNT"></select></div>
     <div class="fld"><label>Recommended treatment</label><select id="fRECOTREA"></select></div>
 
+    <div class="row2">
+      <div class="fld"><label>Target occupancy</label><select id="fTARGET" onchange="targetChanged()"></select></div>
+      <div class="fld"><label>Likelihood of impact</label><select id="fIMPACT"></select></div>
+    </div>
+    <div class="fld"><label>Consequences</label><select id="fCONSEQ"></select></div>
+    <div class="fld">
+      <label>Risk rating</label>
+      <div class="picker" id="riskBox"><span class="val" id="riskVal">—</span></div>
+      <div class="mini" id="riskWhy">Set failure potential, target and consequences.</div>
+    </div>
+
+    <div class="fld"><label>Activity this visit</label><select id="fACTIVITY" onchange="refreshRemovalReason()"></select></div>
+    <div class="fld" id="removRow" style="display:none">
+      <label>Removal reason</label><select id="fREMOV_RSN"></select>
+    </div>
+
     <div class="fld">
       <label>Address <button type="button" class="clr" onclick="clearField('fADDRESS')">Clear</button></label>
       <input id="fADDRESS" type="text" placeholder="Fills in automatically…" autocomplete="off">
@@ -423,18 +472,6 @@
       <label>Comments <button type="button" class="clr" onclick="clearField('fCOMMENTS')">Clear</button></label>
       <textarea id="fCOMMENTS" placeholder="Defects, wires, clearance, work required… (tap the mic on the keyboard to dictate)"></textarea>
       <div class="dictate">Dictation works in this field, the address and the species search.</div>
-    </div>
-
-    <div class="fld">
-      <label>Photos</label>
-      <input id="photoInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(this)">
-      <div class="btnrow">
-        <button type="button" onclick="document.getElementById('photoInput').click()">📷 Take photo</button>
-        <button type="button" onclick="document.getElementById('photoPick').click()">🖼 From library</button>
-      </div>
-      <input id="photoPick" type="file" accept="image/*" multiple style="display:none" onchange="handlePhoto(this)">
-      <div class="thumbs" id="photoThumbs"></div>
-      <div class="mini" id="photoHint">Saved on the phone, backed up to Drive when online.</div>
     </div>
 
     <input id="fLAT" type="hidden"><input id="fLON" type="hidden">
@@ -470,24 +507,60 @@
     <div class="grab"></div>
     <h2>Menu</h2>
     <div class="idline" id="menuStats">—</div>
-    <button class="menuitem" onclick="openSettings()">⚙ Cruiser &amp; ID settings</button>
-    <button class="menuitem" onclick="document.getElementById('pointsInput').click()">📍 Import tree points (.zip .shp .geojson .gpx)</button>
-    <button class="menuitem" onclick="toggleProjectFilter()" id="projFilterBtn">🗂 Showing: —</button>
-    <button class="menuitem" onclick="openStats()">📊 Statistics</button>
-    <button class="menuitem" onclick="openLayers()">📚 Layers &amp; reference files</button>
-    <button class="menuitem" onclick="openLabels('trees')">🏷 Label settings</button>
-    <button class="menuitem" onclick="exportShapefile()">⬇ Export shapefile (.zip)</button>
-    <button class="menuitem" onclick="exportCSV()">⬇ Export CSV</button>
-    <button class="menuitem" onclick="downloadPhotos()">⬇ Download all photos (.zip)</button>
-    <button class="menuitem" onclick="emailPackage()">✉ Email me the data + photos</button>
-    <button class="menuitem" onclick="syncNow()">⇅ Sync now</button>
-    <button class="menuitem" onclick="verifySync(false)">✓ Verify what reached the Sheet</button>
-    <button class="menuitem" onclick="pullFromSheet()">⤓ Load trees from Sheet</button>
-    <button class="menuitem" onclick="refreshPhotoLinks()">🔗 Refresh photo links</button>
-    <button class="menuitem" onclick="openArchive()">🖼 Photo archive (<span id="archCount">0</span>)</button>
-    <button class="menuitem" onclick="showHelp()">? How this app works</button>
-    <button class="menuitem" onclick="clearProjectLocal()">🧹 Clear a project from this phone</button>
-    <button class="menuitem" onclick="clearAllData()">🗑 Clear all data on this device</button>
+
+    <button class="menuitem prime" onclick="toggleProjectFilter()" id="projFilterBtn">🗂 Showing: —</button>
+
+    <div class="mgroup" id="g_sync">
+      <button class="mhead" onclick="toggleGroup('sync')">⇅ Sync &amp; the Sheet<span class="caret">▸</span></button>
+      <div class="mbody">
+        <button class="menuitem" onclick="syncNow()">Sync now</button>
+        <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
+        <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
+        <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
+      </div>
+    </div>
+
+    <div class="mgroup" id="g_layers">
+      <button class="mhead" onclick="toggleGroup('layers')">📥 Bring data in<span class="caret">▸</span></button>
+      <div class="mbody">
+        <button class="menuitem" onclick="document.getElementById('pointsInput').click()">Import tree points (.zip .shp .geojson .gpx)</button>
+        <button class="menuitem" onclick="openLayers()">Layers &amp; reference files</button>
+        <button class="menuitem" onclick="openLabels('trees')">Label settings</button>
+      </div>
+    </div>
+
+    <div class="mgroup" id="g_out">
+      <button class="mhead" onclick="toggleGroup('out')">📤 Get data out<span class="caret">▸</span></button>
+      <div class="mbody">
+        <button class="menuitem" onclick="exportShapefile()">Shapefile (.zip)</button>
+        <button class="menuitem" onclick="exportGeoJSON()">GeoJSON — for ArcGIS Pro</button>
+        <button class="menuitem" onclick="exportCSV()">CSV</button>
+        <button class="menuitem" onclick="exportMapPDF()">Map of this view (PDF)</button>
+        <button class="menuitem" onclick="exportAttachmentTable()">Photo attachment table</button>
+        <button class="menuitem" onclick="exportDataDictionary()">Data dictionary</button>
+        <button class="menuitem" onclick="downloadPhotos()">Download all photos (.zip)</button>
+        <button class="menuitem" onclick="emailPackage()">Email me the data + photos</button>
+      </div>
+    </div>
+
+    <div class="mgroup" id="g_review">
+      <button class="mhead" onclick="toggleGroup('review')">📊 Review<span class="caret">▸</span></button>
+      <div class="mbody">
+        <button class="menuitem" onclick="openStats()">Statistics</button>
+        <button class="menuitem" onclick="openArchive()">Photo archive (<span id="archCount">0</span>)</button>
+      </div>
+    </div>
+
+    <div class="mgroup" id="g_set">
+      <button class="mhead" onclick="toggleGroup('set')">⚙ Settings &amp; help<span class="caret">▸</span></button>
+      <div class="mbody">
+        <button class="menuitem" onclick="openSettings()">Cruiser, project &amp; ID settings</button>
+        <button class="menuitem" onclick="showHelp()">How this app works</button>
+        <button class="menuitem" onclick="clearProjectLocal()">Clear a project from this phone</button>
+        <button class="menuitem danger" onclick="clearAllData()">Clear all data on this device</button>
+      </div>
+    </div>
+
     <div class="btnrow"><button onclick="closeMenu()">Close</button></div>
     <div class="mini" id="buildStamp" onclick="forceUpdate()" style="text-align:center;margin-top:10px;cursor:pointer"></div>
   </div>
@@ -517,6 +590,12 @@
       <input id="setNewProj" type="text" placeholder="e.g. Aurora 2026">
       <div class="mini">Shared with the whole crew once you save.</div>
     </div>
+    <div class="fld">
+      <label>Photo quality</label>
+      <select id="setPhotoQ"></select>
+      <div class="mini" id="photoQNote">—</div>
+    </div>
+
     <div class="fld">
       <label>Crown size method</label>
       <select id="setCrownMethod">
@@ -745,7 +824,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-08-15 · v38";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-05 · v47";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -893,7 +972,9 @@ const FIELDS = [
   {k:"TREE_ID", t:"C", w:20}, {k:"PROJECT", t:"C", w:40},
   {k:"EXT_ID", t:"C", w:24}, {k:"SPECIES", t:"C", w:40},
   {k:"DBH", t:"N", w:6, d:1}, {k:"STEMS", t:"N", w:3, d:0},
-  {k:"ITREE", t:"C", w:4},
+  {k:"BOTANICAL", t:"C", w:60}, {k:"ITREE", t:"C", w:4},
+  {k:"TARGET", t:"C", w:12}, {k:"IMPACT", t:"C", w:10}, {k:"CONSEQ", t:"C", w:12}, {k:"RISK", t:"C", w:10},
+  {k:"ACTIVITY", t:"C", w:16}, {k:"REMOV_RSN", t:"C", w:26},
   {k:"HEIGHT", t:"N", w:4, d:1},
   {k:"CROWN_RAD", t:"N", w:5, d:1}, {k:"CROWN_DIA", t:"N", w:6, d:1}, {k:"CROWN_BAS", t:"C", w:30},
   {k:"HEALTH", t:"C", w:20}, {k:"HLTH_CODE", t:"N", w:1, d:0},
@@ -902,7 +983,8 @@ const FIELDS = [
   {k:"IMPEDMNT", t:"C", w:14}, {k:"RECOTREA", t:"C", w:40},
   {k:"COMMENTS", t:"C", w:180},
   {k:"LAT", t:"N", w:12, d:6}, {k:"LON", t:"N", w:13, d:6},
-  {k:"ADDRESS", t:"C", w:80}, {k:"STREET", t:"C", w:40}, {k:"PARK", t:"C", w:40},
+  {k:"ADDRESS", t:"C", w:80}, {k:"ADDR_DIST", t:"N", w:6, d:1},
+  {k:"STREET", t:"C", w:40}, {k:"STREET_M", t:"N", w:6, d:1}, {k:"PARK", t:"C", w:40},
   {k:"PHOTOS", t:"C", w:180},
   {k:"PHOTO_LINK", t:"C", w:254},   // exactly 10 chars — the DBF field-name limit
   {k:"CRUISER", t:"C", w:24}, {k:"EMAIL", t:"C", w:40},
@@ -1407,7 +1489,10 @@ const FIELD_LABELS = {
   IMPEDMNT:"Impediment", RECOTREA:"Recommended treatment",
   STREET:"Street", PARK:"Park",
   CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
-  HEIGHT:"Height", ITREE:"i-Tree type"
+  HEIGHT:"Height", ITREE:"i-Tree type",
+  ADDR_DIST:"Distance to parcel", STREET_M:"Distance to street",
+  BOTANICAL:"Botanical name", TARGET:"Target occupancy", IMPACT:"Likelihood of impact", CONSEQ:"Consequences",
+  RISK:"Risk rating", ACTIVITY:"Activity", REMOV_RSN:"Removal reason"
 };
 /* "Stacked" has been stored three ways across builds: the token NL, a real newline,
    and a literal backslash-n from an HTML attribute (which is what used to print as
@@ -1731,6 +1816,122 @@ function renderLayerList(){
 }
 
 /* ================================================================== *
+ *  INSPECTION HISTORY
+ *  Every save writes a visit row. The tree row keeps the current state for the
+ *  map and the field crew; the history is what makes a re-survey worth anything
+ *  — mortality, growth, whether the recommended work got done.
+ * ================================================================== */
+let pendingInspections = [];
+try{ pendingInspections = JSON.parse(STORE&&STORE.getItem("st_pendinsp")) || []; }catch(e){ pendingInspections=[]; }
+function persistPendInsp(){ if(STORE){ try{ STORE.setItem("st_pendinsp", JSON.stringify(pendingInspections)); }catch(e){} } }
+
+function logInspection(t){
+  if(!t) return;
+  pendingInspections.push({
+    TREE_ID:t.TREE_ID, PROJECT:t.PROJECT||"", WHEN:t.DATE||nowStr(),
+    ACTIVITY:t.ACTIVITY||"Inspection", HEALTH:t.HEALTH||"", DBH:t.DBH||"", HEIGHT:t.HEIGHT||"",
+    RECOTREA:t.RECOTREA||"", RISK:t.RISK||"", PESTDISEAS:t.PESTDISEAS||"",
+    REMOVAL_REASON:t.REMOV_RSN||"", CRUISER:t.CRUISER||"", COMMENTS:t.COMMENTS||"", PHOTOS:t.PHOTOS||""
+  });
+  persistPendInsp();
+  flushInspections();
+}
+let flushingInsp = false;
+function flushInspections(){
+  if(!connected || isOffline() || flushingInsp || !pendingInspections.length) return;
+  flushingInsp = true;
+  // Taken off the queue BEFORE sending. Saving two trees quickly used to fire two
+  // overlapping flushes that both included the first row, writing the same visit to
+  // the history twice. On failure the batch goes back.
+  const batch = pendingInspections.slice(0,200);
+  pendingInspections = pendingInspections.slice(batch.length);
+  persistPendInsp();
+  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({_action:"inspectbatch", rows:batch})})
+    .then(()=>{ flushingInsp=false;
+                if(pendingInspections.length) setTimeout(flushInspections, 2000); })
+    .catch(()=>{ pendingInspections = batch.concat(pendingInspections); persistPendInsp(); flushingInsp=false; });
+}
+
+/* ================================================================== *
+ *  RISK  (ISA TRAQ, basic assessment)
+ *
+ *  Failure potential on its own is not risk. TRAQ combines likelihood of
+ *  FAILURE with likelihood of the failed part IMPACTING a target, and then
+ *  with the CONSEQUENCES if it does. A dead tree over a lane nobody walks is
+ *  low risk; a moderately defective one over a bus shelter is not. Recording
+ *  only the first is what makes an inventory indefensible when someone asks
+ *  why a tree was left standing.
+ * ================================================================== */
+const TARGET_D = [
+  ["Rare","Rare — target present very infrequently"],
+  ["Occasional","Occasional — target present now and then"],
+  ["Frequent","Frequent — target present most days"],
+  ["Constant","Constant — target present nearly always"]
+];
+/* TRAQ Matrix 1 takes the likelihood of the failed part IMPACTING the target, which
+   the assessor judges from occupancy together with fall direction, slope, and any
+   protection between tree and target. Occupancy alone is only a starting point, so
+   it is offered as a default here and can be overridden. */
+const IMPACT_D = [
+  ["Very low","Very low — unlikely to reach the target"],
+  ["Low","Low — could reach it, but probably not"],
+  ["Medium","Medium — a fair chance of reaching it"],
+  ["High","High — would most likely hit the target"]
+];
+const IMPACT_FROM_TARGET = { Rare:"Very low", Occasional:"Low", Frequent:"Medium", Constant:"High" };
+const CONSEQ_D = [
+  ["Negligible","Negligible — no injury, trivial damage"],
+  ["Minor","Minor — minor injury or damage"],
+  ["Significant","Significant — injury or substantial damage"],
+  ["Severe","Severe — serious injury or death, major damage"]
+];
+// Likelihood of failure, taken from the failure potential already recorded, with a
+// dead or imminent tree escalated.
+function likelihoodOfFailure(t){
+  const h = String(t.HEALTH||"");
+  if(h==="Dead" || h==="Death imminent") return "Imminent";
+  return { "Low":"Improbable", "Medium":"Possible", "High":"Probable" }[String(t.FAILPOTE||"")] || "";
+}
+/* TRAQ Matrix 1 — likelihood of failure x likelihood of impacting the target,
+   giving the combined likelihood of failure AND impact. Values as published by ISA. */
+const LOF_IMPACT = {
+  Improbable:{ "Very low":"Unlikely", Low:"Unlikely", Medium:"Unlikely",        High:"Unlikely" },
+  Possible:  { "Very low":"Unlikely", Low:"Unlikely", Medium:"Unlikely",        High:"Somewhat likely" },
+  Probable:  { "Very low":"Unlikely", Low:"Unlikely", Medium:"Somewhat likely", High:"Likely" },
+  Imminent:  { "Very low":"Unlikely", Low:"Somewhat likely", Medium:"Likely",   High:"Very likely" }
+};
+/* TRAQ Matrix 2 — combined likelihood x consequences, giving the risk rating. */
+const RISK_MATRIX = {
+  "Unlikely":        { Negligible:"Low", Minor:"Low",      Significant:"Low",      Severe:"Low" },
+  "Somewhat likely": { Negligible:"Low", Minor:"Low",      Significant:"Moderate", Severe:"Moderate" },
+  "Likely":          { Negligible:"Low", Minor:"Moderate", Significant:"High",     Severe:"High" },
+  "Very likely":     { Negligible:"Low", Minor:"Moderate", Significant:"High",     Severe:"Extreme" }
+};
+const RISK_COLOR = { Low:"#4caf50", Moderate:"#ffd54f", High:"#E8862B", Extreme:"#D0402B" };
+
+function riskFor(t){
+  const lof = likelihoodOfFailure(t);
+  const imp = String(t.IMPACT||"") || IMPACT_FROM_TARGET[String(t.TARGET||"")] || "";
+  const con = String(t.CONSEQ||"");
+  if(!lof || !imp || !con)
+    return { rating:"", why:"needs failure potential, likelihood of impact and consequences" };
+  const combined = (LOF_IMPACT[lof]||{})[imp] || "";
+  const rating = (RISK_MATRIX[combined]||{})[con] || "";
+  return { rating,
+           why: `${lof} failure · ${imp.toLowerCase()} chance of impact · ${combined.toLowerCase()} · ${con.toLowerCase()} consequences` };
+}
+
+/* Activities, matching the Aurora inventory's own list. */
+const ACTIVITY_D = [["Inspection","Inspection"],["Pruned","Pruned"],["Removed","Removed"],
+  ["Planted","Planted"],["Cabled","Cabled / braced"],["Fertilized","Fertilized"],
+  ["Mulched","Mulched"],["Injected","Injected"],["Watered","Watered"],["Stump removed","Stump removed"]];
+const REMOV_RSN_D = [["Dead","Dead"],["Hazardous","Hazardous"],["Disease","Disease"],
+  ["Pest / EAB","Pest / EAB"],["Storm damage","Storm damage"],["Construction","Construction"],
+  ["Utility conflict","Utility conflict"],["Road / sidewalk work","Road / sidewalk work"],
+  ["Poor form","Poor form"],["Private request","Private request"],["Other","Other"]];
+
+/* ================================================================== *
  *  i-TREE SPECIES TYPE
  *  Leaf type + leaf persistence + mature size class, as used by i-Tree
  *  Streets for species that have no direct match:
@@ -1774,8 +1975,10 @@ const ITREE_RULES = [
 
 // A columnar or dwarf cultivar does not reach the species' mature height, so it
 // drops a size class — the whole point of the code is mature size.
-let speciesITree = {};
+let speciesITree = {}, speciesBotanical = {};
 try{ speciesITree = JSON.parse(STORE&&STORE.getItem("st_itree")) || {}; }catch(e){ speciesITree={}; }
+try{ speciesBotanical = JSON.parse(STORE&&STORE.getItem("st_botanical")) || {}; }catch(e){ speciesBotanical={}; }
+function botanicalFor(sp){ return speciesBotanical[String(sp||"").trim()] || ""; }
 
 /* A code set on the Species tab is the authority — that is where anyone reviews or
    corrects them. The built-in rules are only the fallback, for a species typed in the
@@ -1933,10 +2136,46 @@ function estimateCrown(speciesName, dbhCm, stems){
 
 // Recomputes whenever species, DBH or stem count changes, unless a measured value
 // has been typed in — a real measurement always outranks an estimate.
+function refreshRisk(){
+  const t = trees[editIndex]; if(!t) return;
+  const probe = { HEALTH: t._draftHealth || t.HEALTH,
+                  FAILPOTE: $("fFAILPOTE") ? $("fFAILPOTE").value : t.FAILPOTE,
+                  TARGET: $("fTARGET") ? $("fTARGET").value : "",
+                  IMPACT: $("fIMPACT") ? $("fIMPACT").value : "",
+                  CONSEQ: $("fCONSEQ") ? $("fCONSEQ").value : "" };
+  const r = riskFor(probe);
+  const box=$("riskBox"), val=$("riskVal");
+  val.textContent = r.rating || "—";
+  box.style.background = r.rating ? RISK_COLOR[r.rating] : "";
+  box.style.borderColor = r.rating ? RISK_COLOR[r.rating] : "";
+  val.style.color = r.rating ? "#10201a" : "";
+  val.style.fontWeight = r.rating ? "700" : "";
+  $("riskWhy").textContent = r.why;
+}
+// Occupancy suggests the impact likelihood; the assessor can override it, which is
+// what TRAQ intends since fall direction and protection matter too.
+function targetChanged(){
+  const el=$("fIMPACT");
+  if(el && !el.value){
+    const sug = IMPACT_FROM_TARGET[$("fTARGET").value];
+    if(sug){ el.value = sug; confirmField("fIMPACT"); }
+  }
+  refreshRisk();
+}
+
+function refreshRemovalReason(){
+  const a = $("fACTIVITY").value;
+  const h = (trees[editIndex]||{})._draftHealth || "";
+  const show = a==="Removed" || a==="Stump removed" || h==="Removed" || h==="Dead" || h==="Stump";
+  $("removRow").style.display = show ? "block" : "none";
+}
+
 function refreshITree(){
   const sp = $("spVal").classList.contains("empty") ? "" : $("spVal").textContent;
   const c = itreeType(sp);
   const src = (c && speciesITree[sp.trim()]) ? "from the Species tab" : "worked out from the name";
+  // The botanical name is still recorded and exported, just not shown here — the
+  // form is for the field, where the common name is what gets used.
   $("itreeWhy").textContent = c ? `i-Tree ${c} — ${ITREE_LABEL[c]||""} · ${src}` : "i-Tree type not assigned";
 }
 
@@ -2074,7 +2313,7 @@ function addressFromParcels(lat, lon){
     for(const f of L2.features){
       if(featureContains(f, lat, lon)){
         const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
-        if(v) return { value: v, how: "in parcel" };
+        if(v) return { value: v, how: "in parcel", dist: 0 };
       }
     }
   }
@@ -2091,7 +2330,8 @@ function addressFromParcels(lat, lon){
       }
     }
   }
-  return best ? { value: best.value, how: `nearest parcel ${Math.round(best.d)} m` } : null;
+  return best ? { value: best.value, how: `nearest parcel ${(Math.round(best.d*10)/10)} m`,
+                  dist: Math.round(best.d*10)/10 } : null;
 }
 const PARCEL_SNAP_M = 35;
 const STREET_SNAP_M = 60;
@@ -2106,13 +2346,12 @@ function tidyStreet(v){
 }
 function streetKey(v){ return String(v||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
 
-/* The nearest centreline is not always the right street: a corner lot backs onto an
-   arterial, so a tree in its front yard on a side street would take the arterial's
-   name. When the address is known, its street wins — the centreline layer is then
-   only used to get the official spelling. */
+/* STREET is the street the tree actually STANDS ON, which is not always the street
+   in its address — a corner property is addressed on one street while its trees sit
+   along the other, and a flankage tree is the common case. So the nearest centreline
+   wins. The address is only the fallback when no centreline is within reach. */
 function streetFromLayer(lat, lon, addressHint){
-  const want = streetKey(streetFromAddress(addressHint));
-  let best=null, named=null;
+  let best=null;
   const pad = 0.0008;
   for(const L2 of layersWithRole("street")){
     for(const f of L2.features){
@@ -2121,13 +2360,11 @@ function streetFromLayer(lat, lon, addressHint){
       if(!raw) continue;
       const d = distToFeature(f, lat, lon);
       if(d<=STREET_SNAP_M && (!best || d<best.d)) best={d, value:raw};
-      // a match on the address's street, wherever it is within reach
-      if(want && streetKey(raw).indexOf(want)>=0 && (!named || d<named.d)) named={d, value:raw};
     }
   }
-  if(named) return tidyStreet(named.value);
-  if(best)  return tidyStreet(best.value);
-  return tidyStreet(streetFromAddress(addressHint));   // no layer match: use the address
+  if(best) return { value: tidyStreet(best.value), dist: Math.round(best.d*10)/10, how:"nearest centreline" };
+  const fromAddr = tidyStreet(streetFromAddress(addressHint));
+  return fromAddr ? { value: fromAddr, dist: null, how:"from the address" } : null;
 }
 function parkFromLayer(lat, lon){
   for(const L2 of layersWithRole("park")){
@@ -2882,7 +3119,7 @@ function domainOptions(field){
 
 function onDomainChange(field){
   const el = $("f"+field); if(!el) return;
-  if(el.value !== ADD_DOMAIN){ confirmField("f"+field); return; }
+  if(el.value !== ADD_DOMAIN){ confirmField("f"+field); refreshRisk(); return; }
   const name = normText(prompt(`New ${prettyField(field).toLowerCase()} value:`) || "");
   if(!name){ el.value = (trees[editIndex] && trees[editIndex][field]) || ""; return; }
   addCustomDomain(field, name);
@@ -3034,7 +3271,8 @@ let currentPhotos = [];
 // they differ ("Ohwire" stores, "Overhead wire" displays), matching Aurora exactly.
 const DOMAIN_FIELDS = {
   SITELOCA:SITELOCA_D, STRUDEFE:STRUDEFE_D, FAILPOTE:FAILPOTE_D, WOUNCANK:WOUNCANK_D,
-  DEADDECAY:DEADDECAY_D, PESTDISEAS:PESTDISEAS_D, IMPEDMNT:IMPEDMNT_D, RECOTREA:RECOTREA_D
+  DEADDECAY:DEADDECAY_D, PESTDISEAS:PESTDISEAS_D, IMPEDMNT:IMPEDMNT_D, RECOTREA:RECOTREA_D,
+  TARGET:TARGET_D, IMPACT:IMPACT_D, CONSEQ:CONSEQ_D, ACTIVITY:ACTIVITY_D, REMOV_RSN:REMOV_RSN_D
 };
 function domainLabel(field, code){
   const d = DOMAIN_FIELDS[field]; if(!d) return code;
@@ -3089,6 +3327,7 @@ function pickHealth(h){
   t._draftHealth = (t._draftHealth===h) ? "" : h;
   paintHealth(t._draftHealth);
   markHealthChanged();
+  refreshRisk(); refreshRemovalReason();
   if(NON_LIVING.indexOf(t._draftHealth)>=0) resetForNonLiving();
 }
 
@@ -3153,6 +3392,8 @@ function openTree(i){
   $("fDBH").innerHTML = dbhOptions();            // re-rank each time
   $("fDBH").value = selValue("fDBH", t.DBH);
   $("fEXT_ID").value = t.EXT_ID || "";
+  if($("fACTIVITY") && !$("fACTIVITY").value) $("fACTIVITY").value = "Inspection";
+  refreshRemovalReason();
   $("extRow").style.display = (t.EXT_ID || t.SOURCE==="import" || t.SOURCE==="reference") ? "block" : "none";
   $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
   Object.keys(DOMAIN_FIELDS).forEach(f=>{
@@ -3217,9 +3458,11 @@ function saveTree(){
   t.EXT_ID  = normText($("fEXT_ID").value);
   t.SPECIES = $("spVal").textContent;
   t.ITREE   = itreeType(t.SPECIES);
+  t.BOTANICAL = botanicalFor(t.SPECIES);
   t.DBH     = $("fDBH").value;
   t.STEMS   = $("fSTEMS").value || "1";
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ const el=$("f"+f); if(el) t[f]=el.value; });
+  t.RISK = riskFor(t).rating;
   t.HEALTH  = t._draftHealth || "";
   t.HLTH_CODE = healthCode(t.HEALTH);
   const typedAddr = normText($("fADDRESS").value);
@@ -3264,6 +3507,7 @@ function saveTree(){
   const idx = editIndex; editIndex = null;
   renderPins();
   sendTree(trees[idx]);
+  logInspection(trees[idx]);
   toast("Saved · " + trees[idx].TREE_ID);
 }
 
@@ -3370,7 +3614,7 @@ function refreshAddressAfterMove(idx, oldLat, oldLon){
   // a pin that has already moved.
   if(editIndex===idx){ $("fADDRESS").value=""; $("fADDRESS").placeholder="Looking up address..."; }
   t._addrAuto = true;
-  t.STREET = ""; t.PARK = "";        // both are position-derived, so both are stale now
+  t.STREET = ""; t.STREET_M = ""; t.PARK = ""; t.ADDR_DIST = "";   // all position-derived
   if(editIndex===idx){ $("fSTREET").value=""; $("fPARK").value=""; }
   queueGeocode(idx, true);
   if(had) toast("Looking up the new address…");
@@ -3386,10 +3630,16 @@ function runGeoQueue(){
 
   // 1. Local layers first. Exact, instant, and works with no signal.
   const parcelFirst = String(t.ADDRESS||"").trim() ? null : addressFromParcels(lat,lon);
-  if(parcelFirst){ t.ADDRESS = parcelFirst.value; t._addrAuto = true; t._addrSrc = parcelFirst.how; }
+  if(parcelFirst){
+    t.ADDRESS = parcelFirst.value; t._addrAuto = true; t._addrSrc = parcelFirst.how;
+    t.ADDR_DIST = parcelFirst.dist;      // 0 means the tree stands inside that parcel
+  }
   const street = streetFromLayer(lat, lon, t.ADDRESS);
   const park   = parkFromLayer(lat,lon);
-  if(street && !String(t.STREET||"").trim()) t.STREET = street;
+  if(street && !String(t.STREET||"").trim()){
+    t.STREET = street.value;
+    t.STREET_M = (street.dist==null) ? "" : street.dist;
+  }
   if(park) t.PARK = park;
 
   if(parcelFirst){
@@ -3405,10 +3655,11 @@ function runGeoQueue(){
   reverseGeocode(lat, lon).then(r=>{
     if(r && r.address && !String(t.ADDRESS||"").trim()){
       t.ADDRESS = r.address; t._addrAuto = true; t._addrSrc = r.how;
+      t.ADDR_DIST = "";                  // not from a parcel, so the field has no meaning
     }
-    if(r && r.street && !String(t.STREET||"").trim()) t.STREET = r.street;
+    if(r && r.street && !String(t.STREET||"").trim()){ t.STREET = r.street; t.STREET_M = ""; }
     if(r && r.park && !String(t.PARK||"").trim()) t.PARK = r.park;
-    if(!String(t.STREET||"").trim()) t.STREET = streetFromAddress(t.ADDRESS);
+    if(!String(t.STREET||"").trim()){ t.STREET = streetFromAddress(t.ADDRESS); t.STREET_M = ""; }
     persistTrees(); paintAutoFields(idx);
   }).catch(()=>{}).then(()=>{
     setTimeout(()=>{ geoBusy=false; runGeoQueue(); }, 1100);   // stay inside the rate limit
@@ -3428,8 +3679,14 @@ function paintAutoFields(idx){
   if(t._addrSrc){
     $("crownWhy") && null;
     const el = $("addrWhy");
-    if(el) el.textContent = "Address " + t._addrSrc +
-      (noParcels ? " · load a parcel layer for exact addresses" : "");
+    if(el){
+      let msg = "Address " + t._addrSrc;
+      if(t.ADDR_DIST === 0) msg += " · tree stands in it";
+      else if(typeof t.ADDR_DIST === "number") msg += ` · ${t.ADDR_DIST.toFixed(1)} m from the parcel` +
+        (t.ADDR_DIST > 20 ? " — check it" : "");
+      if(typeof t.STREET_M === "number") msg += ` · ${t.STREET_M.toFixed(1)} m from ${t.STREET||"the centreline"}`;
+      el.textContent = msg + (noParcels ? " · load a parcel layer for exact addresses" : "");
+    }
   }
   if(t._addrSrc) $("posHint").textContent = ($("posHint").textContent||"") .replace(/ · address .*$/,"") + " · address " + t._addrSrc;
 }
@@ -3513,7 +3770,8 @@ function lookupAddress(){
   const local = addressFromParcels(lat,lon);
   if(local){
     $("fADDRESS").value = local.value;
-    const tt = trees[editIndex]; if(tt){ tt.ADDRESS = local.value; tt._addrAuto = true; tt._addrSrc = local.how; }
+    const tt = trees[editIndex]; if(tt){ tt.ADDRESS = local.value; tt._addrAuto = true;
+      tt._addrSrc = local.how; tt.ADDR_DIST = local.dist; }
     formSnapshot["fADDRESS"] = local.value; confirmField("fADDRESS");
     toast("Address from parcel layer");
     $("fADDRESS").placeholder="Fills in automatically";
@@ -3524,9 +3782,9 @@ function lookupAddress(){
       const out = r && r.address;
       if(!out) throw new Error("no result");
       $("fADDRESS").value = out;
-      const tt = trees[editIndex]; if(tt){ tt.ADDRESS = out; tt._addrAuto = true; tt._addrSrc = r.how; }
+      const tt = trees[editIndex]; if(tt){ tt.ADDRESS = out; tt._addrAuto = true; tt._addrSrc = r.how; tt.ADDR_DIST = ""; }
       formSnapshot["fADDRESS"] = out; confirmField("fADDRESS");
-      if(r.street && !$("fSTREET").value.trim()){ $("fSTREET").value = r.street; formSnapshot["fSTREET"]=r.street; }
+      if(r.street && !$("fSTREET").value.trim()){ $("fSTREET").value = r.street; formSnapshot["fSTREET"]=r.street; tt&&(tt.STREET_M=""); }
       toast("Address found");
     })
     .catch(()=>{ toast("Lookup failed — it fills in on sync",true); })
@@ -3543,11 +3801,13 @@ function topUsed(map, n){
 }
 
 // An imported value may be 38.5 or 250 — snap it to the nearest option rather than
-// silently blanking the field.
+// silently blanking the field. The ceiling differs per field: DBH runs to 249 like
+// Aurora's, stems to 200, and clamping both at 200 quietly shrank large trees.
 function selValue(id, v){
   const n = parseFloat(normNumber(v));
   if(!isFinite(n) || n<=0) return "";
-  return String(Math.min(200, Math.max(1, Math.round(n))));
+  const max = (id==="fDBH") ? DBH_MAX : STEMS_MAX;
+  return String(Math.min(max, Math.max(1, Math.round(n))));
 }
 
 function setSpeciesVal(v){
@@ -3617,6 +3877,11 @@ function fetchSpecies(){
     try{
       const list = (resp&&resp.species)||[];
       if(list.length){ species = list.slice().sort((a,b)=>a.localeCompare(b)); persistSpecies(); }
+      const bot = (resp&&resp.botanical)||null;
+      if(bot && Object.keys(bot).length){
+        speciesBotanical = bot;
+        if(STORE){ try{ STORE.setItem("st_botanical", JSON.stringify(bot)); }catch(e){} }
+      }
       const map = (resp&&resp.itree)||null;
       if(map && Object.keys(map).length){
         speciesITree = map;
@@ -3670,10 +3935,24 @@ function idbSetUploaded(fn){ return new Promise(res=>{ idbOpen().then(db=>{ cons
 
 /* Photos are encoded to a size band rather than a fixed quality: a plain trunk shot
    and a busy streetscape compress very differently, so one fixed setting gives wildly
-   varying file sizes. This measures the result and adjusts, spending the whole budget
-   on detail when the scene is simple. */
-const PHOTO_MIN_BYTES = 150*1024;
-const PHOTO_MAX_BYTES = 200*1024;
+   varying file sizes. This measures the result and adjusts.
+
+   Three presets, chosen in settings. The quality FLOOR matters as much as the target
+   size: the old encoder dropped to q0.38 on a busy scene, which is what made photos
+   look soft. It now reduces pixels rather than pushing quality below the floor — a
+   slightly smaller sharp photo reads better than a large mushy one. */
+const PHOTO_PRESETS = {
+  standard: { px:1600, min:150*1024, max:260*1024,  qFloor:0.50, label:"Standard - 150-260 KB" },
+  high:     { px:2048, min:350*1024, max:600*1024,  qFloor:0.58, label:"High - 350-600 KB" },
+  max:      { px:2600, min:800*1024, max:1400*1024, qFloor:0.65, label:"Maximum - 0.8-1.4 MB" }
+};
+let photoQuality = "high";
+try{ photoQuality = (STORE&&STORE.getItem("st_photoq")) || "high"; }catch(e){}
+function photoPreset(){ return PHOTO_PRESETS[photoQuality] || PHOTO_PRESETS.high; }
+function setPhotoQuality(q){
+  photoQuality = PHOTO_PRESETS[q] ? q : "high";
+  if(STORE){ try{ STORE.setItem("st_photoq", photoQuality); }catch(e){} }
+}
 const PHOTO_MAX_TRIES = 9;
 
 function loadImage(file){
@@ -3694,23 +3973,26 @@ function renderJpeg(img,maxPx,quality){
 const dataUrlSize = u => Math.round((String(u).length - (String(u).indexOf(",")+1)) * 0.75);
 
 async function encodeToTarget(file){
+  const P = photoPreset();
   const { img, url } = await loadImage(file);
   try{
-    let px = 1600, q = 0.72, best = null, shrunk = false;
+    let px = P.px, q = 0.80, best = null, shrunk = false;
     for(let i=0; i<PHOTO_MAX_TRIES; i++){
       const r = renderJpeg(img, px, q);
       const bytes = dataUrlSize(r.url);
       best = { dataUrl:r.url, bytes, w:r.w, h:r.h, q };
 
-      if(bytes > PHOTO_MAX_BYTES){
-        if(q > 0.38){ q = Math.max(0.38, q - 0.12); }      // quality first — it costs less detail than pixels
-        else { px = Math.round(px * 0.75); shrunk = true; }
+      if(bytes > P.max){
+        // Never below the floor: past it, JPEG artefacts cost more detail than
+        // simply using fewer pixels.
+        if(q > P.qFloor){ q = Math.max(P.qFloor, q - 0.08); }
+        else { px = Math.round(px * 0.85); shrunk = true; }
         continue;
       }
-      if(bytes < PHOTO_MIN_BYTES && !shrunk){
+      if(bytes < P.min && !shrunk){
         // Under budget: buy back detail rather than shipping a needlessly soft photo.
-        if(q < 0.88){ q = Math.min(0.88, q + 0.10); continue; }
-        if(px < 2400 && img.width > px){ px = Math.min(2400, Math.round(px * 1.25)); continue; }
+        if(q < 0.92){ q = Math.min(0.92, q + 0.06); continue; }
+        if(px < P.px*1.4 && img.width > px){ px = Math.min(Math.round(P.px*1.4), Math.round(px*1.2)); continue; }
       }
       break;   // inside the band, or nothing further to gain
     }
@@ -4291,6 +4573,91 @@ function zipStore(files){
   return out;
 }
 
+/* GeoJSON alongside the shapefile. Shapefile stays because everyone can open it,
+   but it cannot express a null (a blank ADDR_DIST and a real 0 look the same in
+   some readers), truncates text at 254 characters and field names at 10. GeoJSON
+   keeps nulls, full text and the real field names, and opens directly in Pro. */
+function exportGeoJSON(){
+  closeMenu();
+  const rows = exportRows();
+  if(!rows.length){ toast("No trees with coordinates yet",true); return; }
+  const NUM = {}; FIELDS.forEach(f=>{ if(f.t==="N") NUM[f.k]=1; });
+  const fc = { type:"FeatureCollection",
+    name: exportTag(),
+    crs: { type:"name", properties:{ name:"urn:ogc:def:crs:OGC:1.3:CRS84" } },
+    features: rows.map(t=>{
+      const p={};
+      KEYS.forEach(k=>{
+        let v = (k==="HLTH_CODE") ? healthCode(t.HEALTH) : t[k];
+        if(v===undefined || v==="" || v===null){ p[k]=null; return; }   // a real null
+        p[k] = NUM[k] ? (isFinite(parseFloat(v)) ? parseFloat(v) : null) : String(v);
+      });
+      p.FIELD_CHECKED = !!t._reviewed;
+      return { type:"Feature",
+               geometry:{ type:"Point", coordinates:[num(t.LON), num(t.LAT)] },
+               properties:p };
+    })
+  };
+  downloadText(JSON.stringify(fc), `StreetTrees_${exportTag()}_${nowStr().slice(0,10)}.geojson`, "application/geo+json");
+  toast(`GeoJSON: ${rows.length} trees`);
+}
+
+/* Match table for ArcGIS "Add Attachments". Two columns is all that tool needs:
+   the key to match on, and the photo file name. Without this the photos are just a
+   folder someone has to reconcile against the data by hand. */
+function exportAttachmentTable(){
+  closeMenu();
+  const rows=[["TREE_ID","PHOTO_NAME","PHOTO_SEQ","PHOTO_LINK"]];
+  let n=0;
+  visibleTrees().forEach(t=>{
+    const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
+    const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
+    names.forEach((fn,i)=>{ rows.push([t.TREE_ID, fn, i+1, links[i]||""]); n++; });
+  });
+  if(n<2 && rows.length===1){ toast("No photos on these trees yet",true); return; }
+  downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
+               `Attachments_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  toast(`Attachment table: ${n} photos`);
+}
+
+/* A data dictionary, so the Town receives field definitions rather than bare column
+   names they have to guess at. */
+function exportDataDictionary(){
+  closeMenu();
+  const rows=[["FIELD","NAME","TYPE","WIDTH","VALID VALUES / NOTES"]];
+  const notes = {
+    TREE_ID:"Unique per tree. Prefix-number-device letter.",
+    EXT_ID:"Identifier carried in from an imported layer, if any.",
+    PROJECT:"Job this tree belongs to.",
+    BOTANICAL:"Genus and species, from the Species tab. \"sp.\" means genus only.",
+    ITREE:"i-Tree Streets type. B/C broadleaf-conifer, D/E deciduous-evergreen, L/M/S mature size.",
+    HLTH_CODE:"1-9, matching the HEALTH classes in order.",
+    CROWN_BAS:"How CROWN_RAD was arrived at: measured, or which allometry was used.",
+    ADDR_DIST:"Metres to the parcel supplying ADDRESS. 0 = tree stands in it. Blank = not from a parcel.",
+    STREET_M:"Metres to the centreline named in STREET.",
+    HEIGHT:"Metres. Aurora DBH equation unless measured.",
+    RISK:"ISA TRAQ basic: failure potential x TARGET x CONSEQ.",
+    SOURCE:"How the position was set: gps, crosshair, import, reference.",
+    ACCURACY:"GPS accuracy in metres at the time of recording."
+  };
+  FIELDS.forEach(f=>{
+    let vals = notes[f.k] || "";
+    if(DOMAIN_FIELDS[f.k]) vals = domainPairs(f.k).map(p=>p[1]).join(" | ");
+    if(f.k==="HEALTH") vals = HEALTH.map(h=>h[0]).join(" | ");
+    rows.push([f.k, FIELD_LABELS[f.k]||f.k, f.t==="N"?"number":"text", f.w, vals]);
+  });
+  downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
+               `DataDictionary_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  toast("Data dictionary exported");
+}
+
+function downloadText(text, filename, mime){
+  const blob=new Blob([text],{type:mime||"text/plain"});
+  const url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+
 function csvCell(v){ v=(v==null)?"":String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function exportCSV(){
   closeMenu();
@@ -4303,6 +4670,280 @@ function exportCSV(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1500);
   toast(`CSV: ${rows.length} trees`);
+}
+
+/* ================================================================== *
+ *  MAP EXPORT -> PDF
+ *  Everything in the current view: aerial background, reference layers,
+ *  trees coloured by health, labels, north arrow, scale bar, legend and a
+ *  title block. Rendered to a canvas at print resolution and wrapped in a
+ *  PDF written here — no external library, so nothing new to cache.
+ *
+ *  The imagery is Esri World Imagery, the app's own basemap. Google's tiles
+ *  are deliberately not used: their terms do not allow extracting tiles into
+ *  a document, and they do not send the CORS headers a canvas export needs.
+ * ================================================================== */
+const PDF_DPI = 200;
+const PDF_W_IN = 11, PDF_H_IN = 8.5;            // Letter, landscape
+const AERIAL_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const AERIAL_CREDIT = "Imagery: Esri, Maxar, Earthstar Geographics";
+
+// Web Mercator pixel coordinates at a given zoom.
+function lonToPx(lon,z){ return (lon+180)/360 * 256*Math.pow(2,z); }
+function latToPx(lat,z){
+  const r = lat*Math.PI/180;
+  return (1 - Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2 * 256*Math.pow(2,z);
+}
+function loadTile(url){
+  return new Promise(res=>{
+    const im = new Image();
+    im.crossOrigin = "anonymous";               // required or the canvas is tainted
+    im.onload = ()=>res(im);
+    im.onerror = ()=>res(null);
+    im.src = url;
+  });
+}
+
+let lastMapTitle = "";
+try{ lastMapTitle = (STORE&&STORE.getItem("st_maptitle")) || ""; }catch(e){}
+
+async function exportMapPDF(){
+  closeMenu();
+  if(!fmap){ toast("Map is still loading",true); return; }
+  if(isOffline()){ toast("Map export needs a connection for the imagery",true); return; }
+
+  // Offered with the last title already filled in — a run of sheets for one job
+  // usually differ by a word or two.
+  const suggested = lastMapTitle || settings.project || "Street Tree Inventory";
+  const typed = prompt("Title for this map:\n\nA second line can be added after a | bar,\nfor example:  Centre Street  |  Sheet 2 of 4", suggested);
+  if(typed === null) return;                       // cancelled
+  const title = normText(typed) || suggested;
+  lastMapTitle = title;
+  if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} }
+
+  const mapW = Math.round(PDF_W_IN*PDF_DPI), mapH = Math.round(PDF_H_IN*PDF_DPI);
+  const panelH = Math.round(mapH*0.13);         // title block along the bottom
+  const cv = document.createElement("canvas");
+  cv.width = mapW; cv.height = mapH;
+  const g = cv.getContext("2d");
+  g.fillStyle="#fff"; g.fillRect(0,0,mapW,mapH);
+
+  const b = fmap.getBounds();
+  const drawH = mapH - panelH;
+
+  // Pick the zoom whose pixel extent best fills the page, so the print is sharper
+  // than the screen rather than a stretched copy of it.
+  let z = fmap.getZoom();
+  for(let t=z; t<=19; t++){
+    const w = lonToPx(b.getEast(),t)-lonToPx(b.getWest(),t);
+    const h = latToPx(b.getSouth(),t)-latToPx(b.getNorth(),t);
+    if(w>=mapW && h>=drawH){ z=t; break; }
+    z=t;
+  }
+  const x0 = lonToPx(b.getWest(),z),  x1 = lonToPx(b.getEast(),z);
+  const y0 = latToPx(b.getNorth(),z), y1 = latToPx(b.getSouth(),z);
+  const sx = mapW/(x1-x0), sy = drawH/(y1-y0);
+  const sc = Math.min(sx,sy);                    // uniform scale, no distortion
+  const offX = (mapW-(x1-x0)*sc)/2, offY = (drawH-(y1-y0)*sc)/2;
+  const P = (lat,lon)=>[ (lonToPx(lon,z)-x0)*sc+offX, (latToPx(lat,z)-y0)*sc+offY ];
+
+  const t0=Math.floor(x0/256), t1=Math.floor(x1/256);
+  const u0=Math.floor(y0/256), u1=Math.floor(y1/256);
+  const want=[];
+  for(let tx=t0; tx<=t1; tx++) for(let ty=u0; ty<=u1; ty++) want.push({tx,ty});
+  if(want.length > 400){ toast("Zoom in a little — that view needs too much imagery",true); return; }
+
+  // Eight at a time. Firing 250 requests at once stalls the connection and the tile
+  // server starts refusing them, which shows up as blank patches on the print.
+  toast(`Fetching ${want.length} imagery tiles…`);
+  const tiles=[];
+  for(let i=0;i<want.length;i+=8){
+    const batch = want.slice(i,i+8);
+    const got = await Promise.all(batch.map(t=>
+      loadTile(AERIAL_URL.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty))
+        .then(im=>({im,tx:t.tx,ty:t.ty}))));
+    got.forEach(x=>tiles.push(x));
+    if(want.length>60) setStatus(`Map export: ${Math.min(i+8,want.length)} of ${want.length} tiles`);
+  }
+  let missing=0;
+  g.save(); g.beginPath(); g.rect(0,0,mapW,drawH); g.clip();
+  tiles.forEach(({im,tx,ty})=>{
+    if(!im){ missing++; return; }
+    g.drawImage(im, (tx*256-x0)*sc+offX, (ty*256-y0)*sc+offY, 256*sc, 256*sc);
+  });
+
+  // reference layers
+  refLayers.forEach(L2=>{
+    if(!L2.visible) return;
+    g.strokeStyle=L2.color; g.lineWidth=Math.max(1.5,2*sc/1.5);
+    g.fillStyle=L2.color+"22";
+    L2.features.forEach(f=>{
+      const bb=featureBBox(f);
+      if(bb && (bb.s>b.getNorth()||bb.n<b.getSouth()||bb.w>b.getEast()||bb.e<b.getWest())) return;
+      const stroke=(ring)=>{
+        g.beginPath();
+        ring.forEach((c,i)=>{ const p=P(c[1],c[0]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); });
+        return g;
+      };
+      if(f.geom.t==="ln") eachRing(f.geom.c, r=>{ stroke(r).stroke(); });
+      else if(f.geom.t==="pg") eachPoly(f.geom.c, rings=>rings.forEach(r=>{ stroke(r).closePath(); g.fill(); g.stroke(); }));
+    });
+  });
+
+  // trees
+  const shown = visibleTrees().filter(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    return la!=null && lo!=null && b.contains([la,lo]);
+  });
+  const tc = cfgFor("trees");
+  shown.forEach(t=>{
+    const p = P(num(t.LAT), num(t.LON));
+    if(t._reviewed){
+      g.beginPath(); g.arc(p[0],p[1],13,0,7); g.strokeStyle="#FF1744"; g.lineWidth=3; g.stroke();
+    }
+    g.beginPath(); g.arc(p[0],p[1],7,0,7);
+    g.fillStyle = healthColor(t.HEALTH); g.fill();
+    g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
+  });
+  // labels, using whatever fields are configured for the tree layer
+  if(tc.on!==false && tc.fields.length){
+    g.font = "600 13px monospace"; g.textAlign="left";
+    shown.forEach(t=>{
+      const parts = tc.fields.map(f=> f==="HLTH_CODE"?healthCode(t.HEALTH):t[f])
+                             .filter(v=>v!=null && String(v).trim()!=="");
+      if(!parts.length) return;
+      const p = P(num(t.LAT), num(t.LON));
+      parts.forEach((v,i)=>{
+        const txt=String(v), x=p[0]+11, y=p[1]+5+i*15;
+        g.strokeStyle="rgba(0,0,0,.85)"; g.lineWidth=3; g.strokeText(txt,x,y);
+        g.fillStyle="#fff"; g.fillText(txt,x,y);
+      });
+    });
+  }
+  g.restore();
+
+  drawNorthArrow(g, mapW-90, 70);
+  drawScaleBar(g, 40, drawH-40, sc, z, b.getCenter().lat);
+  drawTitleBlock(g, mapW, mapH, panelH, shown, z, missing, title);
+
+  toast("Building the PDF…");
+  const jpeg = cv.toDataURL("image/jpeg", 0.92);
+  const bytes = jpegPdf(jpeg, mapW, mapH, PDF_W_IN*72, PDF_H_IN*72);
+  const blob = new Blob([bytes],{type:"application/pdf"});
+  const url = URL.createObjectURL(blob), a=document.createElement("a");
+  const slug = title.replace(/\|/g," ").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+  a.href=url; a.download=`Map_${slug||exportTag()}_${nowStr().slice(0,10)}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  setStatus(`${visibleTrees().length} trees on device`);
+  toast(`Map exported · ${shown.length} trees` + (missing?` · ${missing} imagery tiles missing`:""));
+}
+
+function drawNorthArrow(g,x,y){
+  g.save(); g.translate(x,y);
+  g.fillStyle="rgba(255,255,255,.9)"; g.strokeStyle="#222"; g.lineWidth=2;
+  g.beginPath(); g.arc(0,0,34,0,7); g.fill(); g.stroke();
+  g.beginPath(); g.moveTo(0,-24); g.lineTo(10,10); g.lineTo(0,3); g.lineTo(-10,10); g.closePath();
+  g.fillStyle="#111"; g.fill();
+  g.fillStyle="#111"; g.font="bold 15px sans-serif"; g.textAlign="center"; g.fillText("N",0,-28);
+  g.restore();
+}
+
+// Rounded to a sensible round number, the way a map scale bar should be.
+function drawScaleBar(g,x,y,sc,z,lat){
+  const mPerPx = 156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,z) / sc;
+  const target = 260*mPerPx;
+  const steps=[5,10,20,25,50,100,200,250,500,1000,2000];
+  let m = steps.reduce((a,c)=>Math.abs(c-target)<Math.abs(a-target)?c:a, steps[0]);
+  const px = m/mPerPx;
+  g.save();
+  g.fillStyle="rgba(255,255,255,.9)"; g.fillRect(x-8,y-30,px+16,42);
+  g.strokeStyle="#111"; g.lineWidth=2;
+  g.strokeRect(x,y-8,px,10);
+  g.fillStyle="#111"; g.fillRect(x,y-8,px/2,10);
+  g.font="bold 14px sans-serif"; g.textAlign="left";
+  g.fillText("0",x-3,y-14); g.textAlign="right"; g.fillText(m+" m",x+px,y-14);
+  g.restore();
+}
+
+function drawTitleBlock(g,W,H,panelH,shown,z,missing,title){
+  const top=H-panelH;
+  g.fillStyle="#12201a"; g.fillRect(0,top,W,panelH);
+  g.fillStyle="#fff"; g.textAlign="left";
+
+  const bits = String(title||"").split("|").map(x=>x.trim()).filter(Boolean);
+  const main = bits[0] || settings.project || "Street Tree Inventory";
+  const sub  = bits.slice(1).join(" · ");
+
+  // Shrink the heading rather than let a long title run under the legend.
+  const maxW = W*0.46;
+  let size = 34;
+  do { g.font = "bold "+size+"px sans-serif"; size -= 2; }
+  while(g.measureText(main).width > maxW && size > 16);
+  g.fillText(main, 32, top+46);
+
+  let y = top+76;
+  if(sub){
+    g.font="17px sans-serif"; g.fillStyle="#dfe9e2";
+    g.fillText(sub, 32, y); y += 26;
+  }
+  g.font="16px sans-serif"; g.fillStyle="#bcd3c3";
+  const meta = [ shown.length+" trees shown",
+                 (settings.project && settings.project!==main) ? settings.project : "",
+                 settings.cruiser ? "Recorded by "+settings.cruiser : "",
+                 nowStr().slice(0,16) ].filter(Boolean).join("   ·   ");
+  g.fillText(meta, 32, y);
+  g.font="13px sans-serif"; g.fillStyle="#8fb59c";
+  g.fillText(AERIAL_CREDIT + "   ·   Silv-Econ Ltd." +
+             (missing?"   ·   some imagery tiles unavailable":""), 32, top+panelH-18);
+
+  // health legend, only the classes actually present
+  const present = HEALTH.filter(h=>shown.some(t=>t.HEALTH===h[0]));
+  let lx = Math.round(W*0.52);
+  g.font="15px sans-serif";
+  present.forEach((h,i)=>{
+    const col = i%2, row = Math.floor(i/2);
+    const x = lx + col*230, y = top+34+row*26;
+    g.beginPath(); g.arc(x,y-5,8,0,7); g.fillStyle=h[1]; g.fill();
+    g.strokeStyle="#fff"; g.lineWidth=1.5; g.stroke();
+    g.fillStyle="#e7ebe6"; g.fillText(h[0], x+16, y);
+  });
+}
+
+/* Minimal single-page PDF wrapping one JPEG. Written by hand rather than pulling in
+   a PDF library: one less thing to load, and it works from the cache offline. */
+function jpegPdf(dataUrl, imgW, imgH, pageW, pageH){
+  const b64 = dataUrl.slice(dataUrl.indexOf(",")+1);
+  const bin = atob(b64);
+  const img = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) img[i]=bin.charCodeAt(i);
+
+  const parts=[], offsets=[]; let len=0;
+  const push = s => { const u = (typeof s==="string") ? strBytes(s) : s; parts.push(u); len+=u.length; };
+  const obj  = s => { offsets.push(len); push(s); };
+
+  push("%PDF-1.4\n");
+  obj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  obj("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+  obj("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+pageW+" "+pageH+"]"+
+      " /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n");
+  offsets.push(len);
+  push("4 0 obj\n<< /Type /XObject /Subtype /Image /Width "+imgW+" /Height "+imgH+
+       " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+img.length+" >>\nstream\n");
+  push(img);
+  push("\nendstream\nendobj\n");
+  const content = "q "+pageW+" 0 0 "+pageH+" 0 0 cm /Im0 Do Q\n";
+  obj("5 0 obj\n<< /Length "+content.length+" >>\nstream\n"+content+"endstream\nendobj\n");
+
+  const xref = len;
+  let x = "xref\n0 6\n0000000000 65535 f \n";
+  offsets.forEach(o=>{ x += String(o).padStart(10,"0")+" 00000 n \n"; });
+  x += "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF\n";
+  push(x);
+
+  const out = new Uint8Array(len); let p=0;
+  parts.forEach(u=>{ out.set(u,p); p+=u.length; });
+  return out;
 }
 
 /* ================================================================== *
@@ -4392,11 +5033,27 @@ function emailPackage(){
 /* ================================================================== *
  *  MENU / SETTINGS / HELP
  * ================================================================== */
+let openGroup = "";
+try{ openGroup = (STORE&&STORE.getItem("st_menugroup")) || ""; }catch(e){}
+function toggleGroup(k){
+  const now = (openGroup===k) ? "" : k;   // one open at a time keeps the list short
+  openGroup = now;
+  if(STORE){ try{ STORE.setItem("st_menugroup", now); }catch(e){} }
+  paintGroups();
+}
+function paintGroups(){
+  ["sync","layers","out","review","set"].forEach(k=>{
+    const el=$("g_"+k); if(el) el.classList.toggle("open", openGroup===k);
+  });
+}
+
 function openMenu(){
   const un = trees.filter(t=>!t._sent).length;
-  $("menuStats").textContent = `${trees.length} trees · ${un} unsynced · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
+  const iq = pendingInspections.length;
+  $("menuStats").textContent = `${trees.length} trees · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
   updateProjBtn();
   updateArchCount();
+  paintGroups();
   $("menuSheet").classList.add("show");
 }
 function closeMenu(){ $("menuSheet").classList.remove("show"); }
@@ -4557,6 +5214,11 @@ function openSettings(){
   $("setNewUser").value="";
   $("setNewProj").value="";
   $("setCrownMethod").value = crownMethod;
+  $("setPhotoQ").innerHTML = Object.keys(PHOTO_PRESETS)
+    .map(k=>`<option value="${k}">${esc(PHOTO_PRESETS[k].label)}</option>`).join("");
+  $("setPhotoQ").value = photoQuality;
+  $("setPhotoQ").onchange = paintPhotoQNote;
+  paintPhotoQNote();
   userSelect();
   projectSelect();
   previewId();
@@ -4570,6 +5232,14 @@ function previewId(){
   const n=parseInt($("setCounter").value,10)||1;
   $("idPreview").textContent = `Next tree: ${p}-${pad(n,5)}-${d}`;
 }
+// Storage is why this is a choice rather than always maximum.
+function paintPhotoQNote(){
+  const P = PHOTO_PRESETS[$("setPhotoQ").value] || PHOTO_PRESETS.high;
+  const perGb = Math.round(1073741824 / ((P.min+P.max)/2));
+  $("photoQNote").textContent =
+    `Up to ${P.px} px on the long side · about ${perGb.toLocaleString()} photos per GB of Drive`;
+}
+
 function closeSettings(){ $("settingsSheet").classList.remove("show"); }
 function saveSettings(){
   let name = $("setCruiser").value;
@@ -4591,6 +5261,7 @@ function saveSettings(){
   settings.device=($("setDevice").value.trim()||"A").toUpperCase().slice(0,1);
   settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
   setCrownMethod($("setCrownMethod").value);
+  setPhotoQuality($("setPhotoQ").value);
   persistSettings();
 
 
@@ -4720,9 +5391,15 @@ function showHelp(){
     <p><b>Looking one up</b><br>Tap any pin for a popup with its attributes and small photo thumbnails — tap a thumbnail to see it full size. <i>Edit ›</i> opens the form; <i>Drive</i> opens the full-size photo. Pin colour is the health class; an amber ring means it has not reached the Sheet yet.</p>
     <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
+    <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
+    <p><b>Where photos go</b><br>On the phone until they upload, then into <b>My Drive → Street Tree Photos</b> on the Google account that authorised the script. Archived projects move to <i>Street Tree Photos - Archive</i>, zipped export packages go to <i>Street Tree Exports</i>, and workbook backups to <i>Street Tree Backups</i>.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view asks for a title, then makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
+    <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
+    <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
     <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
     <p><b>Offline</b><br>Everything works with no signal. Trees queue on the phone and go up on the next sync. Only the map imagery needs a connection.</p>
@@ -4761,7 +5438,7 @@ document.addEventListener("touchend", e=>{
   lastTouchEnd = now;
 }, {passive:false});
 
-window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushDomains(); });
+window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushDomains(); flushInspections(); });
 // Backgrounding the app mid-entry must not leave a half-made tree on the map.
 document.addEventListener("visibilitychange", ()=>{
   if(document.visibilityState==="hidden" && editIndex!=null && trees[editIndex] && trees[editIndex]._new){
@@ -4790,6 +5467,7 @@ window.addEventListener("offline", netDot);
   fetchUsers();
   fetchProjects();
   fetchDomains();
+  flushInspections();
   flushUsers();
   flushProjects();
   flushDomains();
