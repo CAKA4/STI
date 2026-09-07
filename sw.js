@@ -1,5 +1,5 @@
 /* Street Tree Inventory — offline service worker.
-   © 2026 Silv-Econ Ltd. All rights reserved. Proprietary — no license granted.
+   © 2026 Chris Gynan. All rights reserved. Proprietary — no license granted.
    Caches the app shell + map libraries so the app opens with no signal after the first
    online visit. Bump CACHE when you change index.html so devices pick up the new build. */
 const CACHE = "st-treecard-v55";
