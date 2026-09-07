@@ -261,6 +261,11 @@
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0) }
   .toast.err{ background:#3a2420; border-color:#7a4436; color:#ffd9cf }
   .hint{ font-size:12px; color:var(--muted); margin:2px 0 10px }
+  /* Leaflet's own scale bar, restyled to read against aerial imagery. */
+  .leaflet-control-scale{ margin-bottom:78px !important; margin-left:12px !important }
+  .leaflet-control-scale-line{ background:rgba(10,20,14,.72) !important; color:#fff !important;
+    border:1.5px solid rgba(255,255,255,.85) !important; border-top:none !important;
+    font:600 11px/1.5 var(--mono) !important; padding:1px 6px !important; text-shadow:0 0 3px #000 }
   .leaflet-popup-content{ margin:9px 11px; font-family:var(--mono); font-size:12px; color:#16271a; min-width:190px }
   .tpop b.id{ font-size:13px; display:block; margin-bottom:3px }
   .tpop .sp{ font-family:var(--sans); font-size:13.5px; font-weight:600; margin-bottom:5px; display:block }
@@ -837,6 +842,10 @@
     <div class="grab"></div>
     <h2>Statistics</h2>
     <div class="idline" id="statsRangeLine">—</div>
+    <div class="row2">
+      <div class="fld"><label>Project</label><select id="statsProject" onchange="renderStats()"></select></div>
+      <div class="fld"><label>Recorded by</label><select id="statsCruiser" onchange="renderStats()"></select></div>
+    </div>
     <div class="chips" id="statsRange" style="margin-bottom:10px"></div>
     <div class="row2" id="statsCustom" style="display:none">
       <div class="fld"><label>From</label><input id="statsFrom" type="date" onchange="renderStats()"></div>
@@ -904,7 +913,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-07 · v53";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-07 · v55";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1402,6 +1411,8 @@ async function initMap(){
   fmap = L.map("fmap",{zoomControl:false,attributionControl:false,preferCanvas:true}).setView([44.00,-79.46],16);
   setBase(0);
   L.control.zoom({position:"bottomright"}).addTo(fmap);
+  // Metric only, and bottom-left where it does not sit under the zoom buttons.
+  L.control.scale({position:"bottomleft", metric:true, imperial:false, maxWidth:170}).addTo(fmap);
   pinRenderer = L.canvas({ padding: 0.4 });
   refGroup = L.layerGroup().addTo(fmap);    // context layers sit under the trees
   pinLayer = L.layerGroup().addTo(fmap);
@@ -3047,8 +3058,36 @@ function editFromPopup(i){ try{ fmap.closePopup(); }catch(e){} openTree(i); }
 const RANGES = [["all","All time"],["today","Today"],["7","Last 7 days"],["30","Last 30 days"],["custom","Custom…"]];
 let statsRange = "all";
 
+/* The statistics have their own project and recorder pickers rather than following
+   the map filter: comparing one recorder against another, or last year's project
+   against this one, should not mean changing what is on the map. They start on
+   whatever the map is showing, so the first look matches. */
+function fillStatsPickers(){
+  const pj={}, cr={};
+  trees.forEach(t=>{
+    const p=projectOf(t)||"(no project)"; pj[p]=(pj[p]||0)+1;
+    const c=String(t.CRUISER||"").trim()||"(nobody)"; cr[c]=(cr[c]||0)+1;
+  });
+  const cur = { p: $("statsProject").value, c: $("statsCruiser").value };
+  const opt=(v,lab,n)=>`<option value="${esc(v)}">${esc(lab)}${n!=null?"  ("+n+")":""}</option>`;
+  $("statsProject").innerHTML = opt("","All projects",trees.length) +
+    Object.keys(pj).sort().map(p=>opt(p,p,pj[p])).join("");
+  $("statsCruiser").innerHTML = opt("","Everyone",trees.length) +
+    Object.keys(cr).sort().map(c=>opt(c,c,cr[c])).join("");
+  // keep a choice already made, otherwise start from the map filter
+  $("statsProject").value = (cur.p && (cur.p==="" || pj[cur.p])) ? cur.p
+                          : (filterProject || (showAllProjects ? "" : settings.project) || "");
+  $("statsCruiser").value = (cur.c && (cur.c==="" || cr[cur.c])) ? cur.c : (filterCruiser || "");
+  if(!$("statsProject").value && filterProject) $("statsProject").value = "";
+}
+function statsScope(){
+  const p=$("statsProject").value, c=$("statsCruiser").value;
+  return [p||"all projects", c].filter(Boolean).join(" · ");
+}
+
 function openStats(){
   closeMenu();
+  fillStatsPickers();
   $("statsRange").innerHTML = RANGES.map(([k,l])=>
     `<button type="button" onclick="setStatsRange('${k}')" class="${statsRange===k?"on":""}"
       style="${statsRange===k?"background:var(--accent);":""}">${esc(l)}</button>`).join("");
@@ -3077,7 +3116,14 @@ function setStatsRange(k){
 // is both correct and cheap — no parsing, no timezone drift.
 function treeDay(t){ return String(t.DATE||"").slice(0,10); }
 function statsFiltered(){
-  const base = visibleTrees();
+  // Independent of the map: driven by the pickers in this sheet.
+  const wantP = $("statsProject") ? $("statsProject").value : "";
+  const wantC = $("statsCruiser") ? $("statsCruiser").value : "";
+  const base = trees.filter(t=>{
+    if(wantP){ const p=projectOf(t)||"(no project)"; if(p!==wantP) return false; }
+    if(wantC){ const c=String(t.CRUISER||"").trim()||"(nobody)"; if(c!==wantC) return false; }
+    return true;
+  });
   if(statsRange==="all") return base.slice();
   const p=n=>String(n).padStart(2,"0"), fmt=d=>`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
   let from, to;
@@ -3110,8 +3156,8 @@ function renderStats(){
   const n = list.length;
   const days = Object.keys(tally(list,treeDay)).sort();
   $("statsRangeLine").textContent = n
-    ? `${n} trees · ${days.length} day(s)${days.length?` · ${days[0]} to ${days[days.length-1]}`:""}`
-    : "No trees in this range";
+    ? `${n} trees · ${statsScope()} · ${days.length} day(s)${days.length?` · ${days[0]} to ${days[days.length-1]}`:""}`
+    : `No trees for ${statsScope()} in this range`;
 
   if(!n){ $("statsBody").innerHTML = `<div class="hint">Nothing recorded in the selected period.</div>`; return; }
 
@@ -3177,7 +3223,7 @@ function renderStats(){
   const src = tally(list,t=>t.SOURCE||"unknown");
   h += barBlock("How the position was set", Object.entries(src).sort((a,b)=>b[1]-a[1]), n, ()=>"#7b8f84");
 
-  if(showAllProjects || !settings.project){
+  if(!$("statsProject").value){
     const pj = tally(list,t=>projectOf(t)||"(unassigned)");
     h += barBlock("By project", Object.entries(pj).sort((a,b)=>b[1]-a[1]), n, ()=>"#d98cb3");
   }
@@ -3197,6 +3243,7 @@ function exportStatsCSV(){
   const n=list.length, rows=[["SECTION","CATEGORY","TREES","PERCENT"]];
   const push=(sec,m,tot)=>Object.entries(m).sort((a,b)=>b[1]-a[1])
     .forEach(([k,v])=>rows.push([sec,k,v,(Math.round(v/tot*1000)/10)+"%"]));
+  rows.push(["Scope", statsScope(), n, "100%"]);
   rows.push(["Summary","Trees",n,"100%"]);
   push("Health", tally(list,t=>t.HEALTH||"not assessed"), n);
   push("Collector", tally(list,t=>t.CRUISER||"(unattributed)"), n);
@@ -3205,7 +3252,8 @@ function exportStatsCSV(){
   push("Position source", tally(list,t=>t.SOURCE||"unknown"), n);
   const csv = rows.map(r=>r.map(csvCell).join(",")).join("\n");
   const blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), a=document.createElement("a");
-  a.href=url; a.download=`StreetTreeStats_${nowStr().replace(/[: ]/g,"-")}.csv`;
+  const tag=statsScope().replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  a.href=url; a.download=`StreetTreeStats_${tag}_${nowStr().slice(0,10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1500);
   toast("Statistics exported");
@@ -6055,7 +6103,7 @@ function showHelp(){
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
     <p><b>Where photos go</b><br>On the phone until they upload, then into <b>My Drive → Street Tree Photos</b> on the Google account that authorised the script. Archived projects move to <i>Street Tree Photos - Archive</i>, zipped export packages go to <i>Street Tree Exports</i>, and workbook backups to <i>Street Tree Backups</i>.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
-    <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
+    <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, recorder, species, DBH class, day, treatment, risk and position source. Pick a <b>project</b> and a <b>recorder</b> at the top, and a date range — comparing one recorder against another, or last year against this year, without changing what the map shows. It starts on whatever the map is showing, and the figures export to CSV with the scope recorded in them.</p>
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
     <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
@@ -6063,6 +6111,7 @@ function showHelp(){
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
+    <p><b>Emailing a package</b><br><i>Menu → Get data out → Email the package</i> sends whatever the <b>Showing</b> filter has selected — one project, one recorder, or both — so set the filter first. The email carries the workbook, the trees as CSV, a WGS84 shapefile, the same trees as GeoJSON, and the photo attachment table, with the photos zipped into Drive and linked. The Sheet menu has the same thing and asks for the project and recorder directly.</p>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
     <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
     <p><b>Working with no signal</b><br><i>Menu → Bring data in → Save imagery for offline use</i> stores the aerial for whatever is on screen, so the map still works on a site with no coverage. Pan to the area first, pick how much detail, and it tells you the size before you commit — a subdivision to zoom 19 is about 13 MB, a single block about 2 MB. Saved areas are listed with their size and can be jumped to or deleted. Do it on wifi the night before. The map, and the PDF export, both read from the saved tiles first and only go to the network for what is missing.</p>
