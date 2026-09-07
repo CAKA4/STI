@@ -769,6 +769,42 @@
   </div>
 </div>
 
+<!-- ===== map export options ===== -->
+<div class="sheet" id="mapOptSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Export map</h2>
+    <div class="idline" id="mapOptScope">—</div>
+    <div class="fld">
+      <label>Title</label>
+      <input id="mapTitle" type="text" placeholder="Centre Street | Sheet 2 of 4">
+      <div class="mini">A | bar splits it over two lines.</div>
+    </div>
+    <div class="fld">
+      <label>Label each tree with</label>
+      <select id="mapLabels">
+        <option value="idsp">Tree number and species</option>
+        <option value="cfg">My label settings</option>
+        <option value="id">Tree number only</option>
+        <option value="sp">Species only</option>
+        <option value="none">No labels</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>Photo pages</label>
+      <select id="mapPhotos">
+        <option value="0">Map only</option>
+        <option value="1">Add photo pages after the map</option>
+      </select>
+      <div class="mini" id="mapPhotoNote">—</div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" onclick="runMapExport()">Create the PDF</button>
+      <button onclick="closeMapOpt()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== offline imagery ===== -->
 <div class="sheet" id="offlineSheet">
   <div class="sheet-inner">
@@ -913,7 +949,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-07 · v56";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-07 · v57";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5249,17 +5285,37 @@ function loadTileNet(url){
 let lastMapTitle = "";
 try{ lastMapTitle = (STORE&&STORE.getItem("st_maptitle")) || ""; }catch(e){}
 
-async function exportMapPDF(){
+function exportMapPDF(){
   closeMenu();
   if(!fmap){ toast("Map is still loading",true); return; }
+  const shown = mapSheetTrees();
+  const withPhotos = shown.reduce((a,t)=>a+String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length,0);
+  $("mapOptScope").textContent = `${shown.length} tree(s) in view · ${scopeLabel()}`;
+  $("mapTitle").value = lastMapTitle || settings.project || "Street Tree Inventory";
+  $("mapPhotoNote").textContent = withPhotos
+    ? `${withPhotos} photo(s) on these trees · 6 to a page`
+    : "No photos on the trees in view";
+  $("mapPhotos").value = "0";
+  $("mapOptSheet").classList.add("show");
+}
+function closeMapOpt(){ $("mapOptSheet").classList.remove("show"); }
+function mapSheetTrees(){
+  const b=fmap.getBounds();
+  return visibleTrees().filter(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    return la!=null && lo!=null && b.contains([la,lo]);
+  });
+}
+
+async function runMapExport(){
+  closeMapOpt();
   // With imagery saved for this area the export works with no signal at all.
 
-  const suggested = lastMapTitle || settings.project || "Street Tree Inventory";
-  const typed = prompt("Title for this map:\n\nA second line can be added after a | bar,\nfor example:  Centre Street  |  Sheet 2 of 4", suggested);
-  if(typed === null) return;
-  const title = normText(typed) || suggested;
+  const title = normText($("mapTitle").value) || settings.project || "Street Tree Inventory";
   lastMapTitle = title;
   if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} }
+  const labelMode = $("mapLabels").value;
+  const wantPhotoPages = $("mapPhotos").value === "1";
 
   const W = Math.round(PDF_W_IN*PDF_DPI), H = Math.round(PDF_H_IN*PDF_DPI);
   const M = Math.round(PDF_DPI*0.35);            // page margin
@@ -5344,15 +5400,18 @@ async function exportMapPDF(){
     });
   });
 
-  const shown = visibleTrees().filter(t=>{
-    const la=num(t.LAT), lo=num(t.LON);
-    return la!=null && lo!=null && b.contains([la,lo]);
-  });
+  const shown = mapSheetTrees();
   // Symbols and text scale with the page, not the screen: 13px on a 2200px sheet is
   // about 1.5 mm on paper, which is why the first version was unreadable.
   const R = Math.round(PDF_DPI*0.055);
   const FS = Math.round(PDF_DPI*0.115);
-  const tc = cfgFor("trees");
+  // The sheet's own label choice, independent of the on-screen settings: a map for
+  // someone else needs the tree number and the species, whatever you label with.
+  const tc = (labelMode==="cfg") ? cfgFor("trees")
+           : { on:labelMode!=="none", sep:"NL", size:"m", names:0, box:0, minZoom:0,
+               fields: labelMode==="idsp" ? ["TREE_ID","SPECIES"]
+                     : labelMode==="id"   ? ["TREE_ID"]
+                     : labelMode==="sp"   ? ["SPECIES"] : [] };
   shown.forEach(t=>{
     const p=P(num(t.LAT),num(t.LON));
     if(t._reviewed){ g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
@@ -5423,8 +5482,12 @@ async function exportMapPDF(){
   drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M);
 
   toast("Building the PDF…");
-  const jpeg = cv.toDataURL("image/jpeg", 0.92);
-  const bytes = jpegPdf(jpeg, W, H, PDF_W_IN*72, PDF_H_IN*72);
+  const pages = [{ data: cv.toDataURL("image/jpeg", 0.92), w:W, h:H }];
+  if(wantPhotoPages){
+    const extra = await buildPhotoPages(shown, W, H, M, title);
+    extra.forEach(p=>pages.push(p));
+  }
+  const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72);
   const blob = new Blob([bytes],{type:"application/pdf"});
   const url = URL.createObjectURL(blob), a=document.createElement("a");
   const slug = title.replace(/\|/g," ").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
@@ -5432,7 +5495,7 @@ async function exportMapPDF(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),3000);
   setStatus(`${visibleTrees().length} trees on device`);
-  toast(`Map exported · ${shown.length} trees` + (missing?` · ${missing} tiles missing`:""));
+  toast(`Map exported · ${shown.length} trees · ${pages.length} page(s)` + (missing?` · ${missing} tiles missing`:""));
 }
 
 /* Locator inset: the same imagery five zoom levels out, with the sheet extent marked.
@@ -5463,6 +5526,89 @@ async function drawKeyMap(g, x, y, size, bounds, z){
   g.fillStyle="rgba(18,32,26,.85)"; g.fillRect(x,y,size,26);
   g.fillStyle="#fff"; g.font="bold 15px sans-serif"; g.textAlign="left";
   g.fillText("KEY MAP", x+8, y+18);
+}
+
+/* Photo pages: six to a landscape sheet, each captioned with the tree number and
+   species so a photo can be matched back to a point on the map without hunting.
+   Photos are read from the device store, so this works with no signal. */
+async function buildPhotoPages(shown, W, H, M, title){
+  if(!HAS_IDB) return [];
+  const wanted=[];
+  shown.forEach(t=>{
+    const names=String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
+    names.forEach((fn,i)=>wanted.push({t, fn, seq:i+1, of:names.length}));
+  });
+  if(!wanted.length) return [];
+
+  // Same order as the map reads, north to south, so page order follows the sheet.
+  wanted.sort((a,b)=> num(b.t.LAT)-num(a.t.LAT) || a.seq-b.seq);
+
+  const COLS=3, ROWS=2, PER=COLS*ROWS;
+  const pages=[]; let missing=0;
+  const total = Math.ceil(wanted.length/PER);
+
+  for(let pg=0; pg<total; pg++){
+    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const g=cv.getContext("2d");
+    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+
+    const headH=Math.round(PDF_DPI*0.62);
+    g.fillStyle="#12201a"; g.fillRect(M,M,W-M*2,headH);
+    g.fillStyle="#3FA45B"; g.fillRect(M,M,Math.round(PDF_DPI*0.09),headH);
+    g.fillStyle="#ffffff"; g.textAlign="left";
+    g.font=`bold ${Math.round(PDF_DPI*0.19)}px sans-serif`;
+    g.fillText(String(title).split("|")[0].trim(), M+Math.round(PDF_DPI*0.30), M+Math.round(PDF_DPI*0.28));
+    g.font=`${Math.round(PDF_DPI*0.10)}px sans-serif`; g.fillStyle="#bcd3c3";
+    g.fillText("Photographs   ·   page "+(pg+1)+" of "+total, M+Math.round(PDF_DPI*0.30), M+Math.round(PDF_DPI*0.48));
+    g.textAlign="right";
+    g.fillText(nowStr().slice(0,16), W-M-Math.round(PDF_DPI*0.20), M+Math.round(PDF_DPI*0.48));
+    g.textAlign="left";
+
+    const gridY = M+headH+Math.round(PDF_DPI*0.18);
+    const gridH = H-M-gridY;
+    const cellW = (W-M*2)/COLS, cellH = gridH/ROWS;
+    const capH  = Math.round(PDF_DPI*0.30);
+    const pad   = Math.round(PDF_DPI*0.09);
+
+    for(let k=0;k<PER;k++){
+      const item = wanted[pg*PER+k];
+      if(!item) break;
+      const cx = M + (k%COLS)*cellW, cy = gridY + Math.floor(k/COLS)*cellH;
+      const boxW = cellW-pad*2, boxH = cellH-pad*2-capH;
+
+      const rec = await idbGet(item.fn).catch(()=>null);
+      if(rec && rec.data){
+        const im = await new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=rec.data; });
+        if(im){
+          const sc = Math.min(boxW/im.width, boxH/im.height);
+          const w=im.width*sc, h=im.height*sc;
+          g.drawImage(im, cx+pad+(boxW-w)/2, cy+pad+(boxH-h)/2, w, h);
+        } else missing++;
+      } else {
+        missing++;
+        g.fillStyle="#eef2ee"; g.fillRect(cx+pad, cy+pad, boxW, boxH);
+        g.fillStyle="#76867c"; g.font=`${Math.round(PDF_DPI*0.10)}px sans-serif`; g.textAlign="center";
+        g.fillText("not on this device", cx+pad+boxW/2, cy+pad+boxH/2);
+        g.textAlign="left";
+      }
+      g.strokeStyle="#9fb0a5"; g.lineWidth=2; g.strokeRect(cx+pad, cy+pad, boxW, boxH);
+
+      // caption: the tree number is what ties it to the map
+      let ty = cy+pad+boxH+Math.round(PDF_DPI*0.13);
+      g.fillStyle="#0d1a13"; g.font=`bold ${Math.round(PDF_DPI*0.105)}px sans-serif`;
+      g.fillText(item.t.TREE_ID + (item.of>1 ? "  ("+item.seq+" of "+item.of+")" : ""), cx+pad, ty);
+      ty += Math.round(PDF_DPI*0.13);
+      g.fillStyle="#3f5147"; g.font=`${Math.round(PDF_DPI*0.095)}px sans-serif`;
+      const sp = String(item.t.SPECIES||"— no species —");
+      const hl = item.t.HEALTH ? "  ·  "+item.t.HEALTH : "";
+      let line = sp+hl;
+      while(g.measureText(line).width > boxW && line.length>4) line = line.slice(0,-2);
+      g.fillText(line, cx+pad, ty);
+    }
+    pages.push({ data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H });
+  }
+  if(missing) toast(`${missing} photo(s) are on Drive but not on this phone`,true);
+  return pages;
 }
 
 function drawNorthArrow(g,x,y){
@@ -5591,40 +5737,51 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M){
   g.textAlign="left";
 }
 
-/* Minimal single-page PDF wrapping one JPEG. Written by hand rather than pulling in
-   a PDF library: one less thing to load, and it works from the cache offline. */
-function jpegPdf(dataUrl, imgW, imgH, pageW, pageH){
-  const b64 = dataUrl.slice(dataUrl.indexOf(",")+1);
-  const bin = atob(b64);
-  const img = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) img[i]=bin.charCodeAt(i);
-
+/* PDF built from one or more full-page JPEGs. Written by hand rather than pulling in
+   a PDF library: one less thing to load, and it works from the cache offline.
+   Object numbering: 1 catalog, 2 pages, then three objects per page. */
+function jpegPdfPages(images, pageW, pageH){
   const parts=[], offsets=[]; let len=0;
-  const push = s => { const u = (typeof s==="string") ? strBytes(s) : s; parts.push(u); len+=u.length; };
+  const push = s => { const u=(typeof s==="string")?strBytes(s):s; parts.push(u); len+=u.length; };
   const obj  = s => { offsets.push(len); push(s); };
+
+  const n = images.length;
+  const kids = [];
+  for(let i=0;i<n;i++) kids.push((3+i*3)+" 0 R");
 
   push("%PDF-1.4\n");
   obj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
-  obj("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
-  obj("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+pageW+" "+pageH+"]"+
-      " /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n");
-  offsets.push(len);
-  push("4 0 obj\n<< /Type /XObject /Subtype /Image /Width "+imgW+" /Height "+imgH+
-       " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+img.length+" >>\nstream\n");
-  push(img);
-  push("\nendstream\nendobj\n");
-  const content = "q "+pageW+" 0 0 "+pageH+" 0 0 cm /Im0 Do Q\n";
-  obj("5 0 obj\n<< /Length "+content.length+" >>\nstream\n"+content+"endstream\nendobj\n");
+  obj("2 0 obj\n<< /Type /Pages /Kids ["+kids.join(" ")+"] /Count "+n+" >>\nendobj\n");
 
-  const xref = len;
-  let x = "xref\n0 6\n0000000000 65535 f \n";
+  images.forEach((im,i)=>{
+    const pageNo=3+i*3, contNo=pageNo+1, imgNo=pageNo+2;
+    obj(pageNo+" 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+pageW+" "+pageH+"]"+
+        " /Resources << /XObject << /Im0 "+imgNo+" 0 R >> >> /Contents "+contNo+" 0 R >>\nendobj\n");
+    const content="q "+pageW+" 0 0 "+pageH+" 0 0 cm /Im0 Do Q\n";
+    obj(contNo+" 0 obj\n<< /Length "+content.length+" >>\nstream\n"+content+"endstream\nendobj\n");
+    const b64=im.data.slice(im.data.indexOf(",")+1);
+    const bin=atob(b64);
+    const bytes=new Uint8Array(bin.length);
+    for(let k=0;k<bin.length;k++) bytes[k]=bin.charCodeAt(k);
+    offsets.push(len);
+    push(imgNo+" 0 obj\n<< /Type /XObject /Subtype /Image /Width "+im.w+" /Height "+im.h+
+         " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+bytes.length+" >>\nstream\n");
+    push(bytes);
+    push("\nendstream\nendobj\n");
+  });
+
+  const xref=len, total=3+n*3;
+  let x="xref\n0 "+total+"\n0000000000 65535 f \n";
   offsets.forEach(o=>{ x += String(o).padStart(10,"0")+" 00000 n \n"; });
-  x += "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF\n";
+  x += "trailer\n<< /Size "+total+" /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF\n";
   push(x);
 
-  const out = new Uint8Array(len); let p=0;
+  const out=new Uint8Array(len); let p=0;
   parts.forEach(u=>{ out.set(u,p); p+=u.length; });
   return out;
+}
+function jpegPdf(dataUrl, imgW, imgH, pageW, pageH){
+  return jpegPdfPages([{data:dataUrl,w:imgW,h:imgH}], pageW, pageH);
 }
 
 /* ================================================================== *
@@ -6115,7 +6272,7 @@ function showHelp(){
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
     <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view asks for a title, then makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, how to label each tree, and whether to add photo pages. Labels default to <b>tree number and species</b>, which is what someone reading the sheet needs, whatever you happen to label with on screen. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
