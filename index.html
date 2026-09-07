@@ -66,8 +66,11 @@
   #crosshair i{ position:absolute; left:50%; top:50%; width:18px; height:18px; margin:-9px 0 0 -9px;
     border:2px solid #f2792e; border-radius:50%; background:rgba(0,0,0,.25) }
 
+  /* Seven buttons no longer fit down one side of a phone, so the rail wraps into a
+     second column instead of clipping the top one off. */
   .map-rail{ position:fixed; right:10px; top:calc(var(--barh) + 10px); z-index:810;
-    display:flex; flex-direction:column; gap:8px; max-height:calc(100% - var(--barh) - 96px) }
+    display:flex; flex-flow:column wrap; align-content:flex-end; gap:8px;
+    max-height:calc(100% - var(--barh) - 190px) }
   .map-rail button{ width:44px; height:44px; border-radius:12px; background:rgba(18,32,26,.94);
     border:1px solid var(--line2); color:#cfe6d6; font-size:19px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.5) }
   .map-rail button.on{ background:#2f9d59; border-color:#4cc079; color:#fff }
@@ -528,6 +531,7 @@
       <div class="mbody">
         <button class="menuitem" onclick="document.getElementById('pointsInput').click()">Import tree points (.zip .shp .geojson .gpx)</button>
         <button class="menuitem" onclick="openLayers()">Layers &amp; reference files</button>
+        <button class="menuitem" onclick="openOffline()">Save imagery for offline use</button>
         <button class="menuitem" onclick="openLabels('trees')">Label settings</button>
       </div>
     </div>
@@ -760,6 +764,55 @@
   </div>
 </div>
 
+<!-- ===== offline imagery ===== -->
+<div class="sheet" id="offlineSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Imagery for offline use</h2>
+    <div class="idline" id="offTotal">—</div>
+    <div class="hint">Saves the aerial for whatever is on screen now, so the map still works on a site with no signal. Pan and zoom to the area first, then come back here.</div>
+    <div class="row2">
+      <div class="fld">
+        <label>Detail</label>
+        <select id="offDepth" onchange="refreshOfflineEstimate()">
+          <option value="18">To zoom 18 — smaller</option>
+          <option value="19" selected>To zoom 19 — recommended</option>
+          <option value="20">To zoom 20 — largest</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Roads and names</label>
+        <select id="offRoads" onchange="refreshOfflineEstimate()">
+          <option value="1" selected>Include</option>
+          <option value="0">Aerial only</option>
+        </select>
+      </div>
+    </div>
+    <div class="fld"><div class="mini" id="offEst">—</div></div>
+    <div class="btnrow"><button class="primary" id="offGo" onclick="downloadArea()">Download this area</button></div>
+    <div class="stath" style="margin:14px 0 7px">Saved areas</div>
+    <div id="areaList"></div>
+    <div class="btnrow"><button onclick="closeOffline()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== view filter ===== -->
+<div class="sheet" id="filterSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>What to show on the map</h2>
+    <div class="idline" id="filStats">—</div>
+    <div class="fld"><label>Project</label><select id="filProject"></select></div>
+    <div class="fld"><label>Recorded by</label><select id="filCruiser"></select></div>
+    <div class="mini">Only what is on this phone is listed. Use “Load trees from Sheet” to bring another project down first.</div>
+    <div class="btnrow">
+      <button class="primary" onclick="applyFilter()">Show these</button>
+      <button onclick="clearFilter()">Show everything</button>
+    </div>
+    <div class="btnrow"><button onclick="closeFilter()">Cancel</button></div>
+  </div>
+</div>
+
 <!-- ===== selection ===== -->
 <div class="sheet" id="selSheet">
   <div class="sheet-inner">
@@ -851,7 +904,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-06 · v51";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-07 · v53";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1184,10 +1237,31 @@ function persistPendProjects(){ if(STORE){ try{ STORE.setItem(PPKEY, JSON.string
 // not want another town's trees underfoot.
 let showAllProjects = false;
 try{ showAllProjects = (STORE&&STORE.getItem("st_showall"))==="1"; }catch(e){}
+/* Explicit view filters, separate from the phone's own project. Toggling between
+   "my project" and "everything" was not enough once several jobs and several people
+   share one Sheet. */
+let filterProject = "", filterCruiser = "";
+try{ filterProject = (STORE&&STORE.getItem("st_fproj")) || ""; }catch(e){}
+try{ filterCruiser = (STORE&&STORE.getItem("st_fcru")) || ""; }catch(e){}
+function persistFilters(){
+  if(!STORE) return;
+  try{ STORE.setItem("st_fproj", filterProject); STORE.setItem("st_fcru", filterCruiser); }catch(e){}
+}
 function projectOf(t){ return String(t.PROJECT||"").trim(); }
 function inCurrentProject(t){
+  if(filterCruiser && String(t.CRUISER||"").toLowerCase() !== filterCruiser.toLowerCase()) return false;
+  if(filterProject) return projectOf(t).toLowerCase() === filterProject.toLowerCase();
   if(showAllProjects || !settings.project) return true;
   return projectOf(t).toLowerCase() === settings.project.toLowerCase();
+}
+// What the current view is actually showing, for the map sheet and the status line.
+function scopeLabel(){
+  const bits=[];
+  if(filterProject) bits.push(filterProject);
+  else if(!showAllProjects && settings.project) bits.push(settings.project);
+  else bits.push("all projects");
+  if(filterCruiser) bits.push(filterCruiser);
+  return bits.join(" · ");
 }
 function visibleTrees(){ return trees.filter(inCurrentProject); }
 function persistPendUsers(){ if(STORE){ try{ STORE.setItem(PUKEY, JSON.stringify(pendingUsers)); }catch(e){} } }
@@ -1307,8 +1381,8 @@ function applyRoads(){
   // Only over imagery: the street and topo basemaps already have their own labels.
   if(mapRoads && baseIdx===0){
     roadsLayer = L.layerGroup([
-      L.tileLayer(ROADS_URL,{maxZoom:22,maxNativeZoom:19}),
-      L.tileLayer(PLACES_URL,{maxZoom:22,maxNativeZoom:19})
+      offlineTileLayer(ROADS_URL,"road",{maxZoom:22,maxNativeZoom:19}),
+      offlineTileLayer(PLACES_URL,"place",{maxZoom:22,maxNativeZoom:19})
     ]).addTo(fmap);
     roadsLayer.eachLayer(l=>l.setZIndex && l.setZIndex(1));
   }
@@ -1348,7 +1422,8 @@ function setBase(i){
   baseIdx = i % BASES.length;
   const b = BASES[baseIdx];
   if(baseLayer) fmap.removeLayer(baseLayer);
-  baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
+  baseLayer = (baseIdx===0 ? offlineTileLayer(b[1],"sat",{maxZoom:b[2],maxNativeZoom:b[3]})
+                           : L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]})).addTo(fmap);
   baseLayer.setZIndex(0);
   $("btnBase").textContent = BASES[(baseIdx+1)%BASES.length][0];
   applyRoads();
@@ -1490,7 +1565,7 @@ function renderPins(){
 
   renderLabels();
   const vis = visibleTrees();
-  const scope = (showAllProjects || !settings.project) ? "all projects" : settings.project;
+  const scope = scopeLabel();
   $("subLine").textContent = `${vis.length} trees · ${vis.filter(t=>!t._sent).length} unsynced · ${scope}`;
   setStatus(pinsTruncated
     ? `Showing ${drawn} of ${vis.length} — zoom in to see the rest`
@@ -4004,13 +4079,67 @@ function fetchSpecies(){
  * ================================================================== */
 const HAS_IDB = !!window.indexedDB;
 const PHOTO_DB="st_photos_db", PHOTO_STORE="photos", LAYER_STORE="layers";
+const TILE_STORE="tiles", AREA_STORE="areas";
 let pendingMem=[];
 
-function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO_DB,2);
+function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO_DB,3);
   r.onupgradeneeded=()=>{ const db=r.result;
     if(!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE,{keyPath:"filename"});
-    if(!db.objectStoreNames.contains(LAYER_STORE)) db.createObjectStore(LAYER_STORE,{keyPath:"id"}); };
+    if(!db.objectStoreNames.contains(LAYER_STORE)) db.createObjectStore(LAYER_STORE,{keyPath:"id"});
+    if(!db.objectStoreNames.contains(TILE_STORE))  db.createObjectStore(TILE_STORE,{keyPath:"k"});
+    if(!db.objectStoreNames.contains(AREA_STORE))  db.createObjectStore(AREA_STORE,{keyPath:"id"}); };
   r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+
+/* ================================================================== *
+ *  OFFLINE IMAGERY
+ *  Tiles for a chosen area are stored as blobs in IndexedDB, so the aerial
+ *  background is there on a site with no signal. The service worker caches the
+ *  app itself; this caches the map under it, which is the part that actually
+ *  goes blank in the field.
+ * ================================================================== */
+/* Resolved when called, not at load: the URL constants are declared further down in
+   the map-export section, and referencing them from here at load time threw a
+   temporal-dead-zone error that stopped the whole app from starting. */
+function tileSetUrl(set){
+  return set==="road" ? ROADS_URL : set==="place" ? PLACES_URL : AERIAL_URL;
+}
+function tileKey(set,z,x,y){ return set+"/"+z+"/"+x+"/"+y; }
+
+function idbGetTile(k){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(TILE_STORE,"readonly"), rq=tx.objectStore(TILE_STORE).get(k);
+  rq.onsuccess=()=>{db.close();res(rq.result||null);}; rq.onerror=()=>{db.close();res(null);};
+}).catch(()=>res(null)); }); }
+function idbPutTiles(recs){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(TILE_STORE,"readwrite"), st=tx.objectStore(TILE_STORE);
+  recs.forEach(r=>st.put(r));
+  tx.oncomplete=()=>{db.close();res(true);}; tx.onerror=()=>{db.close();res(false);};
+}).catch(()=>res(false)); }); }
+function idbAllAreas(){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(AREA_STORE,"readonly"), rq=tx.objectStore(AREA_STORE).getAll();
+  rq.onsuccess=()=>{db.close();res(rq.result||[]);}; rq.onerror=()=>{db.close();res([]);};
+}).catch(()=>res([])); }); }
+function idbPutArea(a){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(AREA_STORE,"readwrite"); tx.objectStore(AREA_STORE).put(a);
+  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();};
+}).catch(()=>res()); }); }
+function idbDropArea(a){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction([AREA_STORE,TILE_STORE],"readwrite");
+  tx.objectStore(AREA_STORE).delete(a.id);
+  const st=tx.objectStore(TILE_STORE);
+  (a.keys||[]).forEach(k=>st.delete(k));
+  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();};
+}).catch(()=>res()); }); }
+
+// Which tiles a bounding box needs, across a zoom range.
+function tilesForArea(b, zMin, zMax){
+  const out=[];
+  for(let z=zMin; z<=zMax; z++){
+    const x0=Math.floor(lonToPx(b.getWest(),z)/256),  x1=Math.floor(lonToPx(b.getEast(),z)/256);
+    const y0=Math.floor(latToPx(b.getNorth(),z)/256), y1=Math.floor(latToPx(b.getSouth(),z)/256);
+    for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++) out.push({z,x,y});
+  }
+  return out;
+}
 
 /* Reference layers live in IndexedDB, not localStorage.
    A municipal parcel fabric is tens of megabytes as JSON — 20,000 parcels measured
@@ -4872,6 +5001,142 @@ function selZoomTo(){
   fmap.fitBounds(selected.map(t=>[num(t.LAT),num(t.LON)]),{padding:[40,40]});
 }
 
+/* ---------- downloading an area, and the map layer that reads it ---------- */
+const TILE_MAX = 6000;                 // a sane ceiling; the estimate warns first
+
+function openOffline(){
+  closeMenu();
+  if(!HAS_IDB){ toast("This device has no offline store",true); return; }
+  refreshOfflineEstimate();
+  renderAreaList();
+  $("offlineSheet").classList.add("show");
+}
+function closeOffline(){ $("offlineSheet").classList.remove("show"); }
+
+function offlineZooms(){
+  const depth = parseInt($("offDepth").value,10) || 19;
+  return { zMin: Math.max(12, Math.min(16, fmap.getZoom()-2)), zMax: depth };
+}
+function refreshOfflineEstimate(){
+  if(!fmap) return;
+  const b=fmap.getBounds();
+  const {zMin,zMax}=offlineZooms();
+  const list=tilesForArea(b,zMin,zMax);
+  const sets = $("offRoads").value==="1" ? 3 : 1;
+  const n=list.length*sets;
+  const mb=(n*16/1024).toFixed(0);           // ~16 KB a tile in practice
+  const km = areaKm2(b);
+  $("offEst").textContent = `${km.toFixed(2)} km² · zoom ${zMin}–${zMax} · about ${n.toLocaleString()} tiles, roughly ${mb} MB`;
+  $("offEst").style.color = n>TILE_MAX ? "#8c2318" : "";
+  $("offGo").disabled = n>TILE_MAX;
+  $("offGo").textContent = n>TILE_MAX ? "Too large — zoom in or reduce detail" : "Download this area";
+}
+function areaKm2(b){
+  const h=distM(b.getSouth(),b.getWest(),b.getNorth(),b.getWest())/1000;
+  const w=distM(b.getSouth(),b.getWest(),b.getSouth(),b.getEast())/1000;
+  return h*w;
+}
+
+async function downloadArea(){
+  const b=fmap.getBounds();
+  const {zMin,zMax}=offlineZooms();
+  const withRoads = $("offRoads").value==="1";
+  const name = normText(prompt("Name for this area:", lastMapTitle || settings.project || "Work area") || "");
+  if(!name) return;
+
+  const coords=tilesForArea(b,zMin,zMax);
+  const sets = withRoads ? ["sat","road","place"] : ["sat"];
+  const jobs=[];
+  sets.forEach(set=>coords.forEach(c=>jobs.push({set,...c})));
+  if(jobs.length>TILE_MAX){ toast("That area is too large",true); return; }
+
+  $("offGo").disabled=true;
+  const keys=[]; let bytes=0, failed=0;
+  // Eight at a time, and stored in batches so a long download is not one huge write.
+  let batch=[];
+  for(let i=0;i<jobs.length;i+=8){
+    const chunk=jobs.slice(i,i+8);
+    const got=await Promise.all(chunk.map(j=>{
+      const url=tileSetUrl(j.set).replace("{z}",j.z).replace("{x}",j.x).replace("{y}",j.y);
+      return fetch(url).then(r=>r.ok?r.blob():null).then(bl=>({j,bl})).catch(()=>({j,bl:null}));
+    }));
+    got.forEach(({j,bl})=>{
+      if(!bl){ failed++; return; }
+      const k=tileKey(j.set,j.z,j.x,j.y);
+      batch.push({k,blob:bl}); keys.push(k); bytes+=bl.size;
+    });
+    if(batch.length>=120){ await idbPutTiles(batch); batch=[]; }
+    $("offEst").textContent = `Downloading ${Math.min(i+8,jobs.length).toLocaleString()} of ${jobs.length.toLocaleString()}…`;
+  }
+  if(batch.length) await idbPutTiles(batch);
+
+  await idbPutArea({ id:"area"+Date.now().toString(36), name, keys, bytes,
+                     n:keys.length, when:nowStr().slice(0,16), zMin, zMax,
+                     b:[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()] });
+  $("offGo").disabled=false;
+  refreshOfflineEstimate(); renderAreaList();
+  toast(`${keys.length.toLocaleString()} tiles saved · ${(bytes/1048576).toFixed(0)} MB` +
+        (failed?` · ${failed} failed`:""));
+}
+
+function renderAreaList(){
+  idbAllAreas().then(list=>{
+    if(!list.length){ $("areaList").innerHTML = `<div class="mini">Nothing saved yet.</div>`;
+                      $("offTotal").textContent="—"; return; }
+    let total=0;
+    $("areaList").innerHTML = list.map(a=>{
+      total+=a.bytes||0;
+      return `<div class="layerrow">
+        <span class="sw sq" style="background:#4cc079"></span>
+        <span class="nm">${esc(a.name)}<br><span class="ct">${(a.n||0).toLocaleString()} tiles · ${((a.bytes||0)/1048576).toFixed(0)} MB · zoom ${a.zMin}–${a.zMax} · ${esc(a.when||"")}</span></span>
+        <button onclick="goToArea('${a.id}')">⤢</button>
+        <button onclick="dropArea('${a.id}')">✕</button>
+      </div>`;
+    }).join("");
+    $("offTotal").textContent = `${list.length} area(s) · ${(total/1048576).toFixed(0)} MB stored`;
+  });
+}
+function goToArea(id){
+  idbAllAreas().then(list=>{
+    const a=list.find(x=>x.id===id); if(!a) return;
+    fmap.fitBounds([[a.b[0],a.b[1]],[a.b[2],a.b[3]]]);
+    closeOffline();
+  });
+}
+function dropArea(id){
+  idbAllAreas().then(list=>{
+    const a=list.find(x=>x.id===id); if(!a) return;
+    if(!confirm(`Delete the saved imagery for "${a.name}"?\n\n${(a.n||0).toLocaleString()} tiles, ${((a.bytes||0)/1048576).toFixed(0)} MB. The trees are not affected.`)) return;
+    idbDropArea(a).then(()=>{ renderAreaList(); toast("Saved imagery deleted"); });
+  });
+}
+
+/* A tile layer that looks in the store before the network. Leaflet asks for an
+   <img>; the cached blob is handed to the same element, so nothing else changes. */
+function offlineTileLayer(url, set, opts){
+  const Cls = L.TileLayer.extend({
+    createTile: function(coords, done){
+      const img = document.createElement("img");
+      img.setAttribute("role","presentation"); img.alt="";
+      img.crossOrigin = "anonymous";
+      const net = this.getTileUrl(coords);
+      const finish = ()=>done(null,img);
+      img.onload = finish;
+      img.onerror = ()=>{ done(null,img); };
+      if(HAS_IDB){
+        idbGetTile(tileKey(set,coords.z,coords.x,coords.y)).then(rec=>{
+          if(rec && rec.blob){
+            const u=URL.createObjectURL(rec.blob);
+            img.src=u; setTimeout(()=>URL.revokeObjectURL(u),20000);
+          } else img.src = net;
+        }).catch(()=>{ img.src = net; });
+      } else img.src = net;
+      return img;
+    }
+  });
+  return new Cls(url, opts);
+}
+
 /* ================================================================== *
  *  MAP EXPORT -> PDF
  *  Everything in the current view: aerial background, reference layers,
@@ -4904,7 +5169,26 @@ function latToPx(lat,z){
   const r = lat*Math.PI/180;
   return (1 - Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2 * 256*Math.pow(2,z);
 }
-function loadTile(url){
+/* Cache first, network second — the same rule the map layer uses, so an export made
+   on site looks the same as one made in the office. */
+function loadTile(url, set, z, x, y){
+  if(set && HAS_IDB){
+    return idbGetTile(tileKey(set,z,x,y)).then(rec=>{
+      if(rec && rec.blob) return blobToImage(rec.blob);
+      return loadTileNet(url);
+    }).catch(()=>loadTileNet(url));
+  }
+  return loadTileNet(url);
+}
+function blobToImage(blob){
+  return new Promise(res=>{
+    const im=new Image(), u=URL.createObjectURL(blob);
+    im.onload=()=>{ res(im); setTimeout(()=>URL.revokeObjectURL(u),5000); };
+    im.onerror=()=>{ URL.revokeObjectURL(u); res(null); };
+    im.src=u;
+  });
+}
+function loadTileNet(url){
   return new Promise(res=>{
     const im = new Image();
     im.crossOrigin = "anonymous";               // required or the canvas is tainted
@@ -4920,7 +5204,7 @@ try{ lastMapTitle = (STORE&&STORE.getItem("st_maptitle")) || ""; }catch(e){}
 async function exportMapPDF(){
   closeMenu();
   if(!fmap){ toast("Map is still loading",true); return; }
-  if(isOffline()){ toast("Map export needs a connection for the imagery",true); return; }
+  // With imagery saved for this area the export works with no signal at all.
 
   const suggested = lastMapTitle || settings.project || "Street Tree Inventory";
   const typed = prompt("Title for this map:\n\nA second line can be added after a | bar,\nfor example:  Centre Street  |  Sheet 2 of 4", suggested);
@@ -4967,7 +5251,7 @@ async function exportMapPDF(){
   const tiles=[];
   for(let i=0;i<want.length;i+=8){
     const got = await Promise.all(want.slice(i,i+8).map(t=>
-      loadTile(AERIAL_URL.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty))
+      loadTile(AERIAL_URL.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),"sat",z,t.tx,t.ty)
         .then(im=>({im,tx:t.tx,ty:t.ty}))));
     got.forEach(x=>tiles.push(x));
     if(want.length>60) setStatus(`Map export: ${Math.min(i+8,want.length)} of ${want.length} tiles`);
@@ -4980,7 +5264,8 @@ async function exportMapPDF(){
     for(const [url,into] of [[ROADS_URL,"r"],[PLACES_URL,"p"]]){
       for(let i=0;i<want.length;i+=8){
         const got = await Promise.all(want.slice(i,i+8).map(t=>
-          loadTile(url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty))
+          loadTile(url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),
+                   into==="r"?"road":"place", z, t.tx, t.ty)
             .then(im=>({im,tx:t.tx,ty:t.ty}))));
         got.forEach(x=> into==="r" ? roadTiles.push(x) : placeTiles.push(x));
       }
@@ -5030,13 +5315,47 @@ async function exportMapPDF(){
   });
   if(tc.on!==false && tc.fields.length){
     g.font=`600 ${FS}px sans-serif`; g.textAlign="left"; g.textBaseline="middle";
-    shown.forEach(t=>{
-      const parts=tc.fields.map(f=> f==="HLTH_CODE"?healthCode(t.HEALTH):t[f])
-                           .filter(v=>v!=null && String(v).trim()!=="");
-      if(!parts.length) return;
+    /* Labels are placed one at a time against the boxes already taken. Eight candidate
+       positions are tried round each tree, near ones first; if none is clear the label
+       is pushed further out and joined to its tree with a leader line. Trees close
+       together used to print their names straight over one another, which is what made
+       a planting cluster unreadable. */
+    const taken=[];
+    const overlaps=(r)=> taken.some(o=> !(r.x2<o.x1 || r.x1>o.x2 || r.y2<o.y1 || r.y1>o.y2));
+    const CAND=[[1,0],[1,-1],[1,1],[-1,0],[-1,-1],[-1,1],[0,-1],[0,1]];
+    const items = shown.map(t=>({t, parts: tc.fields.map(f=> f==="HLTH_CODE"?healthCode(t.HEALTH):t[f])
+                                        .filter(v=>v!=null && String(v).trim()!=="")}))
+                       .filter(o=>o.parts.length);
+    // north to south, so the order is stable between runs of the same view
+    items.sort((a,b)=> num(b.t.LAT)-num(a.t.LAT));
+    items.forEach(({t,parts})=>{
       const p=P(num(t.LAT),num(t.LON));
+      const w = Math.max(...parts.map(x=>g.measureText(String(x)).width));
+      const h = parts.length*FS*1.2;
+      let best=null;
+      for(let ring=0; ring<3 && !best; ring++){
+        const gap = R*2.2 + ring*FS*2.2;
+        for(const [dx,dy] of CAND){
+          const cx = p[0] + dx*gap + (dx<0 ? -w : 0);
+          const cy = p[1] + dy*(gap*0.8) - h/2;
+          const box={x1:cx-4,y1:cy-4,x2:cx+w+4,y2:cy+h+4};
+          if(box.x1<fx+6||box.x2>fx+fw-6||box.y1<fy+6||box.y2>fy+fh-6) continue;
+          if(overlaps(box)) continue;
+          best={cx,cy,box,ring,dx,dy}; break;
+        }
+      }
+      if(!best) return;                       // no room: better a missing label than a pile
+      taken.push(best.box);
+      if(best.ring>0){                         // pushed out, so show what it belongs to
+        g.strokeStyle="rgba(255,255,255,.95)"; g.lineWidth=Math.max(2,FS*0.10);
+        g.beginPath();
+        g.moveTo(p[0]+ (best.dx>0? R*1.2 : best.dx<0? -R*1.2 : 0), p[1] + (best.dy? best.dy*R*1.2 : 0));
+        const anchorX = best.dx<0 ? best.cx+w : best.cx;
+        g.lineTo(anchorX, best.cy+h/2);
+        g.stroke();
+      }
       parts.forEach((v,i)=>{
-        const txt=String(v), x=p[0]+R*2.4, y=p[1]-(parts.length-1)*FS*0.6+i*FS*1.2;
+        const txt=String(v), x=best.cx, y=best.cy + FS*0.6 + i*FS*1.2;
         g.strokeStyle="rgba(0,0,0,.9)"; g.lineWidth=FS*0.28; g.strokeText(txt,x,y);
         g.fillStyle="#fff"; g.fillText(txt,x,y);
       });
@@ -5164,10 +5483,25 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M){
   g.beginPath(); g.moveTo(padL, y-Math.round(PDF_DPI*0.09)); g.lineTo(x+maxW, y-Math.round(PDF_DPI*0.09)); g.stroke();
 
   // metadata as labelled pairs rather than a run-on line
+  // Taken from the trees actually on the sheet. It used to print the phone's current
+  // project, which is a different thing entirely and was simply wrong whenever you
+  // were looking at another job.
+  const projs = {};
+  shown.forEach(t=>{ const p=String(t.PROJECT||"").trim(); if(p) projs[p]=(projs[p]||0)+1; });
+  const pnames = Object.keys(projs).sort((a,b)=>projs[b]-projs[a]);
+  const projLabel = pnames.length===0 ? "—"
+                  : pnames.length===1 ? pnames[0]
+                  : pnames[0] + " +" + (pnames.length-1) + " more";
+  const recs = {};
+  shown.forEach(t=>{ const c=String(t.CRUISER||"").trim(); if(c) recs[c]=(recs[c]||0)+1; });
+  const rnames = Object.keys(recs).sort((a,b)=>recs[b]-recs[a]);
+  const recLabel = rnames.length===0 ? "—" : rnames.length===1 ? rnames[0]
+                 : rnames[0] + " +" + (rnames.length-1);
+
   const meta = [
-    ["Project",   settings.project || "—"],
+    ["Project",   projLabel],
     ["Trees shown", String(shown.length)],
-    ["Recorded by", settings.cruiser || "—"],
+    ["Recorded by", recLabel],
     ["Date",      nowStr().slice(0,16)]
   ];
   const lab = Math.round(PDF_DPI*0.085), val = Math.round(PDF_DPI*0.115);
@@ -5466,17 +5800,44 @@ function fetchProjects(){
   document.body.appendChild(sc);
 }
 
-function toggleProjectFilter(){
-  if(!settings.project){ toast("Set a project in settings first",true); openSettings(); return; }
-  showAllProjects=!showAllProjects;
+function toggleProjectFilter(){ openFilter(); }
+
+function openFilter(){
+  closeMenu();
+  // Built from what is actually on the phone, not from the shared lists, so it only
+  // ever offers you something that will show a tree.
+  const pj={}, cr={};
+  trees.forEach(t=>{
+    const p=projectOf(t)||"(no project)"; pj[p]=(pj[p]||0)+1;
+    const c=String(t.CRUISER||"").trim()||"(nobody)"; cr[c]=(cr[c]||0)+1;
+  });
+  const opt=(v,lab,n,cur)=>`<option value="${esc(v)}"${v===cur?" selected":""}>${esc(lab)}${n!=null?"  ("+n+")":""}</option>`;
+  $("filProject").innerHTML = opt("","All projects",trees.length,filterProject) +
+    Object.keys(pj).sort().map(p=>opt(p==="(no project)"?"__none__":p,p,pj[p],filterProject)).join("");
+  $("filCruiser").innerHTML = opt("","Everyone",trees.length,filterCruiser) +
+    Object.keys(cr).sort().map(c=>opt(c==="(nobody)"?"__none__":c,c,cr[c],filterCruiser)).join("");
+  $("filStats").textContent = `${trees.length} trees on this phone · ${Object.keys(pj).length} project(s) · ${Object.keys(cr).length} recorder(s)`;
+  $("filterSheet").classList.add("show");
+}
+function closeFilter(){ $("filterSheet").classList.remove("show"); }
+function applyFilter(){
+  filterProject = $("filProject").value==="__none__" ? "" : $("filProject").value;
+  filterCruiser = $("filCruiser").value==="__none__" ? "" : $("filCruiser").value;
+  showAllProjects = !filterProject;
+  persistFilters();
   try{ STORE&&STORE.setItem("st_showall", showAllProjects?"1":"0"); }catch(e){}
-  renderPins(); updateProjBtn(); closeMenu();
-  toast(showAllProjects ? "Showing every project" : "Showing "+settings.project);
+  renderPins(); updateProjBtn(); closeFilter();
+  const n=visibleTrees().length;
+  toast(`Showing ${n} tree(s) · ${scopeLabel()}`);
+  if(n) fitTrees();
+}
+function clearFilter(){
+  filterProject=""; filterCruiser=""; showAllProjects=true; persistFilters();
+  renderPins(); updateProjBtn(); closeFilter(); toast("Showing everything");
 }
 function updateProjBtn(){
   const b=$("projFilterBtn"); if(!b) return;
-  b.textContent = "🗂 Showing: " + (showAllProjects || !settings.project ? "all projects" : settings.project) +
-                  (settings.project ? " · tap to switch" : "");
+  b.textContent = "🗂 Showing: " + scopeLabel() + " · tap to change";
 }
 
 function fetchUsers(){
@@ -5665,6 +6026,7 @@ function showHelp(){
     <i>＋ Tree here</i> drops a tree at your GPS position, averaged over the last few seconds of fixes.
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
+    <p><b>Choosing what to show</b><br><i>Menu → Showing</i> lists every project and every recorder actually on this phone, with counts, and filters the map to any combination. It only offers what would show a tree — if a project is not on the phone yet, pull it down first with <i>Load trees from Sheet</i>. The filter also governs what the statistics count and what the exports and the map sheet contain.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
     <div class="stath" style="margin:16px 0 8px">WORKING FROM EXISTING DATA</div>
     <p><b>Starting from an existing tree layer</b><br>You do not have to record a street from nothing. <b>Menu → Import tree points</b> takes a zipped shapefile (.zip), .geojson or .gpx of tree locations — a previous inventory, a planting list, or just bare points with no attributes at all. The points become editable trees in this app, and whatever data they carry is transferred across: you match each incoming column to a field once, with two real sample values shown beside each column name so you can tell which is which. Anything left as “— none —” is simply blank for you to fill in the field.</p>
@@ -5703,6 +6065,7 @@ function showHelp(){
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
     <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
+    <p><b>Working with no signal</b><br><i>Menu → Bring data in → Save imagery for offline use</i> stores the aerial for whatever is on screen, so the map still works on a site with no coverage. Pan to the area first, pick how much detail, and it tells you the size before you commit — a subdivision to zoom 19 is about 13 MB, a single block about 2 MB. Saved areas are listed with their size and can be jumped to or deleted. Do it on wifi the night before. The map, and the PDF export, both read from the saved tiles first and only go to the network for what is missing.</p>
     <p><b>Offline</b><br>Everything works with no signal. Trees queue on the phone and go up on the next sync. Only the map imagery needs a connection.</p>
     `;
   $("infoSheet").classList.add("show");
