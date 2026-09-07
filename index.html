@@ -913,7 +913,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-07 · v55";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-07 · v56";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5696,18 +5696,26 @@ function emailPackage(){
   if(isOffline()){ toast("Needs a connection",true); return; }
   const to = (settings.email||"").trim();
   if(!to){ toast("Set your email in settings first",true); openSettings(); return; }
+
+  // Exactly what the Showing filter is set to, so the package matches what you are
+  // looking at. Both parts are sent; either being blank means "everything".
+  const proj = filterProject || (showAllProjects ? "" : settings.project) || "";
+  const cru  = filterCruiser || "";
+  const scope = [proj || "all projects", cru].filter(Boolean).join(" · ");
+
   const withPhotos = confirm(
-    "Email the data to " + to + "?\n\n" +
-    "OK = workbook, CSV and zipped photos (slower — the Sheet zips them into Drive first).\n" +
-    "Cancel = workbook and CSV only.");
+    `Email the data for ${scope} to ${to}?\n\n` +
+    "You get the workbook, CSV, shapefile, GeoJSON and the photo attachment table.\n\n" +
+    "OK = include photos, zipped into Drive and linked (slower).\n" +
+    "Cancel = data only, no photos.");
   const unsent = trees.filter(t=>!t._sent).length;
   if(unsent && !confirm(`${unsent} tree(s) on this phone have not synced yet and would be missing from the export.\n\nSend anyway?`)) return;
 
   fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
     body:JSON.stringify({_action:"package", email:to, photos:withPhotos,
-                         project:(showAllProjects?"":settings.project)})})
-    .then(()=>toast(withPhotos ? "Building the package — the email can take a few minutes"
-                               : "Sending the workbook and CSV to " + to))
+                         project:proj, cruiser:cru})})
+    .then(()=>toast(withPhotos ? `Building the package for ${scope} — the email can take a few minutes`
+                               : `Sending the data for ${scope} to ${to}`))
     .catch(()=>toast("Could not reach the Sheet",true));
 }
 
@@ -6111,7 +6119,7 @@ function showHelp(){
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
-    <p><b>Emailing a package</b><br><i>Menu → Get data out → Email the package</i> sends whatever the <b>Showing</b> filter has selected — one project, one recorder, or both — so set the filter first. The email carries the workbook, the trees as CSV, a WGS84 shapefile, the same trees as GeoJSON, and the photo attachment table, with the photos zipped into Drive and linked. The Sheet menu has the same thing and asks for the project and recorder directly.</p>
+    <p><b>Emailing a package</b><br><i>Menu → Get data out → Email the package</i> sends whatever the <b>Showing</b> filter has selected — one project, one recorder, or both — so set the filter first. The prompt names the scope before you commit, so you can see what is about to go. Two things it is <i>not</i>: it is not limited to the map view, and it is built from the Sheet, so it includes every tree of that project even ones never downloaded to this phone. The email carries the workbook, the trees as CSV, a WGS84 shapefile, the same trees as GeoJSON, and the photo attachment table, with the photos zipped into Drive and linked. The Sheet menu has the same thing and asks for the project and recorder directly.</p>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
     <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
     <p><b>Working with no signal</b><br><i>Menu → Bring data in → Save imagery for offline use</i> stores the aerial for whatever is on screen, so the map still works on a site with no coverage. Pan to the area first, pick how much detail, and it tells you the size before you commit — a subdivision to zoom 19 is about 13 MB, a single block about 2 MB. Saved areas are listed with their size and can be jumped to or deleted. Do it on wifi the night before. The map, and the PDF export, both read from the saved tiles first and only go to the network for what is missing.</p>
