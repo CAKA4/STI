@@ -347,6 +347,8 @@
   <button id="btnLayers" onclick="openLayers()" title="Layers">📚</button>
   <button id="btnLegend" onclick="toggleLegend()" title="Legend">🎨</button>
   <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
+  <button id="btnSelect" onclick="toggleSelect()" title="Select a group of trees">⬚</button>
+  <button id="btnRoads" onclick="toggleRoads()" title="Roads and place names">🛣</button>
 </div>
 
 <div class="legend" id="legend"></div>
@@ -440,8 +442,9 @@
     <div class="fld"><label>Impediment</label><select id="fIMPEDMNT"></select></div>
     <div class="fld"><label>Recommended treatment</label><select id="fRECOTREA"></select></div>
 
+    <div class="fld"><label>Likelihood of failure</label><select id="fLOF"></select></div>
     <div class="row2">
-      <div class="fld"><label>Target occupancy</label><select id="fTARGET" onchange="targetChanged()"></select></div>
+      <div class="fld"><label>Target occupancy</label><select id="fTARGET"></select></div>
       <div class="fld"><label>Likelihood of impact</label><select id="fIMPACT"></select></div>
     </div>
     <div class="fld"><label>Consequences</label><select id="fCONSEQ"></select></div>
@@ -757,6 +760,24 @@
   </div>
 </div>
 
+<!-- ===== selection ===== -->
+<div class="sheet" id="selSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Selected trees</h2>
+    <div class="idline" id="selCount">—</div>
+    <div class="fld">
+      <label>Assign them to this project</label>
+      <select id="selProject"></select>
+    </div>
+    <div class="btnrow">
+      <button class="primary" onclick="applySelProject()">Assign project</button>
+      <button onclick="selZoomTo()">Zoom to them</button>
+    </div>
+    <div class="btnrow"><button onclick="closeSelSheet()">Cancel</button></div>
+  </div>
+</div>
+
 <!-- ===== statistics ===== -->
 <div class="sheet" id="statsSheet">
   <div class="sheet-inner">
@@ -798,6 +819,12 @@
 
 <input id="pointsInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<div class="repobar" id="selBar">
+  <span class="msg" id="selMsg">Tap the map to draw round a group of trees</span>
+  <button onclick="selFinish()">Select</button>
+  <button class="alt" onclick="selUndo()">Undo</button>
+  <button class="alt" onclick="toggleSelect()">Cancel</button>
+</div>
 <div class="repobar" id="repoBar">
   <span class="msg" id="repoMsg">Pan the map so the crosshair sits on the tree</span>
   <button onclick="confirmReposition()">Set here</button>
@@ -824,7 +851,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-05 · v48";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-06 · v51";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -974,7 +1001,7 @@ const FIELDS = [
   {k:"DBH", t:"N", w:6, d:1}, {k:"STEMS", t:"N", w:3, d:0},
   {k:"BOTANICAL", t:"C", w:60}, {k:"FAMILY", t:"C", w:24}, {k:"GENUS", t:"C", w:24},
   {k:"ITREE", t:"C", w:4},
-  {k:"TARGET", t:"C", w:12}, {k:"IMPACT", t:"C", w:10}, {k:"CONSEQ", t:"C", w:12}, {k:"RISK", t:"C", w:10},
+  {k:"LOF", t:"C", w:12}, {k:"TARGET", t:"C", w:12}, {k:"IMPACT", t:"C", w:10}, {k:"CONSEQ", t:"C", w:12}, {k:"RISK", t:"C", w:10},
   {k:"ACTIVITY", t:"C", w:16}, {k:"REMOV_RSN", t:"C", w:26},
   {k:"HEIGHT", t:"N", w:4, d:1},
   {k:"CROWN_RAD", t:"N", w:5, d:1}, {k:"CROWN_DIA", t:"N", w:6, d:1}, {k:"CROWN_BAS", t:"C", w:30},
@@ -1266,6 +1293,27 @@ function loadRefLayers(){
   }).catch(()=>{});
 }
 
+let roadsLayer=null;
+function toggleRoads(){
+  mapRoads = !mapRoads;
+  if(STORE){ try{ STORE.setItem("st_maproads", mapRoads?"1":"0"); }catch(e){} }
+  applyRoads();
+  toast(mapRoads ? "Roads and place names on" : "Roads off");
+}
+function applyRoads(){
+  if(!fmap) return;
+  const b=$("btnRoads"); if(b) b.classList.toggle("on", mapRoads);
+  if(roadsLayer){ fmap.removeLayer(roadsLayer); roadsLayer=null; }
+  // Only over imagery: the street and topo basemaps already have their own labels.
+  if(mapRoads && baseIdx===0){
+    roadsLayer = L.layerGroup([
+      L.tileLayer(ROADS_URL,{maxZoom:22,maxNativeZoom:19}),
+      L.tileLayer(PLACES_URL,{maxZoom:22,maxNativeZoom:19})
+    ]).addTo(fmap);
+    roadsLayer.eachLayer(l=>l.setZIndex && l.setZIndex(1));
+  }
+}
+
 const BASES = [
   ["🛰","https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",22,19],
   ["🗺","https://tile.openstreetmap.org/{z}/{x}/{y}.png",19,19],
@@ -1303,6 +1351,7 @@ function setBase(i){
   baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
   baseLayer.setZIndex(0);
   $("btnBase").textContent = BASES[(baseIdx+1)%BASES.length][0];
+  applyRoads();
 }
 function cycleBase(){ setBase(baseIdx+1); }
 
@@ -1492,7 +1541,8 @@ const FIELD_LABELS = {
   CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
   HEIGHT:"Height", ITREE:"i-Tree type",
   ADDR_DIST:"Distance to parcel", STREET_M:"Distance to street",
-  BOTANICAL:"Botanical name", FAMILY:"Family", GENUS:"Genus", TARGET:"Target occupancy", IMPACT:"Likelihood of impact", CONSEQ:"Consequences",
+  BOTANICAL:"Botanical name", FAMILY:"Family", GENUS:"Genus",
+  LOF:"Likelihood of failure", TARGET:"Target occupancy", IMPACT:"Likelihood of impact", CONSEQ:"Consequences",
   RISK:"Risk rating", ACTIVITY:"Activity", REMOV_RSN:"Removal reason"
 };
 /* "Stacked" has been stored three ways across builds: the token NL, a real newline,
@@ -1874,6 +1924,17 @@ const TARGET_D = [
    the assessor judges from occupancy together with fall direction, slope, and any
    protection between tree and target. Occupancy alone is only a starting point, so
    it is offered as a default here and can be overridden. */
+/* TRAQ's likelihood of failure has FOUR levels. Aurora's FAILPOTE has three, so
+   mapping straight from it can never reach Imminent — and without Imminent the risk
+   rating can never reach Extreme, however bad the target and consequences are.
+   This field carries the TRAQ level, defaulted from FAILPOTE and health, and the
+   assessor can raise it. */
+const LOF_D = [
+  ["Improbable","Improbable — not likely to fail"],
+  ["Possible","Possible — could fail, but unlikely"],
+  ["Probable","Probable — expected to fail"],
+  ["Imminent","Imminent — failure has begun or is expected at any moment"]
+];
 const IMPACT_D = [
   ["Very low","Very low — unlikely to reach the target"],
   ["Low","Low — could reach it, but probably not"],
@@ -1890,6 +1951,12 @@ const CONSEQ_D = [
 // Likelihood of failure, taken from the failure potential already recorded, with a
 // dead or imminent tree escalated.
 function likelihoodOfFailure(t){
+  if(t.LOF) return t.LOF;                       // set explicitly, so it wins
+  const h = String(t.HEALTH||"");
+  if(h==="Dead" || h==="Death imminent") return "Imminent";
+  return { "Low":"Improbable", "Medium":"Possible", "High":"Probable" }[String(t.FAILPOTE||"")] || "";
+}
+function suggestedLOF(t){
   const h = String(t.HEALTH||"");
   if(h==="Dead" || h==="Death imminent") return "Imminent";
   return { "Low":"Improbable", "Medium":"Possible", "High":"Probable" }[String(t.FAILPOTE||"")] || "";
@@ -1916,7 +1983,7 @@ function riskFor(t){
   const imp = String(t.IMPACT||"") || IMPACT_FROM_TARGET[String(t.TARGET||"")] || "";
   const con = String(t.CONSEQ||"");
   if(!lof || !imp || !con)
-    return { rating:"", why:"needs failure potential, likelihood of impact and consequences" };
+    return { rating:"", why:"needs likelihood of failure, likelihood of impact and consequences" };
   const combined = (LOF_IMPACT[lof]||{})[imp] || "";
   const rating = (RISK_MATRIX[combined]||{})[con] || "";
   return { rating,
@@ -2147,6 +2214,7 @@ function estimateCrown(speciesName, dbhCm, stems){
 function refreshRisk(){
   const t = trees[editIndex]; if(!t) return;
   const probe = { HEALTH: t._draftHealth || t.HEALTH,
+                  LOF: $("fLOF") ? $("fLOF").value : "",
                   FAILPOTE: $("fFAILPOTE") ? $("fFAILPOTE").value : t.FAILPOTE,
                   TARGET: $("fTARGET") ? $("fTARGET").value : "",
                   IMPACT: $("fIMPACT") ? $("fIMPACT").value : "",
@@ -2162,15 +2230,6 @@ function refreshRisk(){
 }
 // Occupancy suggests the impact likelihood; the assessor can override it, which is
 // what TRAQ intends since fall direction and protection matter too.
-function targetChanged(){
-  const el=$("fIMPACT");
-  if(el && !el.value){
-    const sug = IMPACT_FROM_TARGET[$("fTARGET").value];
-    if(sug){ el.value = sug; confirmField("fIMPACT"); }
-  }
-  refreshRisk();
-}
-
 function refreshRemovalReason(){
   const a = $("fACTIVITY").value;
   const h = (trees[editIndex]||{})._draftHealth || "";
@@ -3127,7 +3186,27 @@ function domainOptions(field){
 
 function onDomainChange(field){
   const el = $("f"+field); if(!el) return;
-  if(el.value !== ADD_DOMAIN){ confirmField("f"+field); refreshRisk(); return; }
+  if(el.value !== ADD_DOMAIN){
+    confirmField("f"+field);
+    // Occupancy suggests the impact likelihood, and failure potential suggests the
+    // TRAQ failure level. Both are only filled in when still blank, so an explicit
+    // choice is never overwritten. (This used to sit on an inline onchange that
+    // buildPickers replaced, so it never ran.)
+    if(field==="TARGET"){
+      const imp=$("fIMPACT");
+      if(imp && !imp.value){ const sug=IMPACT_FROM_TARGET[el.value]; if(sug){ imp.value=sug; confirmField("fIMPACT"); } }
+    }
+    if(field==="FAILPOTE"){
+      const lof=$("fLOF");
+      const t=trees[editIndex]||{};
+      if(lof && !lof.value){
+        const sug=suggestedLOF({HEALTH:t._draftHealth||t.HEALTH, FAILPOTE:el.value});
+        if(sug){ lof.value=sug; confirmField("fLOF"); }
+      }
+    }
+    refreshRisk();
+    return;
+  }
   const name = normText(prompt(`New ${prettyField(field).toLowerCase()} value:`) || "");
   if(!name){ el.value = (trees[editIndex] && trees[editIndex][field]) || ""; return; }
   addCustomDomain(field, name);
@@ -3280,7 +3359,7 @@ let currentPhotos = [];
 const DOMAIN_FIELDS = {
   SITELOCA:SITELOCA_D, STRUDEFE:STRUDEFE_D, FAILPOTE:FAILPOTE_D, WOUNCANK:WOUNCANK_D,
   DEADDECAY:DEADDECAY_D, PESTDISEAS:PESTDISEAS_D, IMPEDMNT:IMPEDMNT_D, RECOTREA:RECOTREA_D,
-  TARGET:TARGET_D, IMPACT:IMPACT_D, CONSEQ:CONSEQ_D, ACTIVITY:ACTIVITY_D, REMOV_RSN:REMOV_RSN_D
+  LOF:LOF_D, TARGET:TARGET_D, IMPACT:IMPACT_D, CONSEQ:CONSEQ_D, ACTIVITY:ACTIVITY_D, REMOV_RSN:REMOV_RSN_D
 };
 function domainLabel(field, code){
   const d = DOMAIN_FIELDS[field]; if(!d) return code;
@@ -3335,6 +3414,9 @@ function pickHealth(h){
   t._draftHealth = (t._draftHealth===h) ? "" : h;
   paintHealth(t._draftHealth);
   markHealthChanged();
+  // A tree marked Dead or Death imminent is an imminent failure by definition.
+  const lofEl=$("fLOF");
+  if(lofEl && (t._draftHealth==="Dead" || t._draftHealth==="Death imminent")) lofEl.value="Imminent";
   refreshRisk(); refreshRemovalReason();
   if(NON_LIVING.indexOf(t._draftHealth)>=0) resetForNonLiving();
 }
@@ -3400,8 +3482,7 @@ function openTree(i){
   $("fDBH").innerHTML = dbhOptions();            // re-rank each time
   $("fDBH").value = selValue("fDBH", t.DBH);
   $("fEXT_ID").value = t.EXT_ID || "";
-  if($("fACTIVITY") && !$("fACTIVITY").value) $("fACTIVITY").value = "Inspection";
-  refreshRemovalReason();
+
   $("extRow").style.display = (t.EXT_ID || t.SOURCE==="import" || t.SOURCE==="reference") ? "block" : "none";
   $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
   Object.keys(DOMAIN_FIELDS).forEach(f=>{
@@ -3436,6 +3517,16 @@ function openTree(i){
   } else {
     $("photoHint").textContent = currentPhotos.length ? `${currentPhotos.length} photo(s) — Drive link appears after sync` : "Saved on the phone, backed up to Drive when online.";
   }
+  // Every visit is an inspection unless something else was done, so it is the
+  // default rather than a blank the crew has to fill in on every tree.
+  if($("fACTIVITY") && !$("fACTIVITY").value) $("fACTIVITY").value = "Inspection";
+  if($("fLOF") && !$("fLOF").value){
+    const sug = suggestedLOF({HEALTH:t.HEALTH, FAILPOTE:t.FAILPOTE});
+    if(sug) $("fLOF").value = sug;
+  }
+  refreshRemovalReason();
+  refreshRisk();
+
   snapshotForm();
   // An imported tree usually arrives with no address. Look it up as the form opens so
   // it is on screen while you work, rather than waiting for the Sheet to fill it after
@@ -3471,9 +3562,12 @@ function saveTree(){
   t.DBH     = $("fDBH").value;
   t.STEMS   = $("fSTEMS").value || "1";
   Object.keys(DOMAIN_FIELDS).forEach(f=>{ const el=$("f"+f); if(el) t[f]=el.value; });
-  t.RISK = riskFor(t).rating;
   t.HEALTH  = t._draftHealth || "";
   t.HLTH_CODE = healthCode(t.HEALTH);
+  // Risk must be worked out AFTER health, because a Dead or Death imminent tree
+  // escalates the likelihood of failure to Imminent. Computing it first read the
+  // previous health — or nothing at all on a new tree — and saved too low a rating.
+  t.RISK = riskFor(t).rating;
   const typedAddr = normText($("fADDRESS").value);
   if(typedAddr !== String(t.ADDRESS||"").trim()) t._addrAuto = false;   // edited by hand
   t.ADDRESS = typedAddr;
@@ -4684,6 +4778,101 @@ function exportCSV(){
 }
 
 /* ================================================================== *
+ *  POLYGON SELECT
+ *  Draw a shape round a group of trees and act on all of them at once —
+ *  assigning a block of an old import to the right project, mostly.
+ * ================================================================== */
+let selMode=false, selPts=[], selLine=null, selPoly=null, selected=[];
+
+function toggleSelect(){
+  selMode = !selMode;
+  $("btnSelect").classList.toggle("on", selMode);
+  clearSelShapes();
+  selPts=[];
+  if(selMode){
+    if(placeMode) togglePlace();
+    $("selBar").classList.add("show");
+    $("selMsg").textContent = "Tap the map to draw round a group of trees";
+    fmap.on("click", selClick);
+  } else {
+    $("selBar").classList.remove("show");
+    fmap.off("click", selClick);
+  }
+}
+function clearSelShapes(){
+  if(selLine){ fmap.removeLayer(selLine); selLine=null; }
+  if(selPoly){ fmap.removeLayer(selPoly); selPoly=null; }
+}
+function selClick(e){
+  selPts.push([e.latlng.lat, e.latlng.lng]);
+  drawSelShape();
+  const n = treesInPolygon(selPts).length;
+  $("selMsg").textContent = selPts.length<3
+    ? `${selPts.length} point(s) — at least 3 needed`
+    : `${selPts.length} points · ${n} tree(s) inside`;
+}
+function drawSelShape(){
+  clearSelShapes();
+  if(selPts.length<2) return;
+  if(selPts.length<3){
+    selLine = L.polyline(selPts,{color:"#25b0ff",weight:3,dashArray:"6 4"}).addTo(fmap);
+  } else {
+    selPoly = L.polygon(selPts,{color:"#25b0ff",weight:3,dashArray:"6 4",fillOpacity:0.15}).addTo(fmap);
+  }
+}
+function selUndo(){
+  selPts.pop(); drawSelShape();
+  $("selMsg").textContent = selPts.length<3
+    ? `${selPts.length} point(s) — at least 3 needed`
+    : `${selPts.length} points · ${treesInPolygon(selPts).length} tree(s) inside`;
+}
+// Same ray casting the parcel lookup uses, on a ring of [lat,lon].
+function treesInPolygon(pts){
+  if(!pts || pts.length<3) return [];
+  const ring = pts.map(p=>[p[1],p[0]]);              // ring wants [lon,lat]
+  ring.push(ring[0]);
+  return trees.filter(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    if(la==null||lo==null) return false;
+    if(!inCurrentProject(t) && !showAllProjects) { /* still selectable when filtered out? no */ }
+    return ringContains(ring, la, lo);
+  });
+}
+function selFinish(){
+  selected = treesInPolygon(selPts);
+  if(!selected.length){ toast("No trees inside that shape",true); return; }
+  $("selCount").textContent = `${selected.length} tree(s) selected`;
+  const names = ["— choose —"].concat(projects.map(p=>p.name));
+  $("selProject").innerHTML = projects.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")
+    + `<option value="__new__">＋ A project not on the list…</option>`;
+  if(settings.project) $("selProject").value = settings.project;
+  $("selSheet").classList.add("show");
+}
+function applySelProject(){
+  let name = $("selProject").value;
+  if(name==="__new__"){
+    const typed = prompt("Project name:", settings.project||"");
+    if(typed===null) return;
+    name = normText(typed);
+    if(!name) return;
+    queueProject(name);
+  }
+  if(!name){ toast("Choose a project",true); return; }
+  if(!confirm(`Assign ${selected.length} tree(s) to "${name}"?\n\nThey will re-sync with the new project.`)) return;
+  let n=0;
+  selected.forEach(t=>{ if(t.PROJECT!==name){ t.PROJECT=name; t._sent=false; n++; } });
+  persistTrees(); renderPins(); updateProjBtn();
+  closeSelSheet(); toggleSelect();
+  toast(`${n} tree(s) moved to ${name}`);
+  if(n) setTimeout(syncNow, 600);
+}
+function closeSelSheet(){ $("selSheet").classList.remove("show"); }
+function selZoomTo(){
+  if(!selected.length) return;
+  fmap.fitBounds(selected.map(t=>[num(t.LAT),num(t.LON)]),{padding:[40,40]});
+}
+
+/* ================================================================== *
  *  MAP EXPORT -> PDF
  *  Everything in the current view: aerial background, reference layers,
  *  trees coloured by health, labels, north arrow, scale bar, legend and a
@@ -4697,7 +4886,17 @@ function exportCSV(){
 const PDF_DPI = 200;
 const PDF_W_IN = 11, PDF_H_IN = 8.5;            // Letter, landscape
 const AERIAL_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const AERIAL_CREDIT = "Imagery: Esri, Maxar, Earthstar Geographics";
+/* Roads and place names, drawn over the imagery. World Imagery carries no labels at
+   all, so without this a reader cannot tell which street a tree is on — the one thing
+   a street tree map has to answer. Esri publish these as transparent reference layers
+   intended for exactly this. */
+const ROADS_URL  = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
+const PLACES_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+// The key map reads far better as a street map than as an aerial at that scale.
+const KEY_URL    = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+const AERIAL_CREDIT = "Imagery: Esri, Maxar, Earthstar Geographics · Roads and places: Esri";
+let mapRoads = true;
+try{ mapRoads = (STORE&&STORE.getItem("st_maproads")) !== "0"; }catch(e){}
 
 // Web Mercator pixel coordinates at a given zoom.
 function lonToPx(lon,z){ return (lon+180)/360 * 256*Math.pow(2,z); }
@@ -4723,123 +4922,142 @@ async function exportMapPDF(){
   if(!fmap){ toast("Map is still loading",true); return; }
   if(isOffline()){ toast("Map export needs a connection for the imagery",true); return; }
 
-  // Offered with the last title already filled in — a run of sheets for one job
-  // usually differ by a word or two.
   const suggested = lastMapTitle || settings.project || "Street Tree Inventory";
   const typed = prompt("Title for this map:\n\nA second line can be added after a | bar,\nfor example:  Centre Street  |  Sheet 2 of 4", suggested);
-  if(typed === null) return;                       // cancelled
+  if(typed === null) return;
   const title = normText(typed) || suggested;
   lastMapTitle = title;
   if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} }
 
-  const mapW = Math.round(PDF_W_IN*PDF_DPI), mapH = Math.round(PDF_H_IN*PDF_DPI);
-  const panelH = Math.round(mapH*0.13);         // title block along the bottom
+  const W = Math.round(PDF_W_IN*PDF_DPI), H = Math.round(PDF_H_IN*PDF_DPI);
+  const M = Math.round(PDF_DPI*0.35);            // page margin
+  const panelH = Math.round(PDF_DPI*1.32);       // title block
+  // The map frame. Previously the imagery was fitted inside and left white bars down
+  // both sides; it now FILLS the frame and is clipped to it, which is what a map sheet
+  // should look like.
+  const fx = M, fy = M, fw = W - M*2, fh = H - M*2 - panelH;
+
   const cv = document.createElement("canvas");
-  cv.width = mapW; cv.height = mapH;
+  cv.width=W; cv.height=H;
   const g = cv.getContext("2d");
-  g.fillStyle="#fff"; g.fillRect(0,0,mapW,mapH);
+  g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
 
   const b = fmap.getBounds();
-  const drawH = mapH - panelH;
-
-  // Pick the zoom whose pixel extent best fills the page, so the print is sharper
-  // than the screen rather than a stretched copy of it.
   let z = fmap.getZoom();
   for(let t=z; t<=19; t++){
-    const w = lonToPx(b.getEast(),t)-lonToPx(b.getWest(),t);
-    const h = latToPx(b.getSouth(),t)-latToPx(b.getNorth(),t);
-    if(w>=mapW && h>=drawH){ z=t; break; }
+    const w=lonToPx(b.getEast(),t)-lonToPx(b.getWest(),t);
+    const h=latToPx(b.getSouth(),t)-latToPx(b.getNorth(),t);
+    if(w>=fw && h>=fh){ z=t; break; }
     z=t;
   }
-  const x0 = lonToPx(b.getWest(),z),  x1 = lonToPx(b.getEast(),z);
-  const y0 = latToPx(b.getNorth(),z), y1 = latToPx(b.getSouth(),z);
-  const sx = mapW/(x1-x0), sy = drawH/(y1-y0);
-  const sc = Math.min(sx,sy);                    // uniform scale, no distortion
-  const offX = (mapW-(x1-x0)*sc)/2, offY = (drawH-(y1-y0)*sc)/2;
+  const x0=lonToPx(b.getWest(),z), x1=lonToPx(b.getEast(),z);
+  const y0=latToPx(b.getNorth(),z), y1=latToPx(b.getSouth(),z);
+  const sc = Math.max(fw/(x1-x0), fh/(y1-y0));   // fill, don't fit
+  const offX = fx + (fw-(x1-x0)*sc)/2;
+  const offY = fy + (fh-(y1-y0)*sc)/2;
   const P = (lat,lon)=>[ (lonToPx(lon,z)-x0)*sc+offX, (latToPx(lat,z)-y0)*sc+offY ];
 
-  const t0=Math.floor(x0/256), t1=Math.floor(x1/256);
-  const u0=Math.floor(y0/256), u1=Math.floor(y1/256);
+  const t0=Math.floor((x0-(offX-fx)/sc)/256), t1=Math.floor((x1+(offX-fx)/sc)/256);
+  const u0=Math.floor((y0-(offY-fy)/sc)/256), u1=Math.floor((y1+(offY-fy)/sc)/256);
   const want=[];
   for(let tx=t0; tx<=t1; tx++) for(let ty=u0; ty<=u1; ty++) want.push({tx,ty});
   if(want.length > 400){ toast("Zoom in a little — that view needs too much imagery",true); return; }
 
-  // Eight at a time. Firing 250 requests at once stalls the connection and the tile
-  // server starts refusing them, which shows up as blank patches on the print.
   toast(`Fetching ${want.length} imagery tiles…`);
   const tiles=[];
   for(let i=0;i<want.length;i+=8){
-    const batch = want.slice(i,i+8);
-    const got = await Promise.all(batch.map(t=>
+    const got = await Promise.all(want.slice(i,i+8).map(t=>
       loadTile(AERIAL_URL.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty))
         .then(im=>({im,tx:t.tx,ty:t.ty}))));
     got.forEach(x=>tiles.push(x));
     if(want.length>60) setStatus(`Map export: ${Math.min(i+8,want.length)} of ${want.length} tiles`);
   }
+
+  // Road and place-name overlays, fetched only if wanted.
+  let roadTiles=[], placeTiles=[];
+  if(mapRoads){
+    toast("Fetching roads and place names…");
+    for(const [url,into] of [[ROADS_URL,"r"],[PLACES_URL,"p"]]){
+      for(let i=0;i<want.length;i+=8){
+        const got = await Promise.all(want.slice(i,i+8).map(t=>
+          loadTile(url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty))
+            .then(im=>({im,tx:t.tx,ty:t.ty}))));
+        got.forEach(x=> into==="r" ? roadTiles.push(x) : placeTiles.push(x));
+      }
+    }
+  }
+
+  g.save();
+  g.beginPath(); g.rect(fx,fy,fw,fh); g.clip();
   let missing=0;
-  g.save(); g.beginPath(); g.rect(0,0,mapW,drawH); g.clip();
   tiles.forEach(({im,tx,ty})=>{
     if(!im){ missing++; return; }
-    g.drawImage(im, (tx*256-x0)*sc+offX, (ty*256-y0)*sc+offY, 256*sc, 256*sc);
+    g.drawImage(im,(tx*256-x0)*sc+offX,(ty*256-y0)*sc+offY,256*sc,256*sc);
+  });
+  roadTiles.concat(placeTiles).forEach(({im,tx,ty})=>{
+    if(im) g.drawImage(im,(tx*256-x0)*sc+offX,(ty*256-y0)*sc+offY,256*sc,256*sc);
   });
 
-  // reference layers
   refLayers.forEach(L2=>{
     if(!L2.visible) return;
-    g.strokeStyle=L2.color; g.lineWidth=Math.max(1.5,2*sc/1.5);
-    g.fillStyle=L2.color+"22";
+    g.strokeStyle=L2.color; g.lineWidth=3; g.fillStyle=L2.color+"22";
     L2.features.forEach(f=>{
       const bb=featureBBox(f);
       if(bb && (bb.s>b.getNorth()||bb.n<b.getSouth()||bb.w>b.getEast()||bb.e<b.getWest())) return;
-      const stroke=(ring)=>{
-        g.beginPath();
-        ring.forEach((c,i)=>{ const p=P(c[1],c[0]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); });
-        return g;
-      };
-      if(f.geom.t==="ln") eachRing(f.geom.c, r=>{ stroke(r).stroke(); });
-      else if(f.geom.t==="pg") eachPoly(f.geom.c, rings=>rings.forEach(r=>{ stroke(r).closePath(); g.fill(); g.stroke(); }));
+      const path=(ring)=>{ g.beginPath();
+        ring.forEach((c,i)=>{ const p=P(c[1],c[0]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); }); };
+      if(f.geom.t==="ln") eachRing(f.geom.c, r=>{ path(r); g.stroke(); });
+      else if(f.geom.t==="pg") eachPoly(f.geom.c, rings=>rings.forEach(r=>{ path(r); g.closePath(); g.fill(); g.stroke(); }));
     });
   });
 
-  // trees
   const shown = visibleTrees().filter(t=>{
     const la=num(t.LAT), lo=num(t.LON);
     return la!=null && lo!=null && b.contains([la,lo]);
   });
+  // Symbols and text scale with the page, not the screen: 13px on a 2200px sheet is
+  // about 1.5 mm on paper, which is why the first version was unreadable.
+  const R = Math.round(PDF_DPI*0.055);
+  const FS = Math.round(PDF_DPI*0.115);
   const tc = cfgFor("trees");
   shown.forEach(t=>{
-    const p = P(num(t.LAT), num(t.LON));
-    if(t._reviewed){
-      g.beginPath(); g.arc(p[0],p[1],13,0,7); g.strokeStyle="#FF1744"; g.lineWidth=3; g.stroke();
-    }
-    g.beginPath(); g.arc(p[0],p[1],7,0,7);
-    g.fillStyle = healthColor(t.HEALTH); g.fill();
-    g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
+    const p=P(num(t.LAT),num(t.LON));
+    if(t._reviewed){ g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
+                     g.strokeStyle="#FF1744"; g.lineWidth=R*0.42; g.stroke(); }
+    g.beginPath(); g.arc(p[0],p[1],R,0,7);
+    g.fillStyle=healthColor(t.HEALTH); g.fill();
+    g.strokeStyle="#fff"; g.lineWidth=R*0.34; g.stroke();
   });
-  // labels, using whatever fields are configured for the tree layer
   if(tc.on!==false && tc.fields.length){
-    g.font = "600 13px monospace"; g.textAlign="left";
+    g.font=`600 ${FS}px sans-serif`; g.textAlign="left"; g.textBaseline="middle";
     shown.forEach(t=>{
-      const parts = tc.fields.map(f=> f==="HLTH_CODE"?healthCode(t.HEALTH):t[f])
-                             .filter(v=>v!=null && String(v).trim()!=="");
+      const parts=tc.fields.map(f=> f==="HLTH_CODE"?healthCode(t.HEALTH):t[f])
+                           .filter(v=>v!=null && String(v).trim()!=="");
       if(!parts.length) return;
-      const p = P(num(t.LAT), num(t.LON));
+      const p=P(num(t.LAT),num(t.LON));
       parts.forEach((v,i)=>{
-        const txt=String(v), x=p[0]+11, y=p[1]+5+i*15;
-        g.strokeStyle="rgba(0,0,0,.85)"; g.lineWidth=3; g.strokeText(txt,x,y);
+        const txt=String(v), x=p[0]+R*2.4, y=p[1]-(parts.length-1)*FS*0.6+i*FS*1.2;
+        g.strokeStyle="rgba(0,0,0,.9)"; g.lineWidth=FS*0.28; g.strokeText(txt,x,y);
         g.fillStyle="#fff"; g.fillText(txt,x,y);
       });
     });
+    g.textBaseline="alphabetic";
   }
   g.restore();
 
-  drawNorthArrow(g, mapW-90, 70);
-  drawScaleBar(g, 40, drawH-40, sc, z, b.getCenter().lat);
-  drawTitleBlock(g, mapW, mapH, panelH, shown, z, missing, title);
+  await drawKeyMap(g, fx+fw-Math.round(PDF_DPI*1.5)-24, fy+24, Math.round(PDF_DPI*1.5), b, z);
+  drawNorthArrow(g, fx+fw-Math.round(PDF_DPI*0.42), fy+fh-Math.round(PDF_DPI*1.0));
+  drawScaleBar(g, fx+24, fy+fh-24, sc, z, b.getCenter().lat);
+
+  // neat line
+  g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(fx,fy,fw,fh);
+  g.strokeStyle="#ffffff"; g.lineWidth=1.5; g.strokeRect(fx+3,fy+3,fw-6,fh-6);
+
+  drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M);
 
   toast("Building the PDF…");
   const jpeg = cv.toDataURL("image/jpeg", 0.92);
-  const bytes = jpegPdf(jpeg, mapW, mapH, PDF_W_IN*72, PDF_H_IN*72);
+  const bytes = jpegPdf(jpeg, W, H, PDF_W_IN*72, PDF_H_IN*72);
   const blob = new Blob([bytes],{type:"application/pdf"});
   const url = URL.createObjectURL(blob), a=document.createElement("a");
   const slug = title.replace(/\|/g," ").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
@@ -4847,78 +5065,148 @@ async function exportMapPDF(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),3000);
   setStatus(`${visibleTrees().length} trees on device`);
-  toast(`Map exported · ${shown.length} trees` + (missing?` · ${missing} imagery tiles missing`:""));
+  toast(`Map exported · ${shown.length} trees` + (missing?` · ${missing} tiles missing`:""));
+}
+
+/* Locator inset: the same imagery five zoom levels out, with the sheet extent marked.
+   Without it a reader has no idea where in the municipality they are looking. */
+async function drawKeyMap(g, x, y, size, bounds, z){
+  const kz = Math.max(10, z-6);
+  const c = bounds.getCenter();
+  const cx = lonToPx(c.lng,kz), cy = latToPx(c.lat,kz);
+  const half = size/2;
+  g.save();
+  g.fillStyle="#fff"; g.fillRect(x-4,y-4,size+8,size+8);
+  g.beginPath(); g.rect(x,y,size,size); g.clip();
+  const t0=Math.floor((cx-half)/256), t1=Math.floor((cx+half)/256);
+  const u0=Math.floor((cy-half)/256), u1=Math.floor((cy+half)/256);
+  const jobs=[];
+  for(let tx=t0;tx<=t1;tx++) for(let ty=u0;ty<=u1;ty++)
+    jobs.push(loadTile(KEY_URL.replace("{z}",kz).replace("{x}",tx).replace("{y}",ty)).then(im=>({im,tx,ty})));
+  (await Promise.all(jobs)).forEach(({im,tx,ty})=>{
+    if(im) g.drawImage(im, x+half+(tx*256-cx), y+half+(ty*256-cy), 256, 256);
+  });
+  // the sheet extent
+  const ew = lonToPx(bounds.getEast(),kz)-lonToPx(bounds.getWest(),kz);
+  const eh = latToPx(bounds.getSouth(),kz)-latToPx(bounds.getNorth(),kz);
+  g.strokeStyle="#FF1744"; g.lineWidth=3;
+  g.strokeRect(x+half-ew/2, y+half-eh/2, Math.max(ew,6), Math.max(eh,6));
+  g.restore();
+  g.strokeStyle="#12201a"; g.lineWidth=3; g.strokeRect(x,y,size,size);
+  g.fillStyle="rgba(18,32,26,.85)"; g.fillRect(x,y,size,26);
+  g.fillStyle="#fff"; g.font="bold 15px sans-serif"; g.textAlign="left";
+  g.fillText("KEY MAP", x+8, y+18);
 }
 
 function drawNorthArrow(g,x,y){
+  const R = Math.round(PDF_DPI*0.30);
   g.save(); g.translate(x,y);
-  g.fillStyle="rgba(255,255,255,.9)"; g.strokeStyle="#222"; g.lineWidth=2;
-  g.beginPath(); g.arc(0,0,34,0,7); g.fill(); g.stroke();
-  g.beginPath(); g.moveTo(0,-24); g.lineTo(10,10); g.lineTo(0,3); g.lineTo(-10,10); g.closePath();
-  g.fillStyle="#111"; g.fill();
-  g.fillStyle="#111"; g.font="bold 15px sans-serif"; g.textAlign="center"; g.fillText("N",0,-28);
+  g.fillStyle="rgba(255,255,255,.94)"; g.strokeStyle="#12201a"; g.lineWidth=3;
+  g.beginPath(); g.arc(0,0,R,0,7); g.fill(); g.stroke();
+  g.beginPath(); g.moveTo(0,-R*0.68); g.lineTo(R*0.30,R*0.34); g.lineTo(0,R*0.12);
+  g.closePath(); g.fillStyle="#12201a"; g.fill();
+  g.beginPath(); g.moveTo(0,-R*0.68); g.lineTo(-R*0.30,R*0.34); g.lineTo(0,R*0.12);
+  g.closePath(); g.fillStyle="#9db3a5"; g.fill();
+  g.fillStyle="#12201a"; g.font=`bold ${Math.round(R*0.5)}px sans-serif`;
+  g.textAlign="center"; g.fillText("N",0,-R*0.78);
   g.restore();
 }
 
 // Rounded to a sensible round number, the way a map scale bar should be.
 function drawScaleBar(g,x,y,sc,z,lat){
   const mPerPx = 156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,z) / sc;
-  const target = 260*mPerPx;
-  const steps=[5,10,20,25,50,100,200,250,500,1000,2000];
+  const target = PDF_DPI*1.6*mPerPx;
+  const steps=[5,10,20,25,50,100,200,250,500,1000,2000,5000];
   let m = steps.reduce((a,c)=>Math.abs(c-target)<Math.abs(a-target)?c:a, steps[0]);
-  const px = m/mPerPx;
+  const px = m/mPerPx, h = Math.round(PDF_DPI*0.075), fs = Math.round(PDF_DPI*0.09);
   g.save();
-  g.fillStyle="rgba(255,255,255,.9)"; g.fillRect(x-8,y-30,px+16,42);
-  g.strokeStyle="#111"; g.lineWidth=2;
-  g.strokeRect(x,y-8,px,10);
-  g.fillStyle="#111"; g.fillRect(x,y-8,px/2,10);
-  g.font="bold 14px sans-serif"; g.textAlign="left";
-  g.fillText("0",x-3,y-14); g.textAlign="right"; g.fillText(m+" m",x+px,y-14);
+  g.fillStyle="rgba(255,255,255,.94)"; g.strokeStyle="#12201a"; g.lineWidth=2;
+  g.fillRect(x-10, y-h-fs-16, px+20, h+fs+22);
+  g.strokeRect(x-10, y-h-fs-16, px+20, h+fs+22);
+  // alternating black and white blocks, four divisions
+  for(let i=0;i<4;i++){
+    g.fillStyle = i%2 ? "#ffffff" : "#12201a";
+    g.fillRect(x+px*i/4, y-h-6, px/4, h);
+  }
+  g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(x, y-h-6, px, h);
+  g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+  g.textAlign="left";  g.fillText("0", x-2, y-h-12);
+  g.textAlign="right"; g.fillText(m+" m", x+px+2, y-h-12);
   g.restore();
 }
 
-function drawTitleBlock(g,W,H,panelH,shown,z,missing,title){
-  const top=H-panelH;
-  g.fillStyle="#12201a"; g.fillRect(0,top,W,panelH);
-  g.fillStyle="#fff"; g.textAlign="left";
+function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M){
+  const top = H - M - panelH, x = M, w = W - M*2;
+  g.fillStyle="#12201a"; g.fillRect(x,top,w,panelH);
+  g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(x,top,w,panelH);
 
-  const bits = String(title||"").split("|").map(x=>x.trim()).filter(Boolean);
+  const bits = String(title||"").split("|").map(t=>t.trim()).filter(Boolean);
   const main = bits[0] || settings.project || "Street Tree Inventory";
-  const sub  = bits.slice(1).join(" · ");
+  const sub  = bits.slice(1).join("  ·  ");
 
-  // Shrink the heading rather than let a long title run under the legend.
-  const maxW = W*0.46;
-  let size = 34;
-  do { g.font = "bold "+size+"px sans-serif"; size -= 2; }
-  while(g.measureText(main).width > maxW && size > 16);
-  g.fillText(main, 32, top+46);
+  // a coloured spine so the sheet reads as a titled drawing, not a screenshot
+  g.fillStyle="#3FA45B"; g.fillRect(x,top,Math.round(PDF_DPI*0.09),panelH);
 
-  let y = top+76;
+  const padL = x + Math.round(PDF_DPI*0.30);
+  const maxW = w*0.55;
+  let size = Math.round(PDF_DPI*0.30);
+  do { g.font=`bold ${size}px sans-serif`; size -= 3; }
+  while(g.measureText(main).width > maxW && size > Math.round(PDF_DPI*0.13));
+  g.fillStyle="#ffffff"; g.textAlign="left";
+  g.fillText(main, padL, top + Math.round(PDF_DPI*0.42));
+
+  let y = top + Math.round(PDF_DPI*0.62);
   if(sub){
-    g.font="17px sans-serif"; g.fillStyle="#dfe9e2";
-    g.fillText(sub, 32, y); y += 26;
+    g.font=`${Math.round(PDF_DPI*0.125)}px sans-serif`; g.fillStyle="#dfe9e2";
+    g.fillText(sub, padL, y); y += Math.round(PDF_DPI*0.19);
   }
-  g.font="16px sans-serif"; g.fillStyle="#bcd3c3";
-  const meta = [ shown.length+" trees shown",
-                 (settings.project && settings.project!==main) ? settings.project : "",
-                 settings.cruiser ? "Recorded by "+settings.cruiser : "",
-                 nowStr().slice(0,16) ].filter(Boolean).join("   ·   ");
-  g.fillText(meta, 32, y);
-  g.font="13px sans-serif"; g.fillStyle="#8fb59c";
-  g.fillText(AERIAL_CREDIT + "   ·   Silv-Econ Ltd." +
-             (missing?"   ·   some imagery tiles unavailable":""), 32, top+panelH-18);
+  g.strokeStyle="#3d5548"; g.lineWidth=1.5;
+  g.beginPath(); g.moveTo(padL, y-Math.round(PDF_DPI*0.09)); g.lineTo(x+maxW, y-Math.round(PDF_DPI*0.09)); g.stroke();
 
-  // health legend, only the classes actually present
-  const present = HEALTH.filter(h=>shown.some(t=>t.HEALTH===h[0]));
-  let lx = Math.round(W*0.52);
-  g.font="15px sans-serif";
-  present.forEach((h,i)=>{
-    const col = i%2, row = Math.floor(i/2);
-    const x = lx + col*230, y = top+34+row*26;
-    g.beginPath(); g.arc(x,y-5,8,0,7); g.fillStyle=h[1]; g.fill();
-    g.strokeStyle="#fff"; g.lineWidth=1.5; g.stroke();
-    g.fillStyle="#e7ebe6"; g.fillText(h[0], x+16, y);
+  // metadata as labelled pairs rather than a run-on line
+  const meta = [
+    ["Project",   settings.project || "—"],
+    ["Trees shown", String(shown.length)],
+    ["Recorded by", settings.cruiser || "—"],
+    ["Date",      nowStr().slice(0,16)]
+  ];
+  const lab = Math.round(PDF_DPI*0.085), val = Math.round(PDF_DPI*0.115);
+  let mx = padL;
+  meta.forEach(([k,v])=>{
+    g.font=`${lab}px sans-serif`; g.fillStyle="#8fb59c";
+    g.fillText(k.toUpperCase(), mx, y+lab+6);
+    g.font=`bold ${val}px sans-serif`; g.fillStyle="#ffffff";
+    g.fillText(v, mx, y+lab+val+10);
+    mx += Math.max(g.measureText(v).width, Math.round(PDF_DPI*0.9)) + Math.round(PDF_DPI*0.28);
   });
+
+  // legend, only the classes present on this sheet
+  const present = HEALTH.filter(h=>shown.some(t=>t.HEALTH===h[0]));
+  const lx = x + Math.round(w*0.62), ly = top + Math.round(PDF_DPI*0.20);
+  g.font=`bold ${Math.round(PDF_DPI*0.085)}px sans-serif`; g.fillStyle="#8fb59c";
+  g.fillText("TREE HEALTH", lx, ly);
+  const rowH = Math.round(PDF_DPI*0.145), colW = Math.round(w*0.185);
+  g.font=`${Math.round(PDF_DPI*0.10)}px sans-serif`;
+  present.forEach((h,i)=>{
+    const col=i%2, row=Math.floor(i/2);
+    const px2=lx+col*colW, py=ly+Math.round(PDF_DPI*0.16)+row*rowH;
+    g.beginPath(); g.arc(px2+8, py-Math.round(PDF_DPI*0.035), Math.round(PDF_DPI*0.045),0,7);
+    g.fillStyle=h[1]; g.fill(); g.strokeStyle="#fff"; g.lineWidth=2; g.stroke();
+    g.fillStyle="#e7ebe6"; g.fillText(h[0], px2+Math.round(PDF_DPI*0.13), py);
+  });
+  if(shown.some(t=>t._reviewed)){
+    const py = ly+Math.round(PDF_DPI*0.16)+Math.ceil(present.length/2)*rowH;
+    g.beginPath(); g.arc(lx+8, py-Math.round(PDF_DPI*0.035), Math.round(PDF_DPI*0.055),0,7);
+    g.strokeStyle="#FF1744"; g.lineWidth=3; g.stroke();
+    g.fillStyle="#e7ebe6"; g.fillText("Field checked", lx+Math.round(PDF_DPI*0.13), py);
+  }
+
+  g.font=`${Math.round(PDF_DPI*0.075)}px sans-serif`; g.fillStyle="#8fb59c"; g.textAlign="left";
+  g.fillText(AERIAL_CREDIT + "   ·   Silv-Econ Ltd." + (missing?"   ·   some imagery unavailable":""),
+             padL, top + panelH - Math.round(PDF_DPI*0.13));
+  g.textAlign="right";
+  g.fillText("WGS84 · zoom "+z, x+w-Math.round(PDF_DPI*0.20), top + panelH - Math.round(PDF_DPI*0.13));
+  g.textAlign="left";
 }
 
 /* Minimal single-page PDF wrapping one JPEG. Written by hand rather than pulling in
@@ -5407,9 +5695,11 @@ function showHelp(){
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, collector, species, DBH class, day and position source, over all time or a chosen date range. The figures export to CSV.</p>
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
+    <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
+    <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
     <p><b>Map to PDF</b><br>Menu → Export map of this view asks for a title, then makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
-    <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
+    <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
     <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
