@@ -957,7 +957,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-08 · v59";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-08 · v60";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1457,8 +1457,20 @@ async function initMap(){
   L.control.zoom({position:"bottomright"}).addTo(fmap);
   // Metric only, and bottom-left where it does not sit under the zoom buttons.
   L.control.scale({position:"bottomleft", metric:true, imperial:false, maxWidth:170}).addTo(fmap);
-  pinRenderer = L.canvas({ padding: 0.4 });
-  refGroup = L.layerGroup().addTo(fmap);    // context layers sit under the trees
+  /* Explicit panes. A LayerGroup does NOT control stacking — every vector layer
+     lands in the same overlay pane and the order follows DOM insertion, so a parcel
+     fabric redrawn after the pins ended up ON TOP of them. Its polygons are
+     interactive, so a tap on a tree hit the parcel instead and nothing opened.
+     Panes give a fixed z-order that redrawing cannot disturb. */
+  fmap.createPane("refPane");   fmap.getPane("refPane").style.zIndex   = 380;
+  fmap.createPane("pinPane");   fmap.getPane("pinPane").style.zIndex   = 420;
+  fmap.createPane("labelPane"); fmap.getPane("labelPane").style.zIndex = 440;
+  // Labels are for reading, never for tapping — they must not shadow the pins.
+  fmap.getPane("labelPane").style.pointerEvents = "none";
+
+  pinRenderer = L.canvas({ padding: 0.4, pane: "pinPane" });
+  refRenderer = L.canvas({ padding: 0.4, pane: "refPane" });
+  refGroup = L.layerGroup().addTo(fmap);
   pinLayer = L.layerGroup().addTo(fmap);
   labelLayer = L.layerGroup().addTo(fmap);
   loadRefLayers();
@@ -1573,7 +1585,7 @@ function avgPos(){
    On top of that only what is on screen is drawn, with a hard ceiling. */
 const PIN_MAX = 2500;            // safety ceiling for a single frame
 const PIN_PAD = 0.35;            // draw a little beyond the edge so panning looks continuous
-let pinRenderer = null, pinIndex = [], pinsTruncated = false;
+let pinRenderer = null, refRenderer = null, pinIndex = [], pinsTruncated = false;
 
 function pinStyle(t){
   return { radius: 7, weight: 2,
@@ -1704,7 +1716,7 @@ function renderLabels(){
       if(lat==null||lon==null||!bb.contains([lat,lon])) continue;
       const html = labelHtml(tc, f => f==="HLTH_CODE" ? healthCode(t.HEALTH) : t[f]);
       if(!html) continue;
-      L.marker([lat,lon],{interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
+      L.marker([lat,lon],{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
       n++;
     }
   }
@@ -1720,7 +1732,7 @@ function renderLabels(){
       if(!p || !bb.contains([p[0],p[1]])) continue;
       const html = labelHtml(c, k => f.props[k]);
       if(!html) continue;
-      L.marker(p,{interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
+      L.marker(p,{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
       n++;
     }
   });
@@ -1838,12 +1850,15 @@ function drawRefLayers(){
               lon: (g.t==="pt") ? g.c[0] : e.latlng.lng }; })
         .bindPopup(()=>refPopupHtml(L2.id,fi), opts);
       if(g.t==="pt"){
-        wire(L.circleMarker([g.c[1],g.c[0]],{radius:6,color:"#fff",weight:1.2,fillColor:L2.color,fillOpacity:.9}));
+        wire(L.circleMarker([g.c[1],g.c[0]],{radius:6,color:"#fff",weight:1.2,fillColor:L2.color,
+          fillOpacity:.9,renderer:refRenderer,pane:"refPane"}));
       } else if(g.t==="ln"){
-        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:3,opacity:.9})));
+        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:3,opacity:.9,
+          renderer:refRenderer,pane:"refPane"})));
       } else {
         eachPoly(g.c, rings=>wire(L.polygon(rings.map(r=>r.map(c=>[c[1],c[0]])),
-          {color:L2.color,weight:2,fillOpacity:.10,smoothFactor:2})));
+          {color:L2.color,weight:2,fillOpacity:.10,smoothFactor:2,
+           renderer:refRenderer,pane:"refPane"})));
       }
     });
   });
