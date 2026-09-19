@@ -854,9 +854,9 @@
     <div class="fld">
       <label>Label each tree with</label>
       <select id="mapLabels">
-        <option value="idsp">Tree number and species</option>
+        <option value="idsp">Tree number and species — T1, Sugar Maple</option>
         <option value="cfg">My label settings</option>
-        <option value="id">Tree number only</option>
+        <option value="id">Tree number only — T1</option>
         <option value="sp">Species only</option>
         <option value="none">No labels</option>
       </select>
@@ -923,6 +923,19 @@
       <div class="mini" id="bundleLine">The workbook, the trees, a shapefile, GeoJSON and the photos.</div>
     </div>
     <div id="bundleLinks"></div>
+
+    <div class="mgroup" id="g_setup" style="margin-top:14px">
+      <button class="mhead" onclick="toggleSetup()">⚙ Set-up &amp; maintenance<span class="caret" id="setupCaret">▸</span></button>
+      <div class="mbody" id="setupBody" style="display:none">
+        <button class="menuitem" onclick="runSheetTool('filltaxon','Filling botanical names, family and genus')">Fill species taxonomy</button>
+        <button class="menuitem" onclick="runSheetTool('fillitree','Filling i-Tree codes')">Fill i-Tree codes</button>
+        <button class="menuitem" onclick="runSheetTool('reitree','Re-applying i-Tree codes to these trees')">Re-apply i-Tree codes to trees</button>
+        <button class="menuitem" onclick="runSheetTool('rebuild','Rebuilding the summary, counts and photo links')">Rebuild summary &amp; photo links</button>
+        <button class="menuitem" onclick="runSheetTool('backup','Backing up the workbook')">Back up the workbook</button>
+        <div class="mini" id="setupLine">Fill taxonomy and i-Tree only ever fill blanks — a value edited on the Sheet is never overwritten.</div>
+      </div>
+    </div>
+
     <div class="btnrow"><button onclick="closeTools()">Close</button></div>
   </div>
 </div>
@@ -1071,7 +1084,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-19 · v69";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-19 · v72";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1794,7 +1807,7 @@ function labelHtml(cfg, get){
 }
 // Tree columns get proper names; a reference layer's own columns are title-cased.
 const FIELD_LABELS = {
-  TREE_ID:"Tree ID", TREE_NO:"Tree #", EXT_ID:"Existing ID", SPECIES:"Species", DBH:"DBH", STEMS:"Stems",
+  TREE_ID:"Tree ID (long record key)", TREE_NO:"Tree # (T1, T2…)", EXT_ID:"Existing ID", SPECIES:"Species", DBH:"DBH", STEMS:"Stems",
   HEALTH:"Health", HLTH_CODE:"Health #", NOTES:"Notes", LAT:"Lat", LON:"Lon",
   ADDRESS:"Address", PHOTOS:"Photos", PHOTO_LINK:"Photo link", CRUISER:"Recorded by",
   EMAIL:"Email", DATE:"Date", SOURCE:"Source", ACCURACY:"Accuracy",
@@ -5466,15 +5479,64 @@ function scheduleATrees(){
     return String(a.TREE_ID).localeCompare(String(b.TREE_ID));
   });
 }
+/* Everything else worth having in a table, appended AFTER the thirteen report
+   columns so the report table still pastes straight in and nothing is lost. */
+const SCHED_A_EXTRA = [
+  ["Family",                     t=>t.FAMILY || ""],
+  ["Genus",                      t=>t.GENUS || ""],
+  ["i-Tree type",                t=>t.ITREE || ""],
+  ["Stems",                      t=>t.STEMS || ""],
+  ["Height (m)",                 t=>t.HEIGHT || ""],
+  ["Crown diameter (m)",         t=>t.CROWN_DIA || ""],
+  ["Crown basis",                t=>t.CROWN_BAS || ""],
+  ["Site location",              t=>t.SITELOCA || ""],
+  ["Structural defect",          t=>t.STRUDEFE || ""],
+  ["Wound / canker",             t=>t.WOUNCANK || ""],
+  ["Dead / decay",               t=>t.DEADDECAY || ""],
+  ["Pest / disease",             t=>t.PESTDISEAS || ""],
+  ["Impediment",                 t=>t.IMPEDMNT || ""],
+  ["Recommended treatment",      t=>t.RECOTREA || ""],
+  ["Failure potential",          t=>t.FAILPOTE || ""],
+  ["Likelihood of failure",      t=>t.LOF || ""],
+  ["Target occupancy",           t=>t.TARGET || ""],
+  ["Likelihood of impact",       t=>t.IMPACT || ""],
+  ["Consequences",               t=>t.CONSEQ || ""],
+  ["Risk rating",                t=>t.RISK || ""],
+  ["Replacement trees (RH)",     t=>t.REPL_REQ===""||t.REPL_REQ==null ? "" : t.REPL_REQ],
+  ["Counted for compensation",   t=>compIncluded(t) ? "Y" : "N"],
+  ["Condition %",                t=>t.COND_PCT===""||t.COND_PCT==null ? "" : t.COND_PCT],
+  ["YR exempt",                  t=>t.YR_EXEMPT || ""],
+  ["YR replacement trees",       t=>t.YR_REPL_R===""||t.YR_REPL_R==null ? "" : t.YR_REPL_R],
+  ["YR compensation ($)",        t=>t.YR_VALUE===""||t.YR_VALUE==null ? "" : t.YR_VALUE],
+  ["Activity",                   t=>t.ACTIVITY || ""],
+  ["Removal reason",             t=>t.REMOV_RSN || ""],
+  ["Street",                     t=>t.STREET || ""],
+  ["Park",                       t=>t.PARK || ""],
+  ["Distance to parcel (m)",     t=>t.ADDR_DIST===""||t.ADDR_DIST==null ? "" : t.ADDR_DIST],
+  ["Latitude",                   t=>t.LAT || ""],
+  ["Longitude",                  t=>t.LON || ""],
+  ["Photos",                     t=>t.PHOTOS || ""],
+  ["Recorded by",                t=>t.CRUISER || ""],
+  ["Date",                       t=>t.DATE || ""],
+  ["Tree ID",                    t=>t.TREE_ID || ""]
+];
+
 function exportScheduleA(){
   closeMenu();
   const list = reportTrees();
   if(!list.length){ toast("No trees in the current view filter",true); return; }
-  const rows = [SCHED_A_COLS.map(c=>c[0])];
-  list.forEach((t,i)=>rows.push(SCHED_A_COLS.map(c=>c[1](t,i))));
+  // The report table is thirteen columns; pasting thirty into it would not help, so
+  // the extras are opt-in and always come after.
+  const full = confirm(
+    "Schedule A — which columns?\n\n" +
+    "OK — the report table only: the thirteen columns in the Arborist Report.\n" +
+    "Cancel — those thirteen plus every other attribute, appended after Notes.");
+  const cols = full ? SCHED_A_COLS : SCHED_A_COLS.concat(SCHED_A_EXTRA);
+  const rows = [cols.map(c=>c[0])];
+  list.forEach((t,i)=>rows.push(cols.map(c=>c[1](t,i))));
   downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
                `ScheduleA_TreeInventory_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
-  toast(`Schedule A: ${list.length} trees`);
+  toast(`Schedule A: ${list.length} trees · ${cols.length} columns`);
 }
 
 /* ---------- York Region tree removal compensation table ---------- */
@@ -5941,6 +6003,37 @@ function runFixAddr(){
   step();
 }
 
+function toggleSetup(){
+  const b=$("setupBody"), open=b.style.display!=="block";
+  b.style.display = open ? "block" : "none";
+  $("setupCaret").textContent = open ? "▾" : "▸";
+}
+
+/* The set-up and maintenance jobs. Each is a single call that either fills blanks or
+   rebuilds a derived tab, so none of them needs batching and none can lose data. */
+function runSheetTool(action, label){
+  if(toolBusy) return;
+  toolBusy = true;
+  $("setupLine").textContent = label + "…";
+  const params = (action==="reitree"||action==="rebuild") ? toolScope() : {};
+  jsonpGet(action, params, r=>{
+    toolBusy = false;
+    if(!r){ $("setupLine").textContent = "Could not reach the Sheet."; return; }
+    if(!r.ok){ $("setupLine").textContent = r.error || "The Sheet refused that."; return; }
+    let msg;
+    if(action==="filltaxon") msg = `${r.filled} species updated · ${r.kept} already complete` + (r.none?` · ${r.none} not in the table`:"");
+    else if(action==="fillitree") msg = `${r.filled} code(s) filled · ${r.kept} already set` + (r.none?` · ${r.none} unmatched`:"");
+    else if(action==="reitree") msg = `${r.changed} tree(s) updated · ${r.same} already correct` + (r.unknown?` · ${r.unknown} species not on the list`:"");
+    else if(action==="backup") msg = "Backed up to Drive.";
+    else msg = "Rebuilt.";
+    $("setupLine").textContent = msg;
+    toast(msg);
+    // Taxonomy and codes change what the phone should be stamping, so refresh both.
+    if(action==="filltaxon"||action==="fillitree"){ setTimeout(fetchSpecies, 600); }
+    if(action==="reitree"){ setTimeout(()=>pullFromSheet(true), 600); }
+  });
+}
+
 function runRecalc(){
   if(toolBusy) return;
   toolRunning("btnRecalc", true);
@@ -6326,8 +6419,8 @@ async function runSingleExport(opt){
   // someone else needs the tree number and the species, whatever you label with.
   const tc = (labelMode==="cfg") ? cfgFor("trees")
            : { on:labelMode!=="none", sep:"NL", size:"m", names:0, box:0, minZoom:0,
-               fields: labelMode==="idsp" ? ["TREE_ID","SPECIES"]
-                     : labelMode==="id"   ? ["TREE_ID"]
+               fields: labelMode==="idsp" ? ["TREE_NO","SPECIES"]
+                     : labelMode==="id"   ? ["TREE_NO"]
                      : labelMode==="sp"   ? ["SPECIES"] : [] };
   shown.forEach(t=>{
     const p=P(num(t.LAT),num(t.LON));
@@ -6347,7 +6440,13 @@ async function runSingleExport(opt){
     const taken=[];
     const overlaps=(r)=> taken.some(o=> !(r.x2<o.x1 || r.x1>o.x2 || r.y2<o.y1 || r.y1>o.y2));
     const CAND=[[1,0],[1,-1],[1,1],[-1,0],[-1,-1],[-1,1],[0,-1],[0,1]];
-    const items = shown.map(t=>({t, parts: tc.fields.map(f=> f==="HLTH_CODE"?healthCode(t.HEALTH):t[f])
+    /* TREE_NO prints as T1, T2 — the number on the tag and in the table. The long
+       TREE_ID (CG-00742-A) is the record key across every project in the Sheet and
+       is far too much to read off a map. */
+    const items = shown.map((t,i)=>({t, parts: tc.fields.map(f=>
+                                  f==="HLTH_CODE" ? healthCode(t.HEALTH)
+                                : f==="TREE_NO"   ? "T"+treeNoFor(t, i+1)
+                                : t[f])
                                         .filter(v=>v!=null && String(v).trim()!=="")}))
                        .filter(o=>o.parts.length);
     // north to south, so the order is stable between runs of the same view
@@ -6574,8 +6673,14 @@ async function runSeriesExport(){
   const wantPhotoPages = $("mapPhotos").value === "1";
 
   const b = seriesBounds();
-  const pad = (b.n-b.s)*0.06 + 0.0004;
-  const all = L.latLngBounds([b.s-pad, b.w-pad],[b.n+pad, b.e+pad]);
+  /* Padded per axis, not by one figure applied to both. A tall narrow job got 6% of
+     its HEIGHT added to its width and almost nothing to its height, so the outermost
+     trees sat hard against the frame edge with their labels running off. 12% of each
+     dimension, with a floor of roughly 70 m so a tight cluster still gets room —
+     which works out at about 150 px of clear paper round the outermost trees. */
+  const padLat = Math.max((b.n-b.s)*0.12, 0.00065);
+  const padLon = Math.max((b.e-b.w)*0.12, 0.00090);
+  const all = L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]);
 
   const pages=[];
   toast(`Building ${cells.length+1} sheets…`);
@@ -7351,7 +7456,7 @@ function showHelp(){
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
-    <p><b>Tree tools, from the phone</b><br><i>Menu → Sync &amp; the Sheet → Tree tools</i> runs the jobs that live on the Sheet without needing access to it: tidy the dictated comments, fill in missing addresses, recalculate crown, height, TPZ and risk, and prepare everything for download. Each works a batch at a time with a running count, and can be stopped. <b>Prepare everything for download</b> builds the workbook, the trees as CSV, a shapefile, GeoJSON, the photo table and the zipped photos into Drive and hands back tappable links — the comments in them are the tidied ones. Archiving, clearing data and setting the AI key stay in the Sheet, where only the owner can reach them.</p>
+    <p><b>Tree tools, from the phone</b><br><i>Menu → Sync &amp; the Sheet → Tree tools</i> runs the jobs that live on the Sheet without needing access to it: tidy the dictated comments, fill in missing addresses, recalculate crown, height, TPZ and risk, and prepare everything for download. Each works a batch at a time with a running count, and can be stopped. <b>Prepare everything for download</b> builds the workbook, the trees as CSV, a shapefile, GeoJSON, the photo table and the zipped photos into Drive and hands back tappable links — the comments in them are the tidied ones. A <b>Set-up &amp; maintenance</b> section holds the rest: fill species taxonomy, fill i-Tree codes, re-apply codes to the trees, rebuild the summary and photo links, and back up the workbook. Those either fill blanks or rebuild a derived tab, so none of them can lose anything. Archiving, clearing data, restoring original comments, seeding the species list and setting the AI key stay in the Sheet — they destroy or move data, or hold a secret — where only the owner can reach them.</p>
     <p><b>Tidying dictated comments</b><br>Dictated notes arrive with homophones and missing punctuation. The tidy is run either from the phone or, in the Sheet, from <i>Tree Tools → Tidy dictated comments with Gemini</i>. It works in batches — a 700-tree job is about 18 requests and three or four minutes, not 700 requests and an hour. It fixes spelling, punctuation and misheard arboricultural terms, and is instructed not to add or remove any observation. The original dictation is kept in <b>CMNT_RAW</b> and <i>Restore original comments</i> puts it back.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
@@ -7372,12 +7477,12 @@ function showHelp(){
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
     <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b>, which is what someone reading the sheet needs, whatever you happen to label with on screen. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
     <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
     <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
-    <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV with the thirteen columns in report order, sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
+    <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
     <p><b>Protection zone and replacements</b><br>Both are worked out from DBH, and <b>every</b> tree carries its compensation figure whether or not it is coming down — the arborist decides what counts, not the app. <b>Count in compensation</b> defaults to following the proposed action and can be set to yes or no per tree. The statistics show the counted total alongside what it would be if every tree were removed. <b>TPZ_M</b> is the tree protection zone radius: 2.4 m up to 24 cm DBH, then DBH ÷ 10. <b>REPL_REQ</b> is the number of replacement trees the DBH earns under the City table — 0 up to 20 cm, then 1, 2, 3, 4 and 5 through the bands. The statistics panel totals both, which are the figures a tree preservation plan has to state.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
