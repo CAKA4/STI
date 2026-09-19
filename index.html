@@ -411,6 +411,7 @@
 
     <div class="fld">
       <label>Species</label>
+      <div class="mini" id="treeNoLine" style="margin-bottom:6px">—</div>
       <div class="picker" onclick="openSpecies()" id="spPicker">
         <span class="val empty" id="spVal">Tap to choose species</span><span style="color:var(--faint)">▸</span>
       </div>
@@ -438,6 +439,11 @@
       <label>Crown radius (m) <button type="button" class="clr" onclick="crownMeasured()">Measured</button></label>
       <input id="fCROWN_RAD" type="text" inputmode="decimal" autocomplete="off" oninput="crownMeasured()">
       <div class="mini" id="crownWhy">—</div>
+    </div>
+    <div class="fld">
+      <label>Protection zone &amp; replacement</label>
+      <div class="picker"><span class="val" id="tpzVal">—</span></div>
+      <div class="mini" id="tpzWhy">Set a DBH.</div>
     </div>
 
     <div class="fld">
@@ -485,6 +491,39 @@
     <div class="row2">
       <div class="fld"><label>Street</label><input id="fSTREET" type="text" autocomplete="off" placeholder="auto"></div>
       <div class="fld"><label>Park</label><input id="fPARK" type="text" autocomplete="off" placeholder="auto / none"></div>
+    </div>
+
+    <div id="tppSection" style="display:none">
+      <button type="button" class="mhead" onclick="toggleTPPSection()" style="margin-bottom:8px">
+        <span>🛡 Tree protection plan</span><span class="caret" id="tppCaret">▸</span>
+      </button>
+      <div id="tppBody" style="display:none">
+        <div class="row2">
+          <div class="fld"><label>Tree # (1, 2, 3…)</label><input id="fTREE_NO" type="text" inputmode="numeric" autocomplete="off"></div>
+          <div class="fld"><label>Tag #</label><input id="fTAG_NO" type="text" autocomplete="off" placeholder="NT if untagged"></div>
+        </div>
+        <div class="fld"><label>Location / ownership</label><select id="fLOCATION"></select></div>
+        <div class="fld"><label>Proposed action</label><select id="fPROP_ACT"></select></div>
+        <div class="fld"><label>Potential long term impact</label><select id="fLT_IMPACT"></select></div>
+        <div class="fld">
+          <label>Count in compensation</label>
+          <select id="fCOMP_INCL" onchange="refreshTPZ()">
+            <option value="">Follow the proposed action</option>
+            <option value="Y">Yes — include this tree</option>
+            <option value="N">No — exclude this tree</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>York Region exempt species</label>
+          <select id="fYR_EXEMPT" onchange="refreshTPZ()">
+            <option value="">Work it out from the species</option>
+            <option value="Y">Yes — exempt, no compensation</option>
+            <option value="N">No — compensate (e.g. an ash under EAB treatment)</option>
+          </select>
+        </div>
+        <div class="mini" id="tppWhy">—</div>
+        <div class="mini" id="yrWhy">—</div>
+      </div>
     </div>
 
     <div class="fld">
@@ -558,6 +597,9 @@
         <button class="menuitem" onclick="exportMapPDF()">Map of this view (PDF)</button>
         <button class="menuitem" onclick="exportAttachmentTable()">Photo attachment table</button>
         <button class="menuitem" onclick="exportDataDictionary()">Data dictionary</button>
+        <button class="menuitem" onclick="exportScheduleA()">Schedule A — tree inventory table</button>
+        <button class="menuitem" onclick="exportScheduleB()">Schedule B — tree photographs (PDF)</button>
+        <button class="menuitem" onclick="exportYRCompensation()">York Region compensation table</button>
         <button class="menuitem" onclick="downloadPhotos()">Download all photos (.zip)</button>
         <button class="menuitem" onclick="emailPackage()">Email me the data + photos</button>
       </div>
@@ -576,6 +618,7 @@
       <div class="mbody">
         <button class="menuitem" onclick="openSettings()">Cruiser, project &amp; ID settings</button>
         <button class="menuitem" onclick="showHelp()">How this app works</button>
+        <button class="menuitem" onclick="renumberProject()">Renumber this project 1, 2, 3…</button>
         <button class="menuitem" onclick="clearProjectLocal()">Clear a project from this phone</button>
         <button class="menuitem danger" onclick="clearAllData()">Clear all data on this device</button>
       </div>
@@ -610,6 +653,25 @@
       <input id="setNewProj" type="text" placeholder="e.g. Aurora 2026">
       <div class="mini">Shared with the whole crew once you save.</div>
     </div>
+    <div class="fld">
+      <label>York Region replacement costs</label>
+      <div class="row2">
+        <div><input id="setYrDec" type="text" inputmode="decimal" placeholder="deciduous"></div>
+        <div><input id="setYrCon" type="text" inputmode="decimal" placeholder="coniferous"></div>
+      </div>
+      <input id="setYrYear" type="text" placeholder="rate year, e.g. 2022" style="margin-top:6px">
+      <div class="mini">Per replacement tree. The Guidelines publish 2022 rates and say to confirm the current ones with the Region.</div>
+    </div>
+
+    <div class="fld">
+      <label>This project is a…</label>
+      <select id="setTPP">
+        <option value="0">Tree inventory — short form</option>
+        <option value="1">Tree protection plan — show TPP fields</option>
+      </select>
+      <div class="mini">Remembered per project. TPP adds tree number, tag, location, proposed action and long-term impact.</div>
+    </div>
+
     <div class="fld">
       <label>Photo quality</label>
       <select id="setPhotoQ"></select>
@@ -799,6 +861,24 @@
       </select>
     </div>
     <div class="fld">
+      <label>Coverage</label>
+      <select id="mapSheets" onchange="mapSheetsChanged()">
+        <option value="view">This view — one sheet</option>
+        <option value="series">All trees — a series of sheets</option>
+      </select>
+    </div>
+    <div class="fld" id="mapScaleRow" style="display:none">
+      <label>Scale of each sheet</label>
+      <select id="mapScale" onchange="refreshSheetEstimate()">
+        <option value="500">1:500 — individual trees, very close</option>
+        <option value="1000" selected>1:1,000 — a street at a time</option>
+        <option value="2000">1:2,000 — a block at a time</option>
+        <option value="4000">1:4,000 — an overview</option>
+      </select>
+      <div class="mini" id="mapSheetEst">—</div>
+    </div>
+
+    <div class="fld">
       <label>Photo pages</label>
       <select id="mapPhotos">
         <option value="0">Map only</option>
@@ -957,7 +1037,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-08 · v60";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-19 · v66";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1109,13 +1189,19 @@ const FIELDS = [
   {k:"ITREE", t:"C", w:4},
   {k:"LOF", t:"C", w:12}, {k:"TARGET", t:"C", w:12}, {k:"IMPACT", t:"C", w:10}, {k:"CONSEQ", t:"C", w:12}, {k:"RISK", t:"C", w:10},
   {k:"ACTIVITY", t:"C", w:16}, {k:"REMOV_RSN", t:"C", w:26},
-  {k:"HEIGHT", t:"N", w:4, d:1},
+  {k:"HEIGHT", t:"N", w:4, d:1}, {k:"TPZ_M", t:"N", w:5, d:1}, {k:"REPL_REQ", t:"N", w:2, d:0},
+  // Tree protection plan. Only filled in when the project is a TPP.
+  {k:"TREE_NO", t:"N", w:5, d:0}, {k:"TAG_NO", t:"C", w:12}, {k:"LOCATION", t:"C", w:40},
+  {k:"PROP_ACT", t:"C", w:254}, {k:"LT_IMPACT", t:"C", w:60}, {k:"COMP_INCL", t:"C", w:3},
+  // York Region compensation, alongside the Richmond Hill REPL_REQ above.
+  {k:"COND_PCT", t:"N", w:4, d:2}, {k:"YR_EXEMPT", t:"C", w:3},
+  {k:"YR_REPL", t:"N", w:7, d:2}, {k:"YR_REPL_R", t:"N", w:4, d:0}, {k:"YR_VALUE", t:"N", w:10, d:2},
   {k:"CROWN_RAD", t:"N", w:5, d:1}, {k:"CROWN_DIA", t:"N", w:6, d:1}, {k:"CROWN_BAS", t:"C", w:30},
   {k:"HEALTH", t:"C", w:20}, {k:"HLTH_CODE", t:"N", w:1, d:0},
   {k:"SITELOCA", t:"C", w:22}, {k:"STRUDEFE", t:"C", w:16}, {k:"FAILPOTE", t:"C", w:8},
   {k:"WOUNCANK", t:"C", w:16}, {k:"DEADDECAY", t:"C", w:32}, {k:"PESTDISEAS", t:"C", w:28},
   {k:"IMPEDMNT", t:"C", w:14}, {k:"RECOTREA", t:"C", w:40},
-  {k:"COMMENTS", t:"C", w:180},
+  {k:"COMMENTS", t:"C", w:180}, {k:"CMNT_RAW", t:"C", w:180},
   {k:"LAT", t:"N", w:12, d:6}, {k:"LON", t:"N", w:13, d:6},
   {k:"ADDRESS", t:"C", w:80}, {k:"ADDR_DIST", t:"N", w:6, d:1},
   {k:"STREET", t:"C", w:40}, {k:"STREET_M", t:"N", w:6, d:1}, {k:"PARK", t:"C", w:40},
@@ -1674,7 +1760,7 @@ function labelHtml(cfg, get){
 }
 // Tree columns get proper names; a reference layer's own columns are title-cased.
 const FIELD_LABELS = {
-  TREE_ID:"Tree ID", EXT_ID:"Existing ID", SPECIES:"Species", DBH:"DBH", STEMS:"Stems",
+  TREE_ID:"Tree ID", TREE_NO:"Tree #", EXT_ID:"Existing ID", SPECIES:"Species", DBH:"DBH", STEMS:"Stems",
   HEALTH:"Health", HLTH_CODE:"Health #", NOTES:"Notes", LAT:"Lat", LON:"Lon",
   ADDRESS:"Address", PHOTOS:"Photos", PHOTO_LINK:"Photo link", CRUISER:"Recorded by",
   EMAIL:"Email", DATE:"Date", SOURCE:"Source", ACCURACY:"Accuracy",
@@ -1685,6 +1771,9 @@ const FIELD_LABELS = {
   STREET:"Street", PARK:"Park",
   CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
   HEIGHT:"Height", ITREE:"i-Tree type",
+  TPZ_M:"Tree protection zone (m)", REPL_REQ:"Replacement trees required",
+  TREE_NO:"Tree number", TAG_NO:"Tag number", LOCATION:"Location / ownership",
+  PROP_ACT:"Proposed action", LT_IMPACT:"Potential long term impact",
   ADDR_DIST:"Distance to parcel", STREET_M:"Distance to street",
   BOTANICAL:"Botanical name", FAMILY:"Family", GENUS:"Genus",
   LOF:"Likelihood of failure", TARGET:"Target occupancy", IMPACT:"Likelihood of impact", CONSEQ:"Consequences",
@@ -2053,6 +2142,267 @@ function flushInspections(){
 }
 
 /* ================================================================== *
+ *  YORK REGION COMPENSATION
+ *  York Region Street Tree and Forest Preservation Guidelines, January 2022,
+ *  section 2.4. Kept alongside the Richmond Hill banded figure (REPL_REQ): the two
+ *  municipalities calculate compensation differently and a report may need either.
+ *
+ *      replacement trees = (DBH / replacement caliper size) x condition rating
+ *      compensation value = rounded replacement trees x replacement cost
+ *
+ *  Verified against the worked example in Appendix B of the Guidelines: all seven
+ *  rows, the 19-tree total and the $16,974.09 value reproduce exactly.
+ * ================================================================== */
+const YR_CALIPER_CM = 5;                    // 50 mm nursery stock
+/* Section 2.1.3. These percentages are the compensation multiplier, which is why a
+   dead tree earns nothing and a tree in good condition earns full value. */
+const YR_CONDITION_PCT = {
+  "Good":1.00, "Satisfactory":0.80, "Potential trouble":0.60,
+  "Declining":0.40, "Death imminent":0.20, "Dead":0.00,
+  "Removed":0.00, "Stump":0.00, "Stump carving":0.00
+};
+/* Section 2.4. Exempt from compensation entirely. Ash is exempt only when NOT under
+   an emerald ash borer treatment programme, so that one is flagged rather than
+   assumed — set YR_EXEMPT to N on a treated ash. */
+const YR_EXEMPT_RULES = [
+  [/ailanthus|tree.?of.?heaven/i,                      "Tree-of-Heaven"],
+  [/alnus\s+glutinosa|european\s+alder|black\s+alder/i, "European/black alder"],
+  [/elaeagnus\s+angustifolia|russian\s+olive/i,        "Russian olive"],
+  [/\brhamnus\b|buckthorn/i,                          "Buckthorn"]
+];
+/* Ash is handled separately. A regex for "ash" catches Mountain Ash (Sorbus), Wafer
+   Ash (Ptelea) and Prickly Ash (Zanthoxylum), none of which are Fraxinus and none of
+   which are exempt. The genus is the test; the common name is only a fallback, with
+   the impostors excluded by name. */
+const NOT_REALLY_ASH = /mountain\s*ash|rowan|wafer\s*ash|prickly\s*ash|whitebeam/i;
+function isFraxinus(t){
+  const g = String(t.GENUS||"").trim();
+  if(g) return /^fraxinus$/i.test(g);
+  const bot = String(t.BOTANICAL||"");
+  if(bot) return /^fraxinus\b/i.test(bot);
+  const sp = String(t.SPECIES||"");
+  return /\bash\b/i.test(sp) && !NOT_REALLY_ASH.test(sp);
+}
+let yrRateDec = 909.11, yrRateCon = 834.36, yrRateYear = "2022";
+try{
+  const r = JSON.parse(STORE&&STORE.getItem("st_yrrates")) || null;
+  if(r){ yrRateDec = r.d ?? yrRateDec; yrRateCon = r.c ?? yrRateCon; yrRateYear = r.y || yrRateYear; }
+}catch(e){}
+function setYrRates(d,c,y){
+  yrRateDec = parseFloat(d)||0; yrRateCon = parseFloat(c)||0; yrRateYear = String(y||"").trim();
+  if(STORE){ try{ STORE.setItem("st_yrrates", JSON.stringify({d:yrRateDec,c:yrRateCon,y:yrRateYear})); }catch(e){} }
+}
+
+function yrConditionPct(health){
+  const v = YR_CONDITION_PCT[String(health||"").trim()];
+  return (v===undefined) ? null : v;
+}
+// Conifer or broadleaf decides which replacement cost applies. The i-Tree code
+// already records it: C.. is a conifer, B.. a broadleaf.
+function yrIsConifer(t){
+  const code = String(t.ITREE||"");
+  if(code) return code.charAt(0)==="C";
+  return /spruce|pine|fir|cedar|hemlock|juniper|yew|larch|tamarack|cypress|thuja|picea|pinus|abies|tsuga|thuja|juniperus|taxus|larix/i
+         .test(String(t.SPECIES||"")+" "+String(t.BOTANICAL||""));
+}
+function yrExemptReason(t){
+  const hay = [t.SPECIES, t.BOTANICAL, t.GENUS].filter(Boolean).join(" ");
+  if(NOT_REALLY_ASH.test(String(t.SPECIES||"")) && !/\brhamnus\b|buckthorn|ailanthus|elaeagnus/i.test(hay)) {
+    // Mountain ash and friends: fall through to the other rules only.
+  } else if(isFraxinus(t)) {
+    return "Ash, unless under an EAB treatment programme";
+  }
+  for(const r of YR_EXEMPT_RULES) if(r[0].test(hay)) return r[1];
+  return "";
+}
+function yrExempt(t){
+  const v = String(t.YR_EXEMPT||"").toUpperCase();
+  if(v==="Y") return true;
+  if(v==="N") return false;               // e.g. an ash under EAB treatment
+  return !!yrExemptReason(t);
+}
+/* Replacement trees, unrounded then rounded to the nearest whole tree — which is
+   what the Guidelines' own table does (2.4 -> 2, 5.76 -> 6, 6.4 -> 6). */
+function yrReplacement(t){
+  const d = parseFloat(t.DBH);
+  const pct = yrConditionPct(t.HEALTH);
+  if(!isFinite(d) || d<=0 || pct===null) return null;
+  if(yrExempt(t)) return { raw:0, rounded:0, pct:pct, exempt:true };
+  const raw = (d / YR_CALIPER_CM) * pct;
+  return { raw: Math.round(raw*100)/100, rounded: Math.round(raw), pct: pct, exempt:false };
+}
+function yrValue(t){
+  const r = yrReplacement(t);
+  if(!r) return null;
+  const rate = yrIsConifer(t) ? yrRateCon : yrRateDec;
+  return Math.round(r.rounded * rate * 100) / 100;
+}
+// Only trees actually coming down attract compensation, on the same inclusion rule
+// the Richmond Hill figure uses, so the two totals cannot disagree about which trees.
+function yrValueDue(t){ return compIncluded(t) ? (yrValue(t)||0) : 0; }
+function yrReplDue(t){
+  const r = yrReplacement(t);
+  return (r && compIncluded(t)) ? r.rounded : 0;
+}
+const money = n => "$" + (Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* ================================================================== *
+ *  TREE PROTECTION PLAN fields
+ *  Only shown when the project is a TPP, so ordinary street inventory work is not
+ *  slowed by five extra fields it will never use. Values are taken verbatim from
+ *  the Schedule A tables so the export needs no translation.
+ * ================================================================== */
+const LOCATION_D = [
+  ["SUBJECT PROPERTY (OUTSIDE WOODLOT)","Subject property — outside woodlot"],
+  ["SUBJECT PROPERTY (WOODLOT)","Subject property — woodlot"],
+  ["PUBLIC (ROAD ALLOWANCE)","Public — road allowance"],
+  ["PRIVATE (ADJACENT PROPERTY)","Private — adjacent property"],
+  ["SUBJECT PROPERTY (SHARED)","Subject property — shared / boundary"]
+];
+const PROP_ACT_D = [
+  ["Protected by tree protection fencing","Protected by tree protection fencing"],
+  ["Remove for construction/excavation","Remove for construction / excavation"],
+  ["Potential removal to mitigate risk to targets","Potential removal to mitigate risk to targets"],
+  ["Protect with tree protection fencing. Where the retaining wall enters the TPZ, dig the wall base by hand and have a certified arborist hand-prune any exposed roots as needed.","Fencing + hand dig at retaining wall"],
+  ["Protected by tree protection fencing. Minor grading within the TPZ for drainage. Remove about 5 cm of soil over roughly half of the root zone, then add up to 15 cm of topsoil to reach finished grade.","Fencing + minor grading for drainage"],
+  ["Root-sensitive excavation and root pruning within the TPZ, by a certified arborist.","Root-sensitive excavation / root pruning"],
+  ["Remove — dead, to mitigate risk to targets","Remove — dead"],
+  ["No action required","No action required"]
+];
+const LT_IMPACT_D = [
+  ["None anticipated","None anticipated"],
+  ["-","— (tree to be removed)"],
+  ["Minor root loss; not expected to change tree condition","Minor root loss, condition unchanged"],
+  ["Possible decline; condition to be monitored","Possible decline, monitor"]
+];
+// A proposed action beginning "Remove" is a removal; "Potential removal" is the
+// owner's option and is deliberately NOT counted as one.
+function tppRemoval(t){ return /^Remove\b/i.test(String(t.PROP_ACT||"")); }
+
+/* Whether a project is a tree protection plan is asked once and remembered against
+   the project name, so a crew doing ordinary street work never sees these fields. */
+let tppProjects = {};
+try{ tppProjects = JSON.parse(STORE&&STORE.getItem("st_tppproj")) || {}; }catch(e){ tppProjects={}; }
+function isTPP(name){ return !!tppProjects[String(name||settings.project||"").trim()]; }
+function setTPP(name, on){
+  const k = String(name||settings.project||"").trim();
+  if(!k) return;
+  tppProjects[k] = !!on;
+  if(STORE){ try{ STORE.setItem("st_tppproj", JSON.stringify(tppProjects)); }catch(e){} }
+}
+// Asked the first time a tree is recorded in a project, not on every launch.
+function askTPPIfNeeded(){
+  const p = String(settings.project||"").trim();
+  if(!p || p in tppProjects) return;
+  const yes = confirm(`Is "${p}" a tree protection plan?\n\n` +
+    "OK — show the tree protection fields: plan number, tag, location, proposed action and long-term impact.\n" +
+    "Cancel — ordinary inventory, keep the form short.\n\n" +
+    "You can change this later in settings.");
+  setTPP(p, yes);
+  applyTPPMode();
+}
+function applyTPPMode(){
+  const on = isTPP(settings.project);
+  const sec = $("tppSection");
+  if(sec) sec.style.display = on ? "block" : "none";
+}
+function toggleTPPSection(){
+  const b = $("tppBody");
+  const open = b.style.display !== "block";
+  b.style.display = open ? "block" : "none";
+  $("tppCaret").textContent = open ? "▾" : "▸";
+}
+// The next plan number in this project, so numbering follows the site plan.
+/* Plain sequential numbering within a project: 1, 2, 3. This is the number that goes
+   on a tag, a map label and a report table. TREE_ID stays the globally unique key,
+   which is the right thing for a spreadsheet of every tree ever recorded and quite
+   the wrong thing to write on a tree. */
+function nextTreeNo(project){
+  const p = String(project!==undefined ? project : (settings.project||""));
+  let max = 0;
+  trees.forEach(t=>{
+    if(projectOf(t) !== p) return;
+    const n = parseInt(t.TREE_NO,10);
+    if(isFinite(n) && n>max) max = n;
+  });
+  return max + 1;
+}
+// Fills any gaps and puts a project's trees in order, for tidying up before a report.
+function renumberProject(){
+  closeMenu();
+  const p = filterProject || settings.project || "";
+  const list = trees.filter(t=>projectOf(t)===p);
+  if(!list.length){ toast("No trees in that project",true); return; }
+  const have = list.filter(t=>parseInt(t.TREE_NO,10)>0).length;
+  if(!confirm(`Renumber all ${list.length} tree(s) in "${p||"(no project)"}" as 1 to ${list.length}?\n\n` +
+    `${have} already carry a number, which will change. Anything already printed or tagged will no longer match.`)) return;
+  // north to south, the order a crew walks and a sheet reads
+  list.sort((a,b)=> (num(b.LAT)||0)-(num(a.LAT)||0));
+  list.forEach((t,i)=>{ if(String(t.TREE_NO)!==String(i+1)){ t.TREE_NO=i+1; t._sent=false; } });
+  persistTrees(); renderPins();
+  toast(`Renumbered ${list.length} tree(s) 1–${list.length}`);
+  setTimeout(syncNow, 600);
+}
+
+/* ================================================================== *
+ *  TREE PROTECTION ZONE and REPLACEMENT TREES
+ *  Both derived from DBH, to the City of Richmond Hill rules.
+ * ================================================================== */
+
+/* TPZ radius in metres.
+     24 cm DBH and under      2.4 m
+     25 cm and over           DBH x 10 / 100, i.e. DBH/10
+   The two rules meet exactly at 24 cm (24/10 = 2.4), so a single max() gives the
+   same answer without a discontinuity at the boundary. */
+function tpzFor(dbhCm){
+  const d = parseFloat(dbhCm);
+  if(!isFinite(d) || d<=0) return null;
+  return Math.round(Math.max(2.4, d/10) * 10) / 10;
+}
+
+/* Replacement trees required when a tree is removed, from the City's table:
+     0-20 cm  0      41-50 cm   3
+     20-30    1      51-100     4
+     31-40    2      >100       5
+   The published table overlaps at 20 and leaves 30-31 and 50-51 unstated. Read as
+   bands of 0-20, 21-30, 31-40, 41-50, 51-100, >100, which is the only reading that
+   makes them contiguous and non-overlapping. A tree of exactly 20 cm therefore
+   requires none. */
+function replacementFor(dbhCm){
+  const d = parseFloat(dbhCm);
+  if(!isFinite(d) || d<=0) return null;
+  if(d <= 20)  return 0;
+  if(d <= 30)  return 1;
+  if(d <= 40)  return 2;
+  if(d <= 50)  return 3;
+  if(d <= 100) return 4;
+  return 5;
+}
+
+function markedForRemoval(t){
+  return /^Removal/i.test(String(t.RECOTREA||"")) ||
+         /^(Removed|Stump removed)$/i.test(String(t.ACTIVITY||"")) ||
+         (typeof tppRemoval==="function" && tppRemoval(t));
+}
+
+/* EVERY tree carries the compensation figure its DBH earns, whether or not it is
+   coming down. COMP_INCL is what decides whether it is counted, defaulting to the
+   removal status and overridable per tree — so the arborist filters the list rather
+   than the app deciding for them, and the working is visible on trees that end up
+   excluded. */
+function compIncluded(t){
+  const v = String(t.COMP_INCL||"").toUpperCase();
+  if(v==="Y") return true;
+  if(v==="N") return false;
+  return markedForRemoval(t);              // not yet decided: follow the removal
+}
+function replacementDue(t){
+  const n = replacementFor(t.DBH);
+  if(n==null) return null;
+  return compIncluded(t) ? n : 0;
+}
+
+/* ================================================================== *
  *  RISK  (ISA TRAQ, basic assessment)
  *
  *  Failure potential on its own is not risk. TRAQ combines likelihood of
@@ -2359,8 +2709,52 @@ function estimateCrown(speciesName, dbhCm, stems){
 
 // Recomputes whenever species, DBH or stem count changes, unless a measured value
 // has been typed in — a real measurement always outranks an estimate.
+// One line summarising the protection section while it is collapsed.
+function refreshTPPLine(){
+  const el = $("tppWhy"); if(!el) return;
+  const bits = [];
+  if($("fTREE_NO").value) bits.push("Tree #"+$("fTREE_NO").value);
+  if($("fTAG_NO").value)  bits.push("tag "+$("fTAG_NO").value);
+  if($("fLOCATION").value) bits.push($("fLOCATION").value.toLowerCase());
+  const act = $("fPROP_ACT").value;
+  if(act) bits.push(act.length>44 ? act.slice(0,44)+"…" : act);
+  el.textContent = bits.length ? bits.join(" · ") : "Not filled in yet.";
+}
+
+function refreshTPZ(){
+  const t = trees[editIndex]; if(!t) return;
+  const dbh = $("fDBH").value;
+  const tpz = tpzFor(dbh), rep = replacementFor(dbh);
+  if(tpz==null){ $("tpzVal").textContent="—"; $("tpzWhy").textContent="Set a DBH."; return; }
+  const probe = { RECOTREA:$("fRECOTREA")?$("fRECOTREA").value:"",
+                  ACTIVITY:$("fACTIVITY")?$("fACTIVITY").value:"",
+                  PROP_ACT:$("fPROP_ACT")?$("fPROP_ACT").value:"",
+                  COMP_INCL:$("fCOMP_INCL")?$("fCOMP_INCL").value:"" };
+  const counted = compIncluded(probe);
+  $("tpzVal").textContent = `TPZ ${tpz.toFixed(1)} m`;
+  // York Region figure, shown beside the Richmond Hill one
+  const yrT = { SPECIES: ($("spVal").classList.contains("empty") ? "" : $("spVal").textContent),
+                BOTANICAL: "", GENUS: "", ITREE: "", DBH: dbh,
+                HEALTH: (trees[editIndex]||{})._draftHealth || t.HEALTH,
+                YR_EXEMPT: $("fYR_EXEMPT") ? $("fYR_EXEMPT").value : "" };
+  const tx = taxonFor(yrT.SPECIES); yrT.BOTANICAL=tx[0]; yrT.GENUS=tx[2]; yrT.ITREE=itreeType(yrT.SPECIES);
+  const yrR = yrReplacement(yrT), yrV = yrValue(yrT);
+  const yrEl = $("yrWhy");
+  if(yrEl){
+    if(!yrR) yrEl.textContent = "York Region: needs a DBH and a condition rating.";
+    else if(yrR.exempt) yrEl.textContent = "York Region: exempt — " + (yrExemptReason(yrT)||"set by hand");
+    else yrEl.textContent = `York Region: ${yrR.raw} → ${yrR.rounded} tree${yrR.rounded===1?"":"s"} ` +
+         `(${dbh}÷5 × ${(yrR.pct*100).toFixed(0)}%) · ${money(yrV)} at the ` +
+         (yrIsConifer(yrT)?"coniferous":"deciduous") + ` rate`;
+  }
+  $("tpzWhy").textContent = `${rep} replacement tree${rep===1?"":"s"} at ${dbh} cm · ` +
+    (counted ? "counted in the compensation total"
+             : "not counted — change “Count in compensation” to include it");
+}
+
 function refreshRisk(){
   const t = trees[editIndex]; if(!t) return;
+  refreshTPZ();
   const probe = { HEALTH: t._draftHealth || t.HEALTH,
                   LOF: $("fLOF") ? $("fLOF").value : "",
                   FAILPOTE: $("fFAILPOTE") ? $("fFAILPOTE").value : t.FAILPOTE,
@@ -3235,6 +3629,13 @@ function renderStats(){
   const noHealth = list.filter(t=>!String(t.HEALTH||"").trim()).length;
   const noAddr = list.filter(t=>!String(t.ADDRESS||"").trim()).length;
   const reviewed = list.filter(t=>t._reviewed).length;
+  // The numbers a tree preservation plan has to state.
+  const forRemoval = list.filter(markedForRemoval).length;
+  const counted = list.filter(compIncluded).length;
+  const replTotal = list.reduce((a,t)=>a+(replacementDue(t)||0),0);
+  const replAll = list.reduce((a,t)=>a+(replacementFor(t.DBH)||0),0);
+  const yrN = list.reduce((a,t)=>a+yrReplDue(t),0);
+  const yrV = list.reduce((a,t)=>a+yrValueDue(t),0);
   const perDay = days.length ? (n/days.length) : n;
 
   let h = `<div class="statgrid">
@@ -3245,6 +3646,12 @@ function renderStats(){
     <div class="statbox"><span class="n">${photos}</span><span class="l">Photos</span></div>
     <div class="statbox"><span class="n">${perDay.toFixed(0)}</span><span class="l">Per day</span></div>
     <div class="statbox"><span class="n">${reviewed}</span><span class="l">Field checked</span></div>
+    <div class="statbox"><span class="n">${forRemoval}</span><span class="l">For removal</span></div>
+    <div class="statbox"><span class="n">${replTotal}</span><span class="l">Replacements due</span></div>
+    <div class="statbox"><span class="n">${counted}</span><span class="l">Counted for comp.</span></div>
+    <div class="statbox"><span class="n">${replAll}</span><span class="l">If all removed</span></div>
+    <div class="statbox"><span class="n">${yrN}</span><span class="l">YR replacements</span></div>
+    <div class="statbox"><span class="n">${money(yrV)}</span><span class="l">YR compensation</span></div>
   </div>`;
 
   // health, always in class order rather than by count, so the shape is comparable
@@ -3307,6 +3714,16 @@ function exportStatsCSV(){
     .forEach(([k,v])=>rows.push([sec,k,v,(Math.round(v/tot*1000)/10)+"%"]));
   rows.push(["Scope", statsScope(), n, "100%"]);
   rows.push(["Summary","Trees",n,"100%"]);
+  // Computed here: renderStats has its own copies, and the CSV is built independently.
+  const csvRemoval = list.filter(markedForRemoval).length;
+  const csvRepl = list.reduce((a,t)=>a+(replacementDue(t)||0),0);
+  rows.push(["Summary","Marked for removal",csvRemoval,(Math.round(csvRemoval/n*1000)/10)+"%"]);
+  rows.push(["Summary","Counted for compensation",list.filter(compIncluded).length,""]);
+  rows.push(["Summary","Replacement trees required",csvRepl,""]);
+  rows.push(["Summary","York Region replacement trees",list.reduce((a,t)=>a+yrReplDue(t),0),""]);
+  rows.push(["Summary","York Region compensation value",list.reduce((a,t)=>a+yrValueDue(t),0).toFixed(2),""]);
+  rows.push(["Summary","Replacements if every tree were removed",
+             list.reduce((a,t)=>a+(replacementFor(t.DBH)||0),0),""]);
   push("Health", tally(list,t=>t.HEALTH||"not assessed"), n);
   push("Collector", tally(list,t=>t.CRUISER||"(unattributed)"), n);
   push("Species", tally(list,t=>t.SPECIES||"(blank)"), n);
@@ -3325,7 +3742,7 @@ function exportStatsCSV(){
  *  CUSTOM PICK-LIST VALUES  (pest/disease, impediment, treatment)
  *  Crew-added values sync to the Sheet so everyone sees the same list.
  * ================================================================== */
-const CUSTOM_DOMAINS = ["PESTDISEAS","IMPEDMNT","RECOTREA"];
+const CUSTOM_DOMAINS = ["PESTDISEAS","IMPEDMNT","RECOTREA","PROP_ACT","LT_IMPACT"];
 const ADD_DOMAIN = "__adddomain__";
 let customDomains = {};   try{ customDomains = JSON.parse(STORE&&STORE.getItem("st_customdom")) || {}; }catch(e){ customDomains={}; }
 let pendingDomains = [];  try{ pendingDomains = JSON.parse(STORE&&STORE.getItem("st_penddom")) || []; }catch(e){ pendingDomains=[]; }
@@ -3390,6 +3807,7 @@ function onDomainChange(field){
       }
     }
     refreshRisk();
+    if(field==="LOCATION"||field==="PROP_ACT"||field==="LT_IMPACT") refreshTPPLine();
     return;
   }
   const name = normText(prompt(`New ${prettyField(field).toLowerCase()} value:`) || "");
@@ -3456,7 +3874,7 @@ function fetchDomains(){
    have confirmed. For an existing tree only the empty fields start pending, since
    the rest already hold real recorded data. */
 let formSnapshot = {}, pendingFields = {};
-const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID","fSTREET","fPARK","fCROWN_RAD","fHEIGHT"];
+const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID","fSTREET","fPARK","fCROWN_RAD","fHEIGHT","fTREE_NO","fTAG_NO"];
 function trackedIds(){ return TRACKED.concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f)); }
 
 function setState(el, state){
@@ -3520,7 +3938,7 @@ function wireChangeTracking(){
     const el=$(id); if(el) el.addEventListener("input", ()=>markChanged(el));
   });
   // A select is dealt with the moment you touch it, default kept or not.
-  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>{ confirmField(id); refreshCrown(); }); });
+  ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>{ confirmField(id); refreshCrown(); refreshTPZ(); }); });
 }
 function markSpeciesChanged(){
   pendingFields._species = false;
@@ -3544,6 +3962,7 @@ let currentPhotos = [];
 const DOMAIN_FIELDS = {
   SITELOCA:SITELOCA_D, STRUDEFE:STRUDEFE_D, FAILPOTE:FAILPOTE_D, WOUNCANK:WOUNCANK_D,
   DEADDECAY:DEADDECAY_D, PESTDISEAS:PESTDISEAS_D, IMPEDMNT:IMPEDMNT_D, RECOTREA:RECOTREA_D,
+  LOCATION:LOCATION_D, PROP_ACT:PROP_ACT_D, LT_IMPACT:LT_IMPACT_D,
   LOF:LOF_D, TARGET:TARGET_D, IMPACT:IMPACT_D, CONSEQ:CONSEQ_D, ACTIVITY:ACTIVITY_D, REMOV_RSN:REMOV_RSN_D
 };
 function domainLabel(field, code){
@@ -3667,6 +4086,19 @@ function openTree(i){
   $("fDBH").innerHTML = dbhOptions();            // re-rank each time
   $("fDBH").value = selValue("fDBH", t.DBH);
   $("fEXT_ID").value = t.EXT_ID || "";
+  applyTPPMode();
+  $("treeNoLine").textContent = t.TREE_NO ? ("Tree #" + t.TREE_NO + " in " + (projectOf(t)||"this project"))
+                                          : "Tree # assigned when you save";
+  if(isTPP(settings.project)){
+    $("fTREE_NO").value = t.TREE_NO || "";
+    $("fTAG_NO").value  = t.TAG_NO  || "";
+    if($("fYR_EXEMPT")) $("fYR_EXEMPT").value = ["Y","N"].indexOf(String(t.YR_EXEMPT||"").toUpperCase())>=0 ? String(t.YR_EXEMPT).toUpperCase() : "";
+    // A tree carrying anything already opens the section, so nothing is missed.
+    const filled = t.LOCATION || t.PROP_ACT || t.LT_IMPACT || t.TAG_NO;
+    $("tppBody").style.display = filled ? "block" : "none";
+    $("tppCaret").textContent  = filled ? "▾" : "▸";
+    refreshTPPLine();
+  }
 
   $("extRow").style.display = (t.EXT_ID || t.SOURCE==="import" || t.SOURCE==="reference") ? "block" : "none";
   $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
@@ -3753,6 +4185,27 @@ function saveTree(){
   // escalates the likelihood of failure to Imminent. Computing it first read the
   // previous health — or nothing at all on a new tree — and saved too low a rating.
   t.RISK = riskFor(t).rating;
+  // Typed in if the section is open, otherwise assigned here — on SAVE, so a tree
+  // that was opened and abandoned does not burn a number and leave a gap.
+  const typedNo = $("fTREE_NO") ? normText($("fTREE_NO").value) : "";
+  if(typedNo) t.TREE_NO = typedNo;
+  if(!t.TREE_NO) t.TREE_NO = nextTreeNo(projectOf(t));
+  if($("fTAG_NO"))  t.TAG_NO  = normText($("fTAG_NO").value);
+  if($("fYR_EXEMPT") && isTPP(projectOf(t))) t.YR_EXEMPT = $("fYR_EXEMPT").value;
+  t.TPZ_M = tpzFor(t.DBH);
+  // The figure the DBH earns, recorded on every tree; COMP_INCL decides the total.
+  t.REPL_REQ = replacementFor(t.DBH);
+  if(t.REPL_REQ==null) t.REPL_REQ="";
+  // York Region, alongside the Richmond Hill figure
+  const pct = yrConditionPct(t.HEALTH);
+  t.COND_PCT = (pct===null) ? "" : pct;
+  const yr = yrReplacement(t);
+  t.YR_EXEMPT = String(t.YR_EXEMPT||"").toUpperCase() || (yrExemptReason(t) ? "Y" : "N");
+  t.YR_REPL   = yr ? yr.raw : "";
+  t.YR_REPL_R = yr ? yr.rounded : "";
+  const val = yrValue(t);
+  t.YR_VALUE  = (val===null) ? "" : val;
+  if(t.TPZ_M==null) t.TPZ_M="";
   const typedAddr = normText($("fADDRESS").value);
   if(typedAddr !== String(t.ADDRESS||"").trim()) t._addrAuto = false;   // edited by hand
   t.ADDRESS = typedAddr;
@@ -4134,9 +4587,13 @@ function renderSpecies(){
   const out = starts.concat(has).slice(0, q?60:400);
   html += out.map(n=>`<button onclick="chooseSpecies(${JSON.stringify(n).replace(/"/g,'&quot;')})">${esc(n)}</button>`).join("");
 
-  if(q && !out.length){
+  /* Offered whenever there is no EXACT match, not only when the search finds
+     nothing. Typing "Swamp White Oak" matches "White Oak" loosely, so the add option
+     used to disappear exactly when it was needed. */
+  const typed = normText($("spSearch").value);
+  if(typed && !species.some(n=>n.toLowerCase()===typed.toLowerCase())){
     html += `<div class="hdr">Not on the list</div>
-      <button onclick="addNewSpecies()">＋ Add "${esc($("spSearch").value.trim())}" as a new species</button>`;
+      <button onclick="addNewSpecies()">＋ Add “${esc(typed)}” as a new species</button>`;
   }
   list.innerHTML = html;
   list.scrollTop = 0;
@@ -4915,6 +5372,182 @@ function zipStore(files){
   return out;
 }
 
+/* ---------- Schedule A — Tree Inventory Table ---------- */
+/* Column order, headings and values copied from the report, so the CSV drops
+   straight into the Schedule A table without renaming or reordering anything. */
+const SCHED_A_COLS = [
+  ["Tree #",                     t=>t.TREE_NO || ""],
+  ["Tag #",                      t=>t.TAG_NO  || "NT"],
+  ["Address",                    t=>(t.ADDRESS||"").toUpperCase()],
+  ["Common Name",                t=>t.SPECIES || ""],
+  ["Botanical Name",             t=>t.BOTANICAL || ""],
+  ["DBH (cm)",                   t=>t.DBH || ""],
+  ["Crown Radius (m)",           t=>t.CROWN_RAD || ""],
+  ["Condition Rating",           t=>t.HEALTH || ""],
+  ["Tree Preservation Zone (m)", t=>t.TPZ_M || ""],
+  ["Location",                   t=>t.LOCATION || ""],
+  ["Proposed Action",            t=>t.PROP_ACT || ""],
+  ["Potential long term impact", t=>t.LT_IMPACT || (tppRemoval(t) ? "-" : "")],
+  ["Notes",                      t=>t.COMMENTS || ""]
+];
+function scheduleATrees(){
+  // Ordered by the plan number, which is the order the table is read in.
+  return visibleTrees().slice().sort((a,b)=>{
+    const x=parseInt(a.TREE_NO,10), y=parseInt(b.TREE_NO,10);
+    if(isFinite(x)&&isFinite(y)) return x-y;
+    if(isFinite(x)) return -1;
+    if(isFinite(y)) return 1;
+    return String(a.TREE_ID).localeCompare(String(b.TREE_ID));
+  });
+}
+function exportScheduleA(){
+  closeMenu();
+  const list = scheduleATrees();
+  if(!list.length){ toast("No trees in the current view filter",true); return; }
+  const rows = [SCHED_A_COLS.map(c=>c[0])];
+  list.forEach(t=>rows.push(SCHED_A_COLS.map(c=>c[1](t))));
+  downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
+               `ScheduleA_TreeInventory_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  const missing = list.filter(t=>!t.TREE_NO).length;
+  toast(`Schedule A: ${list.length} trees` + (missing?` · ${missing} without a plan number`:""));
+}
+
+/* ---------- York Region tree removal compensation table ---------- */
+/* Appendix B of the Guidelines. Columns, order and the two deduction rows follow the
+   published sample so the CSV drops into the report. */
+function exportYRCompensation(){
+  closeMenu();
+  const list = scheduleATrees().filter(compIncluded);
+  if(!list.length){ toast("No trees are counted for compensation in this view",true); return; }
+
+  const propDec = parseInt(prompt("Replacement trees proposed on the landscape plan — DECIDUOUS:", "0"),10);
+  if(isNaN(propDec)) return;
+  const propCon = parseInt(prompt("Replacement trees proposed on the landscape plan — CONIFEROUS:", "0"),10);
+  if(isNaN(propCon)) return;
+
+  const rows = [["Tree #","Species","Common Name","DBH (cm)","Condition Rating","%",
+                 "Number of Replacement Trees (calculated)","Number of Replacement Trees (rounded)",
+                 "Compensation Value ($)"]];
+  let totN = 0, totV = 0, exempt = 0;
+  list.forEach((t,i)=>{
+    const r = yrReplacement(t);
+    if(!r){ return; }
+    const v = yrValue(t) || 0;
+    if(r.exempt) exempt++;
+    totN += r.rounded; totV += v;
+    rows.push([ t.TREE_NO || (i+1), t.BOTANICAL || "", t.SPECIES || "", t.DBH || "",
+                t.HEALTH || "", r.exempt ? "exempt" : r.pct,
+                r.exempt ? 0 : r.raw, r.rounded, v.toFixed(2) ]);
+  });
+  rows.push([]);
+  rows.push(["","","","","","Required Replacement Trees", "", totN, totV.toFixed(2)]);
+  const dedDec = propDec * yrRateDec, dedCon = propCon * yrRateCon;
+  rows.push(["","","","","","Proposed deciduous trees","", propDec, "-"+dedDec.toFixed(2)]);
+  rows.push(["","","","","","Proposed coniferous trees","", propCon, "-"+dedCon.toFixed(2)]);
+  const required = Math.max(0, totV - dedDec - dedCon);
+  rows.push(["","","","","","Required Financial Compensation","", "", required.toFixed(2)]);
+  rows.push([]);
+  rows.push(["Notes: Replacement Tree Size is 5 (50mm caliper). Deciduous replacement tree "+money(yrRateDec)+
+             ", coniferous "+money(yrRateCon)+" ("+yrRateYear+" rates). "+
+             "Number of replacement trees = (DBH / 5) x condition rating. "+
+             (exempt ? exempt+" tree(s) exempt from compensation under section 2.4." : "")]);
+
+  downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
+               `YorkRegion_Compensation_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  toast(`York Region: ${totN} replacement trees · ${money(totV)} · ${money(required)} after plantings`);
+}
+
+/* ---------- Schedule B — Tree Photographs ---------- */
+/* One photograph per page on a 10 x 7.5 inch landscape sheet, captioned
+   T<tree number>-<Common_name>-<Condition>, matching the existing schedules so a
+   reviewer sees the same thing they are used to. */
+const SCHED_B_W_IN = 10, SCHED_B_H_IN = 7.5;
+
+function schedBCaption(t, seq){
+  const no = t.TREE_NO || seq;
+  const sp = String(t.SPECIES||"Unknown").trim().replace(/\s+/g,"_");
+  const hl = String(t.HEALTH||"").trim().replace(/\s+/g,"_");
+  return "T" + no + "-" + sp + (hl ? "-" + hl : "");
+}
+
+async function exportScheduleB(){
+  closeMenu();
+  if(!HAS_IDB){ toast("No photo store on this device",true); return; }
+  const list = scheduleATrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
+  if(!list.length){ toast("No photos on the trees in view",true); return; }
+
+  const W = Math.round(SCHED_B_W_IN*PDF_DPI), H = Math.round(SCHED_B_H_IN*PDF_DPI);
+  const site = normText(prompt("Site, as it should read on the title page:",
+                 lastMapTitle || settings.project || "") || "");
+  if(site===null) return;
+
+  const pages = [];
+  // title page
+  {
+    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const g=cv.getContext("2d");
+    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+    g.fillStyle="#12201a"; g.textAlign="center";
+    g.font=`bold ${Math.round(PDF_DPI*0.42)}px sans-serif`;
+    g.fillText("Schedule B", W/2, H*0.34);
+    g.font=`${Math.round(PDF_DPI*0.28)}px sans-serif`;
+    g.fillText("Tree Photographs", W/2, H*0.44);
+    g.font=`${Math.round(PDF_DPI*0.17)}px sans-serif`; g.fillStyle="#3f5147";
+    if(site) g.fillText(site, W/2, H*0.54);
+    g.fillText(nowStr().slice(0,10), W/2, H*0.61);
+    g.textAlign="left";
+    pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
+  }
+
+  let missing=0, seq=0, n=0;
+  for(const t of list){
+    seq++;
+    const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
+    for(let i=0;i<names.length;i++){
+      const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+      const g=cv.getContext("2d");
+      g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+
+      const capH = Math.round(PDF_DPI*0.50), pad = Math.round(PDF_DPI*0.30);
+      const boxW = W-pad*2, boxH = H-pad*2-capH;
+      const rec = await idbGet(names[i]).catch(()=>null);
+      if(rec && rec.data){
+        const im = await new Promise(res=>{ const x=new Image(); x.onload=()=>res(x); x.onerror=()=>res(null); x.src=rec.data; });
+        if(im){
+          const sc = Math.min(boxW/im.width, boxH/im.height);
+          g.drawImage(im, pad+(boxW-im.width*sc)/2, pad+(boxH-im.height*sc)/2, im.width*sc, im.height*sc);
+          n++;
+        } else missing++;
+      } else {
+        missing++;
+        g.fillStyle="#eef2ee"; g.fillRect(pad,pad,boxW,boxH);
+        g.fillStyle="#76867c"; g.textAlign="center";
+        g.font=`${Math.round(PDF_DPI*0.14)}px sans-serif`;
+        g.fillText("Photograph not on this device", W/2, pad+boxH/2);
+        g.textAlign="left";
+      }
+      let cap = schedBCaption(t, seq);
+      if(names.length>1) cap += "-" + (i+1);
+      g.fillStyle="#12201a"; g.textAlign="center";
+      g.font=`${Math.round(PDF_DPI*0.16)}px sans-serif`;
+      g.fillText(cap, W/2, H-pad-Math.round(PDF_DPI*0.10));
+      g.textAlign="left";
+      pages.push({data:cv.toDataURL("image/jpeg",0.90), w:W, h:H});
+    }
+    if(list.length>20) setStatus(`Schedule B: ${seq} of ${list.length} trees`);
+  }
+
+  const bytes = jpegPdfPages(pages, SCHED_B_W_IN*72, SCHED_B_H_IN*72);
+  const blob = new Blob([bytes],{type:"application/pdf"});
+  const url = URL.createObjectURL(blob), a=document.createElement("a");
+  const slug = (site||exportTag()).replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+  a.href=url; a.download=`ScheduleB_TreePhotographs_${slug}_${nowStr().slice(0,10)}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+  setStatus(`${visibleTrees().length} trees on device`);
+  toast(`Schedule B: ${n} photograph(s) over ${pages.length} pages` + (missing?` · ${missing} not on this phone`:""));
+}
+
 /* GeoJSON alongside the shapefile. Shapefile stays because everyone can open it,
    but it cannot express a null (a blank ADDR_DIST and a real 0 look the same in
    some readers), truncates text at 254 characters and field names at 10. GeoJSON
@@ -4981,6 +5614,10 @@ function exportDataDictionary(){
     STREET_M:"Metres to the centreline named in STREET.",
     HEIGHT:"Metres. Aurora DBH equation unless measured.",
     RISK:"ISA TRAQ basic: failure potential x TARGET x CONSEQ.",
+    TPZ_M:"Tree protection zone radius in metres. 2.4 m up to 24 cm DBH, then DBH/10.",
+    REPL_REQ:"Replacement trees the DBH earns under the City table. Recorded on EVERY tree; COMP_INCL decides whether it is counted.",
+    COMP_INCL:"Y or N, whether this tree counts toward compensation. Blank follows the proposed action.",
+    TREE_NO:"Sequential number within the project, 1, 2, 3. TREE_ID is the unique record key.",
     SOURCE:"How the position was set: gps, crosshair, import, reference.",
     ACCURACY:"GPS accuracy in metres at the time of recording."
   };
@@ -5322,6 +5959,8 @@ function exportMapPDF(){
     ? `${withPhotos} photo(s) on these trees · 6 to a page`
     : "No photos on the trees in view";
   $("mapPhotos").value = "0";
+  $("mapSheets").value = "view";
+  mapSheetsChanged();
   $("mapOptSheet").classList.add("show");
 }
 function closeMapOpt(){ $("mapOptSheet").classList.remove("show"); }
@@ -5335,13 +5974,18 @@ function mapSheetTrees(){
 
 async function runMapExport(){
   closeMapOpt();
+  const mode = $("mapSheets").value;
+  if(mode==="series") return runSeriesExport();
+  return runSingleExport({});
+}
+
+async function runSingleExport(opt){
   // With imagery saved for this area the export works with no signal at all.
 
-  const title = normText($("mapTitle").value) || settings.project || "Street Tree Inventory";
-  lastMapTitle = title;
-  if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} }
+  const title = opt.title || normText($("mapTitle").value) || settings.project || "Street Tree Inventory";
+  if(!opt.title){ lastMapTitle = title; if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} } }
   const labelMode = $("mapLabels").value;
-  const wantPhotoPages = $("mapPhotos").value === "1";
+  const wantPhotoPages = (opt.photoPages !== undefined) ? opt.photoPages : ($("mapPhotos").value === "1");
 
   const W = Math.round(PDF_W_IN*PDF_DPI), H = Math.round(PDF_H_IN*PDF_DPI);
   const M = Math.round(PDF_DPI*0.35);            // page margin
@@ -5356,8 +6000,8 @@ async function runMapExport(){
   const g = cv.getContext("2d");
   g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
 
-  const b = fmap.getBounds();
-  let z = fmap.getZoom();
+  const b = opt.bounds || fmap.getBounds();
+  let z = opt.zoom || fmap.getZoom();
   for(let t=z; t<=19; t++){
     const w=lonToPx(b.getEast(),t)-lonToPx(b.getWest(),t);
     const h=latToPx(b.getSouth(),t)-latToPx(b.getNorth(),t);
@@ -5426,7 +6070,10 @@ async function runMapExport(){
     });
   });
 
-  const shown = mapSheetTrees();
+  const shown = opt.bounds ? seriesTrees().filter(t=>{
+      const la=num(t.LAT), lo=num(t.LON);
+      return la<=b.getNorth() && la>=b.getSouth() && lo>=b.getWest() && lo<=b.getEast();
+    }) : mapSheetTrees();
   // Symbols and text scale with the page, not the screen: 13px on a 2200px sheet is
   // about 1.5 mm on paper, which is why the first version was unreadable.
   const R = Math.round(PDF_DPI*0.055);
@@ -5497,7 +6144,9 @@ async function runMapExport(){
   }
   g.restore();
 
-  await drawKeyMap(g, fx+fw-Math.round(PDF_DPI*1.5)-24, fy+24, Math.round(PDF_DPI*1.5), b, z);
+  if(opt.grid) drawSheetGrid(g, opt.grid, P);
+  if(!opt.noKeyMap)
+    await drawKeyMap(g, fx+fw-Math.round(PDF_DPI*1.5)-24, fy+24, Math.round(PDF_DPI*1.5), b, z);
   drawNorthArrow(g, fx+fw-Math.round(PDF_DPI*0.42), fy+fh-Math.round(PDF_DPI*1.0));
   drawScaleBar(g, fx+24, fy+fh-24, sc, z, b.getCenter().lat);
 
@@ -5505,7 +6154,9 @@ async function runMapExport(){
   g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(fx,fy,fw,fh);
   g.strokeStyle="#ffffff"; g.lineWidth=1.5; g.strokeRect(fx+3,fy+3,fw-6,fh-6);
 
-  drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M);
+  drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M, opt.sheetNote);
+
+  if(opt.returnPage) return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
 
   toast("Building the PDF…");
   const pages = [{ data: cv.toDataURL("image/jpeg", 0.92), w:W, h:H }];
@@ -5552,6 +6203,145 @@ async function drawKeyMap(g, x, y, size, bounds, z){
   g.fillStyle="rgba(18,32,26,.85)"; g.fillRect(x,y,size,26);
   g.fillStyle="#fff"; g.font="bold 15px sans-serif"; g.textAlign="left";
   g.fillText("KEY MAP", x+8, y+18);
+}
+
+/* ---------- a series of sheets at a fixed scale ---------- */
+const SHEET_MAX = 40;
+
+function mapSheetsChanged(){
+  const series = $("mapSheets").value === "series";
+  $("mapScaleRow").style.display = series ? "block" : "none";
+  if(series) refreshSheetEstimate();
+}
+// Ground covered by one sheet at a given scale, from the printed frame size.
+function sheetGround(scale){
+  const fwIn = PDF_W_IN - 0.70, fhIn = PDF_H_IN - 0.70 - 1.32;
+  return { w: fwIn*0.0254*scale, h: fhIn*0.0254*scale };
+}
+function seriesTrees(){
+  return visibleTrees().filter(t=>num(t.LAT)!=null && num(t.LON)!=null);
+}
+function seriesBounds(){
+  const list = seriesTrees();
+  if(!list.length) return null;
+  let n=-90,s=90,e=-180,w=180;
+  list.forEach(t=>{ const la=num(t.LAT), lo=num(t.LON);
+    if(la>n)n=la; if(la<s)s=la; if(lo>e)e=lo; if(lo<w)w=lo; });
+  return {n,s,e,w};
+}
+/* The grid of sheets. Sized in metres so the scale is exact, then converted back to
+   degrees; the longitude step uses the latitude of the block so sheets stay square
+   on the ground rather than on the page. */
+function sheetGrid(scale){
+  const b = seriesBounds();
+  if(!b) return [];
+  const g = sheetGround(scale);
+  const midLat = (b.n+b.s)/2;
+  const mPerDegLat = 110540, mPerDegLon = 111320*Math.cos(midLat*Math.PI/180);
+  const padM = g.w*0.04;
+  const wDeg = g.w/mPerDegLon, hDeg = g.h/mPerDegLat;
+  const spanW = (b.e-b.w) + (padM*2)/mPerDegLon;
+  const spanH = (b.n-b.s) + (padM*2)/mPerDegLat;
+  const cols = Math.max(1, Math.ceil(spanW/wDeg));
+  const rows = Math.max(1, Math.ceil(spanH/hDeg));
+  // centre the grid on the trees so they are not crammed against one edge
+  const startW = (b.w+b.e)/2 - cols*wDeg/2;
+  const startN = (b.n+b.s)/2 + rows*hDeg/2;
+  const out=[];
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const w1 = startW + c*wDeg, n1 = startN - r*hDeg;
+    const cell = { w:w1, e:w1+wDeg, n:n1, s:n1-hDeg, row:r+1, col:c+1 };
+    // a sheet with nothing on it is not worth printing
+    cell.n_trees = seriesTrees().filter(t=>{
+      const la=num(t.LAT), lo=num(t.LON);
+      return la<=cell.n && la>=cell.s && lo>=cell.w && lo<=cell.e;
+    }).length;
+    if(cell.n_trees) out.push(cell);
+  }
+  out.forEach((c,i)=>c.no=i+1);
+  return out;
+}
+function refreshSheetEstimate(){
+  const scale = parseInt($("mapScale").value,10);
+  const g = sheetGround(scale);
+  const cells = sheetGrid(scale);
+  const el = $("mapSheetEst");
+  if(!cells.length){ el.textContent = "No trees to map."; return; }
+  const most = Math.max.apply(null, cells.map(c=>c.n_trees));
+  el.textContent = `${cells.length} sheet(s) + an index · each covers ${Math.round(g.w)} × ${Math.round(g.h)} m · up to ${most} trees on a sheet`;
+  el.style.color = cells.length > SHEET_MAX ? "#8c2318" : "";
+}
+
+// The sheet layout, drawn on the index page so a reader can find the right sheet.
+function drawSheetGrid(g, cells, P){
+  g.save();
+  cells.forEach(c=>{
+    const a=P(c.n,c.w), b2=P(c.s,c.e);
+    g.strokeStyle="rgba(255,23,68,.95)"; g.lineWidth=3;
+    g.setLineDash([12,7]);
+    g.strokeRect(a[0],a[1],b2[0]-a[0],b2[1]-a[1]);
+    g.setLineDash([]);
+    const bw=Math.round(PDF_DPI*0.34), bh=Math.round(PDF_DPI*0.22);
+    g.fillStyle="rgba(255,23,68,.95)"; g.fillRect(a[0],a[1],bw,bh);
+    g.fillStyle="#fff"; g.font=`bold ${Math.round(PDF_DPI*0.14)}px sans-serif`;
+    g.textAlign="center"; g.textBaseline="middle";
+    g.fillText(String(c.no), a[0]+bw/2, a[1]+bh/2);
+  });
+  g.textAlign="left"; g.textBaseline="alphabetic";
+  g.restore();
+}
+
+/* An index sheet showing every tree and the sheet layout, then one sheet per cell at
+   the chosen scale. Without the index a reader has no way to know which sheet holds
+   the tree they are after. */
+async function runSeriesExport(){
+  const scale = parseInt($("mapScale").value,10);
+  const cells = sheetGrid(scale);
+  if(!cells.length){ toast("No trees to map",true); return; }
+  if(cells.length > SHEET_MAX){
+    toast(`${cells.length} sheets — choose a smaller scale`,true); return; }
+
+  const title = normText($("mapTitle").value) || settings.project || "Street Tree Inventory";
+  lastMapTitle = title;
+  if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} }
+  const wantPhotoPages = $("mapPhotos").value === "1";
+
+  const b = seriesBounds();
+  const pad = (b.n-b.s)*0.06 + 0.0004;
+  const all = L.latLngBounds([b.s-pad, b.w-pad],[b.n+pad, b.e+pad]);
+
+  const pages=[];
+  toast(`Building ${cells.length+1} sheets…`);
+  setStatus("Map series: index sheet");
+  pages.push(await runSingleExport({
+    bounds: all, title: title+" | Index — "+cells.length+" sheets at 1:"+scale.toLocaleString(),
+    grid: cells, sheetNote:"INDEX", photoPages:false, returnPage:true }));
+
+  for(const c of cells){
+    setStatus(`Map series: sheet ${c.no} of ${cells.length}`);
+    const cb = L.latLngBounds([c.s,c.w],[c.n,c.e]);
+    pages.push(await runSingleExport({
+      bounds: cb,
+      title: title+" | Sheet "+c.no+" of "+cells.length+" — 1:"+scale.toLocaleString(),
+      sheetNote:"SHEET "+c.no, noKeyMap:false, photoPages:false, returnPage:true }));
+  }
+
+  if(wantPhotoPages){
+    setStatus("Map series: photo pages");
+    const W=Math.round(PDF_W_IN*PDF_DPI), H=Math.round(PDF_H_IN*PDF_DPI), M=Math.round(PDF_DPI*0.35);
+    const extra = await buildPhotoPages(seriesTrees(), W, H, M, title);
+    extra.forEach(p=>pages.push(p));
+  }
+
+  const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72);
+  const blob = new Blob([bytes],{type:"application/pdf"});
+  const url = URL.createObjectURL(blob), a=document.createElement("a");
+  const slug = title.replace(/\|/g," ").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+  a.href=url; a.download=`MapSeries_${slug||exportTag()}_1-${scale}_${nowStr().slice(0,10)}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+  setStatus(`${visibleTrees().length} trees on device`);
+  toast(`${pages.length} page(s) · ${seriesTrees().length} trees at 1:${scale.toLocaleString()}`);
 }
 
 /* Photo pages: six to a landscape sheet, each captioned with the tree number and
@@ -5674,7 +6464,7 @@ function drawScaleBar(g,x,y,sc,z,lat){
   g.restore();
 }
 
-function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M){
+function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
   const top = H - M - panelH, x = M, w = W - M*2;
   g.fillStyle="#12201a"; g.fillRect(x,top,w,panelH);
   g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(x,top,w,panelH);
@@ -5755,6 +6545,15 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M){
     g.fillStyle="#e7ebe6"; g.fillText("Field checked", lx+Math.round(PDF_DPI*0.13), py);
   }
 
+  if(sheetNote){
+    const bw=Math.round(PDF_DPI*1.25), bh=Math.round(PDF_DPI*0.34);
+    const bx=x+w-bw-Math.round(PDF_DPI*0.20), by=top+Math.round(PDF_DPI*0.16);
+    g.fillStyle="#FF1744"; g.fillRect(bx,by,bw,bh);
+    g.fillStyle="#fff"; g.font=`bold ${Math.round(PDF_DPI*0.16)}px sans-serif`;
+    g.textAlign="center"; g.textBaseline="middle";
+    g.fillText(sheetNote, bx+bw/2, by+bh/2);
+    g.textAlign="left"; g.textBaseline="alphabetic";
+  }
   g.font=`${Math.round(PDF_DPI*0.075)}px sans-serif`; g.fillStyle="#8fb59c"; g.textAlign="left";
   g.fillText(AERIAL_CREDIT + "   ·   Chris Gynan" + (missing?"   ·   some imagery unavailable":""),
              padL, top + panelH - Math.round(PDF_DPI*0.13));
@@ -6116,6 +6915,8 @@ function openSettings(){
   $("setPhotoQ").innerHTML = Object.keys(PHOTO_PRESETS)
     .map(k=>`<option value="${k}">${esc(PHOTO_PRESETS[k].label)}</option>`).join("");
   $("setPhotoQ").value = photoQuality;
+  $("setTPP").value = isTPP(settings.project) ? "1" : "0";
+  $("setYrDec").value = yrRateDec; $("setYrCon").value = yrRateCon; $("setYrYear").value = yrRateYear;
   $("setPhotoQ").onchange = paintPhotoQNote;
   paintPhotoQNote();
   userSelect();
@@ -6161,6 +6962,9 @@ function saveSettings(){
   settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
   setCrownMethod($("setCrownMethod").value);
   setPhotoQuality($("setPhotoQ").value);
+  setYrRates($("setYrDec").value, $("setYrCon").value, $("setYrYear").value);
+  setTPP(settings.project, $("setTPP").value === "1");
+  applyTPPMode();
   persistSettings();
 
 
@@ -6278,7 +7082,9 @@ function showHelp(){
     <div class="stath" style="margin:16px 0 8px">FILLING THE FORM</div>
     <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
+    <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
+    <p><b>Tidying dictated comments</b><br>Dictated notes arrive with homophones and missing punctuation. In the Sheet, <i>Tree Tools → Tidy dictated comments with Gemini</i> cleans them up in batches — a 700-tree job is about 18 requests and three or four minutes, not 700 requests and an hour. It fixes spelling, punctuation and misheard arboricultural terms, and is instructed not to add or remove any observation. The original dictation is kept in <b>CMNT_RAW</b> and <i>Restore original comments</i> puts it back.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
     <p><b>Height</b><br>Height is calculated from DBH using the same equation the Town of Aurora ArcPad build used, so new records stay comparable with the old ones. It caps at 26 m above 54 cm DBH, as the original did. Typing your own value marks it measured.</p>
@@ -6298,8 +7104,13 @@ function showHelp(){
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
     <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, how to label each tree, and whether to add photo pages. Labels default to <b>tree number and species</b>, which is what someone reading the sheet needs, whatever you happen to label with on screen. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing every tree with the numbered sheet layout drawn over it, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b>, which is what someone reading the sheet needs, whatever you happen to label with on screen. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
+    <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
+    <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
+    <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
+    <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV with the thirteen columns in report order, sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
+    <p><b>Protection zone and replacements</b><br>Both are worked out from DBH, and <b>every</b> tree carries its compensation figure whether or not it is coming down — the arborist decides what counts, not the app. <b>Count in compensation</b> defaults to following the proposed action and can be set to yes or no per tree. The statistics show the counted total alongside what it would be if every tree were removed. <b>TPZ_M</b> is the tree protection zone radius: 2.4 m up to 24 cm DBH, then DBH ÷ 10. <b>REPL_REQ</b> is the number of replacement trees the DBH earns under the City table — 0 up to 20 cm, then 1, 2, 3, 4 and 5 through the bands. The statistics panel totals both, which are the figures a tree preservation plan has to state.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
     <p><b>Emailing a package</b><br><i>Menu → Get data out → Email the package</i> sends whatever the <b>Showing</b> filter has selected — one project, one recorder, or both — so set the filter first. The prompt names the scope before you commit, so you can see what is about to go. Two things it is <i>not</i>: it is not limited to the map view, and it is built from the Sheet, so it includes every tree of that project even ones never downloaded to this phone. The email carries the workbook, the trees as CSV, a WGS84 shapefile, the same trees as GeoJSON, and the photo attachment table, with the photos zipped into Drive and linked. The Sheet menu has the same thing and asks for the project and recorder directly.</p>
