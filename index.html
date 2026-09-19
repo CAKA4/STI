@@ -574,6 +574,7 @@
         <button class="menuitem" onclick="syncNow()">Sync now</button>
         <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
         <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
+        <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
       </div>
     </div>
@@ -893,6 +894,35 @@
   </div>
 </div>
 
+<!-- ===== tree tools ===== -->
+<div class="sheet" id="toolsSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Tree tools</h2>
+    <div class="idline" id="toolsScope">—</div>
+    <div class="hint">These run on the Sheet, from here — you do not need access to it.</div>
+
+    <div class="fld">
+      <button class="menuitem" onclick="runTidy()" id="btnTidy">🪄 Tidy dictated comments</button>
+      <div class="mini" id="tidyLine">—</div>
+    </div>
+    <div class="fld">
+      <button class="menuitem" onclick="runFixAddr()" id="btnFixAddr">📍 Fill in missing addresses</button>
+      <div class="mini" id="addrLine">—</div>
+    </div>
+    <div class="fld">
+      <button class="menuitem" onclick="runRecalc()" id="btnRecalc">🧮 Recalculate crown, height, TPZ, risk</button>
+      <div class="mini" id="recalcLine">—</div>
+    </div>
+    <div class="fld">
+      <button class="menuitem prime" onclick="runBundle()" id="btnBundle">⬇ Prepare everything for download</button>
+      <div class="mini" id="bundleLine">The workbook, the trees, a shapefile, GeoJSON and the photos.</div>
+    </div>
+    <div id="bundleLinks"></div>
+    <div class="btnrow"><button onclick="closeTools()">Close</button></div>
+  </div>
+</div>
+
 <!-- ===== offline imagery ===== -->
 <div class="sheet" id="offlineSheet">
   <div class="sheet-inner">
@@ -1037,7 +1067,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-19 · v66";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-19 · v67";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5748,6 +5778,160 @@ function selZoomTo(){
   fmap.fitBounds(selected.map(t=>[num(t.LAT),num(t.LON)]),{padding:[40,40]});
 }
 
+/* ================================================================== *
+ *  TREE TOOLS, RUN FROM THE PHONE
+ *  A crew has no access to the Sheet, so the jobs they need during and at the end of
+ *  a survey have to be reachable here. Each runs a BATCH PER REQUEST with the loop
+ *  on this side: no six-minute execution limit to fall foul of, a real progress
+ *  count, and the crew can stop it.
+ * ================================================================== */
+let toolBusy = false, toolStop = false;
+
+function openTools(){
+  closeMenu();
+  if(!connected){ toast("No backend on this build",true); return; }
+  $("toolsScope").textContent = scopeLabel();
+  $("bundleLinks").innerHTML = "";
+  ["tidyLine","addrLine","recalcLine"].forEach(id=>$(id).textContent="—");
+  $("toolsSheet").classList.add("show");
+  jsonpGet("tidystatus", {}, r=>{
+    if(!r || !r.ok) return;
+    $("tidyLine").textContent = !r.hasKey
+      ? "No AI key set on the Sheet — ask the owner to add one."
+      : (r.pending ? `${r.pending} comment(s) waiting · model ${r.model||""}` : "All comments already tidied.");
+  });
+}
+function closeTools(){ toolStop = true; $("toolsSheet").classList.remove("show"); }
+
+/* One JSONP call. The app cannot read a no-cors POST reply, so every tool that needs
+   an answer goes through GET. */
+function jsonpGet(action, params, cb){
+  if(isOffline()){ cb(null); return; }
+  const name = "__tt" + Date.now() + Math.floor(Math.random()*1000);
+  const sc = document.createElement("script");
+  const done = (r)=>{ try{ delete window[name]; }catch(e){ window[name]=undefined; }
+                      if(sc.parentNode) sc.parentNode.removeChild(sc); cb(r); };
+  let settled = false;
+  window[name] = r => { if(!settled){ settled=true; done(r); } };
+  sc.onerror = () => { if(!settled){ settled=true; done(null); } };
+  const q = Object.keys(params||{}).map(k=>k+"="+encodeURIComponent(params[k])).join("&");
+  sc.src = SCRIPT_URL + (SCRIPT_URL.indexOf("?")>=0?"&":"?") + "action=" + action +
+           (q?"&"+q:"") + "&callback=" + name;
+  document.body.appendChild(sc);
+  // A request that never answers must not leave the tool stuck for ever.
+  setTimeout(()=>{ if(!settled){ settled=true; done(null); } }, 90000);
+}
+
+function toolRunning(btn, on, label){
+  toolBusy = on;
+  const b = $(btn);
+  if(b){ b.disabled = on; b.style.opacity = on ? ".6" : ""; }
+  if(on) toolStop = false;
+}
+
+/* Tidying: ask how many are waiting, then loop a batch at a time with the same 6.5 s
+   spacing the Sheet uses, so the free tier is not tripped. */
+function runTidy(){
+  if(toolBusy){ toolStop = true; toast("Stopping after this batch"); return; }
+  jsonpGet("tidystatus", {}, st=>{
+    if(!st || !st.ok){ $("tidyLine").textContent = "Could not reach the Sheet."; return; }
+    if(!st.hasKey){ $("tidyLine").textContent = "No AI key set on the Sheet — ask the owner to add one."; return; }
+    if(!st.pending){ $("tidyLine").textContent = "All comments already tidied."; return; }
+    if(!confirm(`Tidy ${st.pending} dictated comment(s)?\n\n` +
+      `About ${Math.ceil(st.pending/40)} request(s), roughly ${Math.ceil(st.pending/40*11.5/60)} minute(s).\n\n` +
+      `The original wording is kept and can be put back.`)) return;
+
+    let done = 0, left = st.pending, fails = 0;
+    toolRunning("btnTidy", true);
+    $("btnTidy").textContent = "🪄 Tidying… tap to stop";
+    const step = ()=>{
+      if(toolStop){ finish("Stopped. " + done + " tidied, " + left + " left."); return; }
+      $("tidyLine").textContent = `Tidied ${done} · ${left} to go…`;
+      jsonpGet("tidybatch", {}, r=>{
+        if(!r){ fails++; if(fails>=3){ finish("Lost contact with the Sheet after " + done + "."); return; }
+                setTimeout(step, 6500); return; }
+        if(!r.ok){
+          // A spent daily allowance cannot be waited out; anything else is worth one more try.
+          if(r.daily){ finish("The AI's daily free allowance is used up. " + done + " tidied; it resets at midnight Pacific."); return; }
+          fails++;
+          if(fails>=3){ finish("Stopped after " + done + " — " + (r.error||"the Sheet refused")); return; }
+          setTimeout(step, 6500); return;
+        }
+        fails = 0; done += r.done||0; left = r.remaining||0;
+        if(r.finished || !left){ finish(done + " comment(s) tidied."); return; }
+        setTimeout(step, 6500);
+      });
+    };
+    const finish = msg=>{
+      toolRunning("btnTidy", false);
+      $("btnTidy").textContent = "🪄 Tidy dictated comments";
+      $("tidyLine").textContent = msg;
+      toast(msg);
+      setTimeout(()=>pullFromSheet(true), 800);   // bring the tidied text back to the phone
+    };
+    step();
+  });
+}
+
+function runFixAddr(){
+  if(toolBusy){ toolStop = true; return; }
+  toolRunning("btnFixAddr", true);
+  $("btnFixAddr").textContent = "📍 Filling… tap to stop";
+  let filled = 0, fails = 0;
+  const step = ()=>{
+    if(toolStop){ finish(filled + " address(es) filled; stopped."); return; }
+    jsonpGet("fixaddr", {limit:25}, r=>{
+      if(!r || !r.ok){ fails++; if(fails>=3){ finish("Stopped after " + filled + "."); return; }
+                       setTimeout(step, 3000); return; }
+      fails = 0; filled += r.filled||0;
+      $("addrLine").textContent = `Filled ${filled} · ${r.remaining||0} to go…`;
+      if(r.finished){ finish(filled + " address(es) filled."); return; }
+      setTimeout(step, 1500);
+    });
+  };
+  const finish = msg=>{
+    toolRunning("btnFixAddr", false);
+    $("btnFixAddr").textContent = "📍 Fill in missing addresses";
+    $("addrLine").textContent = msg; toast(msg);
+  };
+  step();
+}
+
+function runRecalc(){
+  if(toolBusy) return;
+  toolRunning("btnRecalc", true);
+  $("recalcLine").textContent = "Working…";
+  jsonpGet("recalc", {}, r=>{
+    toolRunning("btnRecalc", false);
+    if(!r || !r.ok){ $("recalcLine").textContent = "Could not reach the Sheet."; return; }
+    $("recalcLine").textContent = `${r.changed} row(s) updated · ${r.keptMeasured} measured value(s) left alone`;
+    toast(`${r.changed} row(s) recalculated`);
+    setTimeout(()=>pullFromSheet(true), 600);
+  });
+}
+
+/* The end of a job: the Sheet builds the package into Drive and hands back links the
+   phone can open and share. The workbook is the part the app cannot make itself. */
+function runBundle(){
+  if(toolBusy) return;
+  const proj = filterProject || (showAllProjects ? "" : settings.project) || "";
+  const cru  = filterCruiser || "";
+  toolRunning("btnBundle", true);
+  $("bundleLine").textContent = "Building the package — this can take a few minutes with many photos…";
+  jsonpGet("bundle", {project:proj, cruiser:cru}, r=>{
+    toolRunning("btnBundle", false);
+    if(!r || !r.ok){
+      $("bundleLine").textContent = (r && r.error) ? r.error : "Could not reach the Sheet.";
+      return;
+    }
+    $("bundleLine").textContent = `${r.trees} tree(s) · ${r.photos} photo(s) · tap a file to open it`;
+    $("bundleLinks").innerHTML = (r.links||[]).map(L=>
+      `<a class="menuitem" style="display:block;text-decoration:none" href="${esc(L.url)}" target="_blank" rel="noopener">
+         ⬇ ${esc(L.name)}${L.mb?` <span class="ct">${L.mb} MB</span>`:""}</a>`).join("");
+    toast("Package ready");
+  });
+}
+
 /* ---------- downloading an area, and the map layer that reads it ---------- */
 const TILE_MAX = 6000;                 // a sane ceiling; the estimate warns first
 
@@ -7084,7 +7268,8 @@ function showHelp(){
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
-    <p><b>Tidying dictated comments</b><br>Dictated notes arrive with homophones and missing punctuation. In the Sheet, <i>Tree Tools → Tidy dictated comments with Gemini</i> cleans them up in batches — a 700-tree job is about 18 requests and three or four minutes, not 700 requests and an hour. It fixes spelling, punctuation and misheard arboricultural terms, and is instructed not to add or remove any observation. The original dictation is kept in <b>CMNT_RAW</b> and <i>Restore original comments</i> puts it back.</p>
+    <p><b>Tree tools, from the phone</b><br><i>Menu → Sync &amp; the Sheet → Tree tools</i> runs the jobs that live on the Sheet without needing access to it: tidy the dictated comments, fill in missing addresses, recalculate crown, height, TPZ and risk, and prepare everything for download. Each works a batch at a time with a running count, and can be stopped. <b>Prepare everything for download</b> builds the workbook, the trees as CSV, a shapefile, GeoJSON, the photo table and the zipped photos into Drive and hands back tappable links — the comments in them are the tidied ones. Archiving, clearing data and setting the AI key stay in the Sheet, where only the owner can reach them.</p>
+    <p><b>Tidying dictated comments</b><br>Dictated notes arrive with homophones and missing punctuation. The tidy is run either from the phone or, in the Sheet, from <i>Tree Tools → Tidy dictated comments with Gemini</i>. It works in batches — a 700-tree job is about 18 requests and three or four minutes, not 700 requests and an hour. It fixes spelling, punctuation and misheard arboricultural terms, and is instructed not to add or remove any observation. The original dictation is kept in <b>CMNT_RAW</b> and <i>Restore original comments</i> puts it back.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
     <p><b>Height</b><br>Height is calculated from DBH using the same equation the Town of Aurora ArcPad build used, so new records stay comparable with the old ones. It caps at 26 m above 54 cm DBH, as the original did. Typing your own value marks it measured.</p>
