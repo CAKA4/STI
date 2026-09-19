@@ -900,7 +900,11 @@
     <div class="grab"></div>
     <h2>Tree tools</h2>
     <div class="idline" id="toolsScope">—</div>
-    <div class="hint">These run on the Sheet, from here — you do not need access to it.</div>
+    <div class="hint">These run on the Sheet, from here — you do not need access to it. They work only on what <b>Showing</b> is set to.</div>
+    <div class="mini" id="toolsWarn" style="display:none;color:#8c2318;margin-bottom:8px">
+      Showing is set to all projects, so these will work on every tree in the Sheet.
+      Set a project first unless that is what you want.
+    </div>
 
     <div class="fld">
       <button class="menuitem" onclick="runTidy()" id="btnTidy">🪄 Tidy dictated comments</button>
@@ -1067,7 +1071,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-19 · v67";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-19 · v69";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5406,7 +5410,7 @@ function zipStore(files){
 /* Column order, headings and values copied from the report, so the CSV drops
    straight into the Schedule A table without renaming or reordering anything. */
 const SCHED_A_COLS = [
-  ["Tree #",                     t=>t.TREE_NO || ""],
+  ["Tree #",                     (t,i)=>treeNoFor(t, i+1)],
   ["Tag #",                      t=>t.TAG_NO  || "NT"],
   ["Address",                    t=>(t.ADDRESS||"").toUpperCase()],
   ["Common Name",                t=>t.SPECIES || ""],
@@ -5420,26 +5424,57 @@ const SCHED_A_COLS = [
   ["Potential long term impact", t=>t.LT_IMPACT || (tppRemoval(t) ? "-" : "")],
   ["Notes",                      t=>t.COMMENTS || ""]
 ];
+/* The number used on every report output. A tree recorded before TREE_NO existed has
+   none, and Schedule A was printing a blank while the photo captions fell back to the
+   tree's position — so the table and the photographs disagreed, which is worse than
+   either being wrong on its own. One function now answers for both, and offers to
+   write the missing numbers back so the Sheet matches the report. */
+function reportTrees(){
+  const list = scheduleATrees();
+  const missing = list.filter(t=>!(parseInt(t.TREE_NO,10)>0));
+  if(missing.length && confirm(
+      `${missing.length} of these ${list.length} tree(s) have no tree number.\n\n` +
+      `Number them 1 to ${list.length} now, in order north to south?\n\n` +
+      `Without a number they appear in the table by position only, which will not match a tag.`)){
+    list.slice().sort((a,b)=>(num(b.LAT)||0)-(num(a.LAT)||0))
+        .forEach((t,i)=>{ if(!(parseInt(t.TREE_NO,10)>0)){ t.TREE_NO=i+1; t._sent=false; } });
+    persistTrees();
+    setTimeout(syncNow, 600);
+    return scheduleATrees();
+  }
+  return list;
+}
+// Falls back to position, so a number always appears and A and B always agree.
+function treeNoFor(t, seq){
+  const n = parseInt(t.TREE_NO,10);
+  return (n>0) ? n : seq;
+}
+
 function scheduleATrees(){
-  // Ordered by the plan number, which is the order the table is read in.
+  // Ordered by the tree number, which is the order the table is read in.
   return visibleTrees().slice().sort((a,b)=>{
     const x=parseInt(a.TREE_NO,10), y=parseInt(b.TREE_NO,10);
     if(isFinite(x)&&isFinite(y)) return x-y;
     if(isFinite(x)) return -1;
     if(isFinite(y)) return 1;
+    /* Neither numbered: fall back to north-to-south, the same order the numbering
+       itself would use, so an unnumbered table reads in the order it would be
+       numbered — and the photographs match it. Sorting by TREE_ID put them in an
+       order that meant nothing on the ground. */
+    const la=num(b.LAT), lb=num(a.LAT);
+    if(la!=null && lb!=null && la!==lb) return la-lb;
     return String(a.TREE_ID).localeCompare(String(b.TREE_ID));
   });
 }
 function exportScheduleA(){
   closeMenu();
-  const list = scheduleATrees();
+  const list = reportTrees();
   if(!list.length){ toast("No trees in the current view filter",true); return; }
   const rows = [SCHED_A_COLS.map(c=>c[0])];
-  list.forEach(t=>rows.push(SCHED_A_COLS.map(c=>c[1](t))));
+  list.forEach((t,i)=>rows.push(SCHED_A_COLS.map(c=>c[1](t,i))));
   downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
                `ScheduleA_TreeInventory_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
-  const missing = list.filter(t=>!t.TREE_NO).length;
-  toast(`Schedule A: ${list.length} trees` + (missing?` · ${missing} without a plan number`:""));
+  toast(`Schedule A: ${list.length} trees`);
 }
 
 /* ---------- York Region tree removal compensation table ---------- */
@@ -5447,7 +5482,7 @@ function exportScheduleA(){
    published sample so the CSV drops into the report. */
 function exportYRCompensation(){
   closeMenu();
-  const list = scheduleATrees().filter(compIncluded);
+  const list = reportTrees().filter(compIncluded);
   if(!list.length){ toast("No trees are counted for compensation in this view",true); return; }
 
   const propDec = parseInt(prompt("Replacement trees proposed on the landscape plan — DECIDUOUS:", "0"),10);
@@ -5465,7 +5500,7 @@ function exportYRCompensation(){
     const v = yrValue(t) || 0;
     if(r.exempt) exempt++;
     totN += r.rounded; totV += v;
-    rows.push([ t.TREE_NO || (i+1), t.BOTANICAL || "", t.SPECIES || "", t.DBH || "",
+    rows.push([ treeNoFor(t, i+1), t.BOTANICAL || "", t.SPECIES || "", t.DBH || "",
                 t.HEALTH || "", r.exempt ? "exempt" : r.pct,
                 r.exempt ? 0 : r.raw, r.rounded, v.toFixed(2) ]);
   });
@@ -5494,7 +5529,7 @@ function exportYRCompensation(){
 const SCHED_B_W_IN = 10, SCHED_B_H_IN = 7.5;
 
 function schedBCaption(t, seq){
-  const no = t.TREE_NO || seq;
+  const no = treeNoFor(t, seq);
   const sp = String(t.SPECIES||"Unknown").trim().replace(/\s+/g,"_");
   const hl = String(t.HEALTH||"").trim().replace(/\s+/g,"_");
   return "T" + no + "-" + sp + (hl ? "-" + hl : "");
@@ -5503,7 +5538,7 @@ function schedBCaption(t, seq){
 async function exportScheduleB(){
   closeMenu();
   if(!HAS_IDB){ toast("No photo store on this device",true); return; }
-  const list = scheduleATrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
+  const list = reportTrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
   if(!list.length){ toast("No photos on the trees in view",true); return; }
 
   const W = Math.round(SCHED_B_W_IN*PDF_DPI), H = Math.round(SCHED_B_H_IN*PDF_DPI);
@@ -5791,17 +5826,26 @@ function openTools(){
   closeMenu();
   if(!connected){ toast("No backend on this build",true); return; }
   $("toolsScope").textContent = scopeLabel();
+  $("toolsWarn").style.display = toolScope().project ? "none" : "block";
   $("bundleLinks").innerHTML = "";
   ["tidyLine","addrLine","recalcLine"].forEach(id=>$(id).textContent="—");
   $("toolsSheet").classList.add("show");
-  jsonpGet("tidystatus", {}, r=>{
+  jsonpGet("tidystatus", toolScope(), r=>{
     if(!r || !r.ok) return;
     $("tidyLine").textContent = !r.hasKey
       ? "No AI key set on the Sheet — ask the owner to add one."
+      : r.noRawCol ? "The Sheet has no CMNT_RAW column yet — the owner needs to deploy the latest Code.gs."
       : (r.pending ? `${r.pending} comment(s) waiting · model ${r.model||""}` : "All comments already tidied.");
   });
 }
 function closeTools(){ toolStop = true; $("toolsSheet").classList.remove("show"); }
+
+/* What the tools work on. Without this they ran over every tree in the Sheet — three
+   trees in view and "698 to go", which is both slow and not what was asked for. */
+function toolScope(){
+  return { project: filterProject || (showAllProjects ? "" : settings.project) || "",
+           cruiser: filterCruiser || "" };
+}
 
 /* One JSONP call. The app cannot read a no-cors POST reply, so every tool that needs
    an answer goes through GET. */
@@ -5847,7 +5891,7 @@ function runTidy(){
     const step = ()=>{
       if(toolStop){ finish("Stopped. " + done + " tidied, " + left + " left."); return; }
       $("tidyLine").textContent = `Tidied ${done} · ${left} to go…`;
-      jsonpGet("tidybatch", {}, r=>{
+      jsonpGet("tidybatch", toolScope(), r=>{
         if(!r){ fails++; if(fails>=3){ finish("Lost contact with the Sheet after " + done + "."); return; }
                 setTimeout(step, 6500); return; }
         if(!r.ok){
@@ -5880,7 +5924,7 @@ function runFixAddr(){
   let filled = 0, fails = 0;
   const step = ()=>{
     if(toolStop){ finish(filled + " address(es) filled; stopped."); return; }
-    jsonpGet("fixaddr", {limit:25}, r=>{
+    jsonpGet("fixaddr", Object.assign({limit:25}, toolScope()), r=>{
       if(!r || !r.ok){ fails++; if(fails>=3){ finish("Stopped after " + filled + "."); return; }
                        setTimeout(step, 3000); return; }
       fails = 0; filled += r.filled||0;
@@ -5901,7 +5945,7 @@ function runRecalc(){
   if(toolBusy) return;
   toolRunning("btnRecalc", true);
   $("recalcLine").textContent = "Working…";
-  jsonpGet("recalc", {}, r=>{
+  jsonpGet("recalc", toolScope(), r=>{
     toolRunning("btnRecalc", false);
     if(!r || !r.ok){ $("recalcLine").textContent = "Could not reach the Sheet."; return; }
     $("recalcLine").textContent = `${r.changed} row(s) updated · ${r.keptMeasured} measured value(s) left alone`;
@@ -6168,7 +6212,7 @@ async function runSingleExport(opt){
 
   const title = opt.title || normText($("mapTitle").value) || settings.project || "Street Tree Inventory";
   if(!opt.title){ lastMapTitle = title; if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} } }
-  const labelMode = $("mapLabels").value;
+  let labelMode = $("mapLabels").value;
   const wantPhotoPages = (opt.photoPages !== undefined) ? opt.photoPages : ($("mapPhotos").value === "1");
 
   const W = Math.round(PDF_W_IN*PDF_DPI), H = Math.round(PDF_H_IN*PDF_DPI);
@@ -6184,17 +6228,31 @@ async function runSingleExport(opt){
   const g = cv.getContext("2d");
   g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
 
-  const b = opt.bounds || fmap.getBounds();
-  let z = opt.zoom || fmap.getZoom();
-  for(let t=z; t<=19; t++){
+  let b = opt.bounds || fmap.getBounds();
+
+  /* Pad the extent out to the frame's shape before choosing a zoom. Then the imagery
+     fills the frame exactly: no white bars down the sides, and — the part that was
+     wrong — nothing cropped off. */
+  b = padBoundsToFrame(b, fw, fh);
+
+  /* Search DOWNWARD for the highest zoom that still fits the whole extent. The old
+     loop only searched upward from the map's current zoom, so an index covering a
+     few kilometres stayed at zoom 19 and the fill-scaling then cropped it to a small
+     patch of the middle — which is why the index sheet showed a neighbourhood with
+     no trees on it and none of the sheet boxes. */
+  let z = 10;
+  for(let t=19; t>=10; t--){
     const w=lonToPx(b.getEast(),t)-lonToPx(b.getWest(),t);
     const h=latToPx(b.getSouth(),t)-latToPx(b.getNorth(),t);
-    if(w>=fw && h>=fh){ z=t; break; }
+    if(w<=fw && h<=fh){ z=t; break; }
     z=t;
   }
+  if(opt.zoom) z = opt.zoom;
   const x0=lonToPx(b.getWest(),z), x1=lonToPx(b.getEast(),z);
   const y0=latToPx(b.getNorth(),z), y1=latToPx(b.getSouth(),z);
-  const sc = Math.max(fw/(x1-x0), fh/(y1-y0));   // fill, don't fit
+  // After the aspect padding the two ratios are equal, so this fills the frame and
+  // crops nothing.
+  const sc = Math.min(fw/(x1-x0), fh/(y1-y0));
   const offX = fx + (fw-(x1-x0)*sc)/2;
   const offY = fy + (fh-(y1-y0)*sc)/2;
   const P = (lat,lon)=>[ (lonToPx(lon,z)-x0)*sc+offX, (latToPx(lat,z)-y0)*sc+offY ];
@@ -6258,6 +6316,8 @@ async function runSingleExport(opt){
       const la=num(t.LAT), lo=num(t.LON);
       return la<=b.getNorth() && la>=b.getSouth() && lo>=b.getWest() && lo<=b.getEast();
     }) : mapSheetTrees();
+  // On the index the labels are noise — the sheet boxes and numbers are the point.
+  if(opt.grid) labelMode = "none";
   // Symbols and text scale with the page, not the screen: 13px on a 2200px sheet is
   // about 1.5 mm on paper, which is why the first version was unreadable.
   const R = Math.round(PDF_DPI*0.055);
@@ -6357,6 +6417,29 @@ async function runSingleExport(opt){
   setTimeout(()=>URL.revokeObjectURL(url),3000);
   setStatus(`${visibleTrees().length} trees on device`);
   toast(`Map exported · ${shown.length} trees · ${pages.length} page(s)` + (missing?` · ${missing} tiles missing`:""));
+}
+
+/* Grow the shorter side of the extent until it matches the frame's proportions, so
+   the map fills the sheet without either letterboxing or cutting anything off. */
+function padBoundsToFrame(b, fw, fh){
+  const z = 16;                                  // any zoom: only the ratio matters
+  const w = lonToPx(b.getEast(),z) - lonToPx(b.getWest(),z);
+  const h = latToPx(b.getSouth(),z) - latToPx(b.getNorth(),z);
+  if(w<=0 || h<=0) return b;
+  const want = fw/fh, have = w/h;
+  let n=b.getNorth(), s=b.getSouth(), e=b.getEast(), wst=b.getWest();
+  if(have < want){                               // too tall — widen it
+    const need = h*want, add = (need-w)/2;
+    const perDeg = (lonToPx(e,z)-lonToPx(wst,z)) / ((e-wst)||1e-9);
+    const d = add/perDeg;
+    wst -= d; e += d;
+  } else if(have > want){                        // too wide — heighten it
+    const need = w/want, add = (need-h)/2;
+    const perDeg = (latToPx(s,z)-latToPx(n,z)) / ((n-s)||1e-9);
+    const d = add/perDeg;
+    n += d; s -= d;
+  }
+  return L.latLngBounds([s,wst],[n,e]);
 }
 
 /* Locator inset: the same imagery five zoom levels out, with the sheet extent marked.
@@ -7289,7 +7372,7 @@ function showHelp(){
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
     <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing every tree with the numbered sheet layout drawn over it, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b>, which is what someone reading the sheet needs, whatever you happen to label with on screen. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b>, which is what someone reading the sheet needs, whatever you happen to label with on screen. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
     <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
