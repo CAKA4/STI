@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v89";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v90";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -6513,10 +6513,6 @@ const IMAGERY = [
     url:"https://ww3.yorkmaps.ca/arcgis/rest/services/WMS/YorkRegion_OrthoImages_WMS/MapServer",
     note:"10 cm, flown spring 2025. The sharpest over York Region." },
 
-  { id:"york2025c", name:"York Region 2025 (cached copy)", zOff:-10, maxNative:21, credit:"York Region",
-    url:"https://ags2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YRImagery2025/MapServer/tile/{z}/{y}/{x}",
-    note:"The same photography from the tile cache — quicker if it answers." },
-
   { id:"york2022", name:"York Region 2022", zOff:-10, maxNative:21, credit:"York Region",
     url:"https://ww2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YR_Imagery2022/MapServer/tile/{z}/{y}/{x}",
     note:"An earlier year, for comparing a tree against." },
@@ -6623,7 +6619,39 @@ function tileBBox3857(x, y, z){
 function exportTileUrl(src, x, y, z){
   return src.url + "/export?bbox=" + tileBBox3857(x, y, z) +
          "&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&transparent=false" +
-         "&layers=show:" + (src.layer != null ? src.layer : 0) + "&f=image";
+         "&layers=show:" + (src.drawLayer != null ? src.drawLayer : (src.layer != null ? src.layer : 0)) +
+         "&f=image";
+}
+
+/* A mosaic layer is a PARENT with three children — Boundary, Footprint and Image.
+   Asking for the parent draws all three, and the footprints are the green 1 km grid
+   over the photography: those are the GeoTIFF tile edges the imagery was delivered
+   in, not anything on the ground.
+
+   Which child is the image varies by service, so the app ASKS: it reads the layer
+   list and picks the child of the chosen mosaic whose name says Image. Guessing an
+   id is what went wrong twice already. If the service will not answer — an older
+   server, or no CORS header — it falls back to the parent, which draws the grid but
+   at least shows the photography. */
+function resolveExportLayer(src){
+  if(src.drawLayer != null) return Promise.resolve();
+  let cached = {};
+  try{ cached = JSON.parse(STORE&&STORE.getItem("st_imglayer")) || {}; }catch(e){}
+  if(cached[src.id] != null){ src.drawLayer = cached[src.id]; return Promise.resolve(); }
+
+  return fetch(src.url + "?f=json")
+    .then(r=>r.json())
+    .then(j=>{
+      const layers = (j && j.layers) || [];
+      const parent = (src.layer != null) ? src.layer : 0;
+      const kid = layers.find(l => l.parentLayerId === parent && /image/i.test(l.name||""));
+      if(kid){
+        src.drawLayer = kid.id;
+        cached[src.id] = kid.id;
+        if(STORE){ try{ STORE.setItem("st_imglayer", JSON.stringify(cached)); }catch(e){} }
+      }
+    })
+    .catch(()=>{});      // the photography still draws; only the grid remains
 }
 /* Built ON FIRST USE, not at parse time. Leaflet is loaded on demand further up, so
    anything that touches L at the top level runs before L exists, throws, and takes
@@ -6700,6 +6728,15 @@ async function testImagery(){
 function setImagery(id){
   if(id==="custom" && !IMAGERY.find(s=>s.id==="custom").url){ customImagery(); return; }
   imageryId = id;
+  const chosen = IMAGERY.find(s=>s.id===id);
+  if(chosen && chosen.type==="export"){
+    // Resolve first, then draw, so the first tiles already exclude the footprints.
+    resolveExportLayer(chosen).then(()=>{ setBase(0); });
+    if(STORE){ try{ STORE.setItem("st_imagery", id); }catch(e){} }
+    $("imgSheet").classList.remove("show");
+    toast(chosen.name);
+    return;
+  }
   if(STORE){ try{ STORE.setItem("st_imagery", id); }catch(e){} }
   setBase(0);                                  // redraw the aerial with the new source
   $("imgSheet").classList.remove("show");
