@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v90";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v93";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1775,6 +1775,10 @@ async function initMap(){
   const spi=$("sitePdfInput");
   if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) loadPdfOverlay(f); e.target.value=""; });
   setSheetSize(sheetSize);
+  // If the chosen aerial is a dynamic service and we have not learned its image
+  // sublayer yet, find it now and redraw — otherwise the first view shows the grid.
+  { const src = imagerySource();
+    if(src.type==="export" && src.drawLayer==null) resolveExportLayer(src).then(()=>setBase(0)); }
   loadRefLayers();
   loadCachedPdf_();
   renderFeats();
@@ -3093,6 +3097,38 @@ function estimateCrown(speciesName, dbhCm, stems){
 // Recomputes whenever species, DBH or stem count changes, unless a measured value
 // has been typed in — a real measurement always outranks an estimate.
 // One line summarising the protection section while it is collapsed.
+/* What a new tree starts with.
+
+   "Accept defaults" only ever MARKED fields as seen; a field with no value stayed
+   empty, so the risk chain never computed and the protection fields came out blank.
+   These are the values a tree takes unless the assessor says otherwise — the
+   ordinary case, which is what a default should be.
+
+   NOTE what this means for risk: with these in place every tree gets a rating
+   without anyone having assessed the target. That is the right trade only because
+   the field stays RED until it is touched, so an unconsidered rating is visible as
+   unconsidered. */
+const NEW_TREE_DEFAULTS = {
+  fTARGET:     "Occasional",
+  fCONSEQ:     "Minor",
+  fIMPACT_POT: "None",
+  fREC_ACT:    "No action required",
+  fLT_IMPACT:  "None anticipated",
+  fTAG_NO:     "NT"
+};
+function applyNewTreeDefaults(){
+  Object.keys(NEW_TREE_DEFAULTS).forEach(id=>{
+    const el = $(id);
+    if(!el) return;
+    if(String(el.value||"").trim()) return;            // never overwrite a real value
+    el.value = NEW_TREE_DEFAULTS[id];
+  });
+  // Occupancy drives the likelihood of impact, and both feed the rating.
+  if(typeof onDomainChange==="function"){ try{ onDomainChange("TARGET"); }catch(e){} }
+  paintMulti("IMPACT_POT"); paintMulti("REC_ACT");
+  refreshRisk();
+}
+
 function refreshTPPLine(){
   const el = $("tppWhy"); if(!el) return;
   const bits = [];
@@ -4294,6 +4330,9 @@ function confirmField(id){
 }
 function confirmAllPending(){
   let n=0;
+  // Fill before confirming: accepting a default that was never written left the
+  // field empty, which is not what "accept" reads as.
+  applyNewTreeDefaults();
   trackedIds().forEach(id=>{ if(pendingFields[id]){ confirmField(id); n++; } });
   if(pendingFields._species){ pendingFields._species=false; setState($("spPicker"),"changed"); n++; }
   if(pendingFields._health){ pendingFields._health=false; setState($("healthChips"),"changed"); n++; }
@@ -4497,6 +4536,14 @@ function openTree(i){
     $("tppCaret").textContent  = filled ? "▾" : "▸";
     refreshTPPLine();
   }
+
+  /* AFTER everything has been loaded from the tree, not before.
+
+     The first attempt filled the defaults early and the tree-protection block then
+     assigned t.TAG_NO || "" over the top, wiping them — which is why the tag,
+     potential impact and recommended action still came up empty. Defaults are the
+     last word on a new tree, so they go last. */
+  if(t._new) applyNewTreeDefaults();
 
   $("extRow").style.display = (t.EXT_ID || t.SOURCE==="import" || t.SOURCE==="reference") ? "block" : "none";
   $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
@@ -5074,6 +5121,25 @@ function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO
 /* Resolved when called, not at load: the URL constants are declared further down in
    the map-export section, and referencing them from here at load time threw a
    temporal-dead-zone error that stopped the whole app from starting. */
+/* One tile's URL, whatever kind of service the aerial happens to be.
+
+   A cached service substitutes {z}/{y}/{x}. A DYNAMIC service has no such template —
+   its URL is the MapServer itself and the tile is asked for by bounding box. The
+   map export and the offline download both did a blind .replace() on the template,
+   so with a dynamic aerial selected every request came out as the same malformed
+   URL, no tile ever resolved, and the export waited for ever with nothing to show
+   for it. */
+function satTileUrl(z, x, y){
+  const src = imagerySource();
+  if(src.type === "export") return exportTileUrl(src, x, y, z);
+  /* The level offset has to be applied HERE too. On the live map Leaflet applies it
+     through zoomOffset, but the export and the offline download build their own
+     URLs — without it they asked Simcoe for level 18 of a cache that stops at 11 and
+     got nothing back. */
+  const lvl = z + (src.zOff || 0);
+  return src.url.replace("{z}", lvl).replace("{x}", x).replace("{y}", y);
+}
+
 function tileSetUrl(set){
   // "sat" follows whichever aerial is chosen, so an offline area is saved from the
   // same imagery the map is showing — not always Esri.
@@ -6633,6 +6699,14 @@ function exportTileUrl(src, x, y, z){
    id is what went wrong twice already. If the service will not answer — an older
    server, or no CORS header — it falls back to the parent, which draws the grid but
    at least shows the photography. */
+/* Hydrated at load, so the FIRST draw already uses the image sublayer. Without
+   this the app opened on the mosaic parent and drew the footprint grid until the
+   source was switched by hand. */
+(function(){ try{
+  const c = JSON.parse(STORE&&STORE.getItem("st_imglayer")) || null;
+  if(c) IMAGERY.forEach(s=>{ if(c[s.id] != null) s.drawLayer = c[s.id]; });
+}catch(e){} })();
+
 function resolveExportLayer(src){
   if(src.drawLayer != null) return Promise.resolve();
   let cached = {};
@@ -7900,11 +7974,19 @@ function mapSheetTrees(){
   });
 }
 
+/* Every failure used to be silent: these are async and nothing caught them, so a
+   thrown error left the status line mid-sentence and no PDF, with nothing to say
+   why. A long job that cannot finish must at least say so. */
 async function runMapExport(){
   closeMapOpt();
   const mode = $("mapSheets").value;
-  if(mode==="series") return runSeriesExport();
-  return runSingleExport({});
+  try{
+    if(mode==="series") await runSeriesExport();
+    else await runSingleExport({});
+  }catch(err){
+    setStatus(`${visibleTrees().length} trees on device`);
+    toast("Map export failed: " + String(err && err.message || err).slice(0,120), true);
+  }
 }
 
 async function runSingleExport(opt){
@@ -7967,7 +8049,7 @@ async function runSingleExport(opt){
   const tiles=[];
   for(let i=0;i<want.length;i+=8){
     const got = await Promise.all(want.slice(i,i+8).map(t=>
-      loadTile(tileSetUrl("sat").replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),"sat",z,t.tx,t.ty)
+      loadTile(satTileUrl(z, t.tx, t.ty), "sat", z, t.tx, t.ty)
         .then(im=>({im,tx:t.tx,ty:t.ty}))));
     got.forEach(x=>tiles.push(x));
     if(want.length>60) setStatus(`Map export: ${Math.min(i+8,want.length)} of ${want.length} tiles`);
@@ -7980,7 +8062,8 @@ async function runSingleExport(opt){
     for(const [url,into] of [[ROADS_URL,"r"],[PLACES_URL,"p"]]){
       for(let i=0;i<want.length;i+=8){
         const got = await Promise.all(want.slice(i,i+8).map(t=>
-          loadTile(url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),
+          loadTile((set==="sat" ? satTileUrl(z,t.tx,t.ty)
+                                : url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty)),
                    into==="r"?"road":"place", z, t.tx, t.ty)
             .then(im=>({im,tx:t.tx,ty:t.ty}))));
         got.forEach(x=> into==="r" ? roadTiles.push(x) : placeTiles.push(x));
@@ -8116,6 +8199,7 @@ async function runSingleExport(opt){
     const extra = await buildPhotoPages(shown, W, H, M, title);
     extra.forEach(p=>pages.push(p));
   }
+  if(!pages.length) throw new Error("no pages were produced");
   const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72);
   const blob = new Blob([bytes],{type:"application/pdf"});
   const url = URL.createObjectURL(blob), a=document.createElement("a");
@@ -9152,7 +9236,7 @@ function showHelp(){
     <p><b>Parcel and road layers — where accurate addresses come from</b><br>Load your parcel fabric and street centrelines the same way, as zipped shapefiles, under <b>Menu → Layers → Add reference layer</b>. When each one loads you are asked what it is for, and which column holds the value:</p>
     <p><b>Any other layer you find useful</b><br>Load as many as you like: aerial-derived boundaries, hydro corridors, sidewalks, ward boundaries, last year's plantings. Points, lines and polygons all draw. A layer left as <i>Backdrop only</i> is never edited and never exported — it is there to help you work. Each gets its own colour, an on/off switch, a zoom-to button, and its own label settings, so you can label parcels with their roll number while trees show species and DBH.</p>
     <div class="stath" style="margin:16px 0 8px">FILLING THE FORM</div>
-    <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
+    <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. A new tree also starts with sensible values already in place — target occupancy, consequences, potential impact, recommended action and long-term impact — so the risk rating computes from the moment the form opens. They are still red until you touch them, so an untouched rating reads as untouched. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
