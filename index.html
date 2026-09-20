@@ -955,9 +955,10 @@
     <div id="driveBody"></div>
     <div class="btnrow">
       <button class="primary" onclick="document.getElementById('layerUpInput').click()">Add a layer to Drive</button>
+      <button onclick="checkEmailedLayers()" id="btnMail">📧 Check email</button>
       <button onclick="document.getElementById('driveSheet').classList.remove('show')">Close</button>
     </div>
-    <div class="mini">Anyone can also email one in: send it to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached.</div>
+    <div class="mini" id="mailLine">A plan can also be emailed to the account that owns the Sheet with <b>TREE LAYER</b> in the subject. Tap <b>Check email</b> to fetch it.</div>
   </div>
 </div>
 <input id="layerUpInput" type="file" accept=".pdf,.zip,.geojson,.json,.kml,.gpx" style="display:none">
@@ -1240,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v83";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v84";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -6390,6 +6391,33 @@ function renderDrive(){
          <span class="ct">${esc(x.kind)}${x.kb?" · "+x.kb+" KB":""}${x.when?" · "+esc(x.when):""}</span>
        </button>`).join("");
 }
+/* Pulled on demand rather than on a timer. A timer tight enough to be useful would
+   run all day for the few minutes it matters, and Apps Script's daily runtime is
+   shared with everything else the backend does — the phones syncing, the comment
+   tidy. Better that whoever is waiting for the plan asks for it. */
+function checkEmailedLayers(){
+  if(!connected || isOffline()){ toast("Needs a connection",true); return; }
+  const b=$("btnMail"); if(b){ b.disabled=true; b.textContent="Checking…"; }
+  $("mailLine").textContent = "Looking in the mailbox…";
+  jsonpGet("maillayers", {}, r=>{
+    if(b){ b.disabled=false; b.textContent="📧 Check email"; }
+    if(!r || !r.ok){
+      $("mailLine").textContent = (r && r.error) ? r.error : "Could not reach the Sheet.";
+      return;
+    }
+    const refused = (r.refused && r.refused.length)
+      ? ` · ignored ${r.refused.length} from senders not on the list` : "";
+    if(r.saved){
+      $("mailLine").textContent = `${r.saved} file(s) collected: ${r.names.join(", ")}${refused}`;
+      toast(`${r.saved} layer(s) collected from email`);
+      openDriveLayers();                      // the list is now out of date
+    } else {
+      $("mailLine").textContent = "Nothing new in the mailbox" + refused +
+        ". Send one with TREE LAYER in the subject.";
+    }
+  });
+}
+
 /* Sending a layer up from the phone. Chunked, because a site plan is bigger than
    one request should carry; the Sheet only writes the file when the last chunk
    lands, so a dropped connection leaves nothing half-written. */
@@ -8922,7 +8950,7 @@ function showHelp(){
     <p><b>Fences and plantings</b><br><i>Menu → Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap and asks for species and stock size using the same species picker the inventory uses. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
     <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
-    <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached; <i>Tree Tools → Collect layers emailed in</i> files the attachments, and an hourly trigger can do it unattended.</p>
+    <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
     <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri world imagery and municipal orthos — York Region 2025 and Simcoe County. Municipal imagery is sharper and more current over its own ground. It is served live so it needs a connection; the tiles you save for offline use are Esri.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
