@@ -598,7 +598,10 @@
       <button class="mhead" onclick="toggleGroup('layers')">📥 Bring data in<span class="caret">▸</span></button>
       <div class="mbody">
         <button class="menuitem" onclick="document.getElementById('pointsInput').click()">Import tree points (.zip .shp .geojson .gpx)</button>
+        <button class="menuitem" onclick="document.getElementById('sitePdfInput').click()">Site plan — georeferenced PDF</button>
         <button class="menuitem" onclick="openLayers()">Layers &amp; reference files</button>
+        <button class="menuitem" onclick="openDriveLayers()">☁ Layers on Drive — shared with the crew</button>
+        <button class="menuitem" onclick="openImagery()">Aerial imagery source</button>
         <button class="menuitem" onclick="openOffline()">Save imagery for offline use</button>
         <button class="menuitem" onclick="openLabels('trees')">Label settings</button>
       </div>
@@ -638,10 +641,7 @@
       </div>
     </div>
 
-    <div class="mini" id="tppHint" style="display:none;padding:8px 10px;line-height:1.5;opacity:.8">
-      Doing a tree protection plan? Turn it on in <b>Settings &amp; help → Cruiser, project &amp; ID settings</b>
-      and the fence, plantings, schedules and document assembly appear here.
-    </div>
+    <button class="menuitem" id="tppSwitch" onclick="toggleProjectMode()" style="margin:6px 0">—</button>
 
     <div class="mgroup" id="g_review">
       <button class="mhead" onclick="toggleGroup('review')">📊 Review<span class="caret">▸</span></button>
@@ -908,6 +908,8 @@
     <div class="fld" id="mapScaleRow" style="display:none">
       <label>Scale of each sheet</label>
       <select id="mapScale" onchange="refreshSheetEstimate()">
+        <option value="250">1:250 — a single tree and its zone</option>
+        <option value="350">1:350 — a few trees, plan detail</option>
         <option value="500">1:500 — individual trees, very close</option>
         <option value="1000" selected>1:1,000 — a street at a time</option>
         <option value="2000">1:2,000 — a block at a time</option>
@@ -916,6 +918,13 @@
       <div class="mini" id="mapSheetEst">—</div>
     </div>
 
+    <div class="fld">
+      <label>Sheet size</label>
+      <select id="mapSheetSize" onchange="setSheetSize(this.value)">
+        <option value="tabloid">17 × 11 in (tabloid) — plan sets</option>
+        <option value="letter">11 × 8.5 in (letter)</option>
+      </select>
+    </div>
     <div class="fld">
       <label>Standard details</label>
       <select id="mapDetails">
@@ -938,6 +947,31 @@
   </div>
 </div>
 
+<!-- ===== drive layers ===== -->
+<div class="sheet" id="driveSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Layers on Drive</h2>
+    <div id="driveBody"></div>
+    <div class="btnrow">
+      <button class="primary" onclick="document.getElementById('layerUpInput').click()">Add a layer to Drive</button>
+      <button onclick="document.getElementById('driveSheet').classList.remove('show')">Close</button>
+    </div>
+    <div class="mini">Anyone can also email one in: send it to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached.</div>
+  </div>
+</div>
+<input id="layerUpInput" type="file" accept=".pdf,.zip,.geojson,.json,.kml,.gpx" style="display:none">
+
+<!-- ===== imagery ===== -->
+<div class="sheet" id="imgSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Aerial imagery</h2>
+    <div id="imgList"></div>
+    <div class="btnrow"><button onclick="document.getElementById('imgSheet').classList.remove('show')">Close</button></div>
+  </div>
+</div>
+
 <!-- ===== document assembly ===== -->
 <div class="sheet" id="docSheet">
   <div class="sheet-inner">
@@ -954,6 +988,15 @@
         </select>
       </div>
       <div class="fld" id="docPrefixRow"><label>Prefix</label><input id="docPrefix" type="text" value="TPP"></div>
+    </div>
+    <div class="row2">
+      <div class="fld"><label>Sheet size</label>
+        <select id="docSheetSize" onchange="setSheetSize(this.value)">
+          <option value="tabloid">17 × 11 in (tabloid)</option>
+          <option value="letter">11 × 8.5 in (letter)</option>
+        </select>
+      </div>
+      <div class="fld"></div>
     </div>
 
     <div id="docList"></div>
@@ -1197,7 +1240,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v78";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v83";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1722,12 +1765,15 @@ async function initMap(){
   refGroup = L.layerGroup().addTo(fmap);
   pinLayer = L.layerGroup().addTo(fmap);
   labelLayer = L.layerGroup().addTo(fmap);
+  const lui=$("layerUpInput");
+  if(lui) lui.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) uploadLayerFile(f); e.target.value=""; });
   const dci=$("docInput");
   if(dci) dci.addEventListener("change", e=>{ if(e.target.files.length) addDocPdfs(e.target.files); e.target.value=""; });
   const di=$("detailInput");
   if(di) di.addEventListener("change", e=>{ if(e.target.files.length) addDetailFiles(e.target.files); e.target.value=""; });
   const spi=$("sitePdfInput");
   if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) loadPdfOverlay(f); e.target.value=""; });
+  setSheetSize(sheetSize);
   loadRefLayers();
   loadCachedPdf_();
   renderFeats();
@@ -1747,8 +1793,19 @@ function setBase(i){
   baseIdx = i % BASES.length;
   const b = BASES[baseIdx];
   if(baseLayer) fmap.removeLayer(baseLayer);
-  baseLayer = (baseIdx===0 ? offlineTileLayer(b[1],"sat",{maxZoom:b[2],maxNativeZoom:b[3]})
-                           : L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]})).addTo(fmap);
+  /* Position 0 is "aerial", and WHICH aerial is the user's choice — Esri by default,
+     or a municipal ortho where one covers the ground. The other positions are the
+     street and topographic maps and are unaffected. */
+  if(baseIdx===0){
+    const src = imagerySource();
+    baseLayer = (src.type==="wms"
+      ? L.tileLayer.wms(src.url,{layers:src.layers,format:"image/jpeg",transparent:false,
+          maxZoom:src.max,attribution:src.credit})
+      : offlineTileLayer(src.url,"sat",{maxZoom:b[2],maxNativeZoom:src.maxNative||b[3],
+          attribution:src.credit})).addTo(fmap);
+  } else {
+    baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
+  }
   baseLayer.setZIndex(0);
   $("btnBase").textContent = BASES[(baseIdx+1)%BASES.length][0];
   applyRoads();
@@ -6005,7 +6062,8 @@ async function schedulePhotoPages(W,H){
  *  This does that: every section, generated or uploaded, in an order the user sets,
  *  with the contents built from the ACTUAL page counts afterwards.
  * ================================================================== */
-const DOC_W_IN = 11, DOC_H_IN = 8.5;      // letter landscape, as the plan sheets are
+// Set from the sheet size so the document and the plan sheets always match.
+let DOC_W_IN = 17, DOC_H_IN = 11;
 
 /* Uploaded PDFs are rasterised page by page with pdf.js — the same library the
    georeferenced plans use. Merging PDF objects properly would mean a full writer;
@@ -6050,6 +6108,7 @@ function defaultSections(){
 }
 function openDoc(){
   closeMenu();
+  $("docSheetSize").value = sheetSize;
   renderDoc();
   $("docSheet").classList.add("show");
 }
@@ -6294,6 +6353,129 @@ function docTableRows(which){
   if(which==="table1")   return speciesByLocationRows(list);
   if(which==="plantlist") return plantListRows();
   return [];
+}
+
+/* ---------- shared layers, held on Drive ---------- */
+/* One folder the whole crew sees, rather than every phone carrying its own copy of
+   every site plan. Files are fetched ONE AT A TIME ON DEMAND and not kept on the
+   phone: a set of site plans can run to hundreds of megabytes, which no phone
+   should be asked to hold. The folder is the library; the device holds what is open. */
+let driveItems = [], driveBusy = "";
+function openDriveLayers(){
+  closeMenu();
+  $("driveBody").innerHTML = "Loading the list…";
+  $("driveSheet").classList.add("show");
+  if(!connected || isOffline()){
+    $("driveBody").innerHTML = "<div class='mini'>Offline — layers already loaded still work, but this list needs a connection.</div>";
+    return;
+  }
+  jsonpGet("layerlist", {}, r=>{
+    if(!r || !r.ok){ $("driveBody").innerHTML = "<div class='mini'>Could not reach the Sheet.</div>"; return; }
+    driveItems = r.items || [];
+    renderDrive();
+  });
+}
+function renderDrive(){
+  const box = $("driveBody");
+  if(driveBusy){ box.innerHTML = `<div class="mini">Loading <b>${esc(driveBusy)}</b>…</div>`; return; }
+  if(!driveItems.length){
+    box.innerHTML = `<div class="mini">Nothing in the shared folder yet.<br><br>Put site plans (georeferenced PDF), boundaries and reference files into the <b>Street Tree Layers</b> folder in Drive and they appear here for everyone.</div>`;
+    return;
+  }
+  const icon = k => k==="pdf" ? "🗺" : (k==="shapefile"||k==="geojson"||k==="kml"||k==="gpx") ? "⬇" : "📄";
+  box.innerHTML = `<div class="mini" style="margin-bottom:8px">Tap a file to put it on the map. It is fetched when you tap it and not stored on the phone.</div>` +
+    driveItems.map((x,i)=>
+      `<button class="menuitem" onclick="drivePick(${i})">
+         ${icon(x.kind)} ${esc(x.name)}
+         <span class="ct">${esc(x.kind)}${x.kb?" · "+x.kb+" KB":""}${x.when?" · "+esc(x.when):""}</span>
+       </button>`).join("");
+}
+/* Sending a layer up from the phone. Chunked, because a site plan is bigger than
+   one request should carry; the Sheet only writes the file when the last chunk
+   lands, so a dropped connection leaves nothing half-written. */
+const UP_CHUNK = 3 * 1024 * 1024;        // ~3 MB of base64 per request
+function uploadLayerFile(file){
+  if(!connected || isOffline()){ toast("Needs a connection",true); return; }
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let b64 = String(reader.result||"");
+    b64 = b64.slice(b64.indexOf(",")+1);
+    const parts = Math.max(1, Math.ceil(b64.length/UP_CHUNK));
+    const uploadId = "u"+Date.now().toString(36)+Math.floor(Math.random()*1e4);
+    let i = 0;
+    const send = ()=>{
+      if(i>=parts){
+        $("driveBody").innerHTML = "";
+        toast(`${file.name} uploaded`);
+        setTimeout(openDriveLayers, 1200);
+        return;
+      }
+      $("driveBody").innerHTML = `<div class="mini">Uploading <b>${esc(file.name)}</b> — part ${i+1} of ${parts}…</div>`;
+      fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+        headers:{"Content-Type":"text/plain;charset=utf-8"},
+        body: JSON.stringify({ _action:"layerput", uploadId:uploadId, part:i, parts:parts,
+                               name:file.name, mime:file.type||"application/octet-stream",
+                               by:settings.cruiser||"", data: b64.slice(i*UP_CHUNK,(i+1)*UP_CHUNK) }) })
+        .then(()=>{ i++; setTimeout(send, 400); })
+        .catch(()=>{ $("driveBody").innerHTML = `<div class="mini">Upload failed at part ${i+1}. Nothing was written — try again.</div>`; });
+    };
+    send();
+  };
+  reader.onerror = ()=>toast("Could not read that file",true);
+  reader.readAsDataURL(file);
+}
+
+function drivePick(i){
+  const it = driveItems[i]; if(!it) return;
+  driveBusy = it.name; renderDrive();
+  jsonpGet("layerget", {id:it.id}, r=>{
+    driveBusy = "";
+    if(!r || !r.ok || !r.data){ renderDrive(); toast((r&&r.error) || "Could not load that file", true); return; }
+    try{
+      const bin = atob(r.data), buf = new Uint8Array(bin.length);
+      for(let j=0;j<bin.length;j++) buf[j] = bin.charCodeAt(j);
+      let file;
+      try{ file = new File([buf], r.name, {type:r.mime||"application/octet-stream"}); }
+      catch(e){ file = new Blob([buf],{type:r.mime||"application/octet-stream"}); file.name = r.name; }
+      $("driveSheet").classList.remove("show");
+      if(r.kind==="pdf") loadPdfOverlay(file);
+      else importRefLayer(file);
+    }catch(e){ renderDrive(); toast("That file could not be read", true); }
+  });
+}
+
+/* ---------- aerial imagery sources ---------- */
+/* Esri is the default because it covers everywhere. The municipal orthos are far
+   sharper and more current over their own ground, and are what a plan should be
+   drawn on where they exist. */
+const IMAGERY = [
+  { id:"esri",  name:"Esri world imagery", max:22, maxNative:19, type:"xyz",
+    url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    credit:"Esri, Maxar, Earthstar Geographics" },
+  { id:"york",  name:"York Region ortho 2025", max:21, type:"wms",
+    url:"https://ww3.yorkmaps.ca/arcgis/rest/services/WMS/YorkRegion_OrthosImages_2025_WMS/MapServer/WMSServer",
+    layers:"0", credit:"York Region 2025 orthoimagery" },
+  { id:"simcoe", name:"Simcoe County imagery", max:21, type:"wms",
+    url:"https://opengis.simcoe.ca/geoserver/wms",
+    layers:"simcoe:Ortho2023", credit:"Simcoe County open GIS" }
+];
+let imageryId = "esri";
+try{ imageryId = (STORE&&STORE.getItem("st_imagery")) || "esri"; }catch(e){}
+function imagerySource(){ return IMAGERY.find(s=>s.id===imageryId) || IMAGERY[0]; }
+function openImagery(){
+  closeMenu();
+  $("imgList").innerHTML = IMAGERY.map(s=>
+    `<button class="menuitem${s.id===imageryId?" prime":""}" onclick="setImagery('${s.id}')">
+       ${s.id===imageryId?"✓ ":""}${esc(s.name)}<span class="ct">${esc(s.credit)}</span></button>`).join("") +
+    `<div class="mini" style="margin-top:10px">Municipal imagery is sharper and more current over its own ground. It is served live, so it needs a connection — the offline tiles you have saved are Esri.</div>`;
+  $("imgSheet").classList.add("show");
+}
+function setImagery(id){
+  imageryId = id;
+  if(STORE){ try{ STORE.setItem("st_imagery", id); }catch(e){} }
+  setBase(0);                                  // redraw the aerial with the new source
+  $("imgSheet").classList.remove("show");
+  toast(imagerySource().name + " — needs a connection; saved offline tiles are Esri");
 }
 
 /* ---------- standard detail drawings appended to the map PDF ---------- */
@@ -6559,7 +6741,7 @@ function exportYRCompensation(){
 /* One photograph per page on a 10 x 7.5 inch landscape sheet, captioned
    T<tree number>-<Common_name>-<Condition>, matching the existing schedules so a
    reviewer sees the same thing they are used to. */
-const SCHED_B_W_IN = 10, SCHED_B_H_IN = 7.5;
+const SCHED_B_W_IN = 10, SCHED_B_H_IN = 7.5;   // 4:3, as the existing appendices are
 
 function schedBCaption(t, seq){
   const no = treeNoFor(t, seq);
@@ -7351,7 +7533,31 @@ function renderPDF(buf,geo){
  *  a document, and they do not send the CORS headers a canvas export needs.
  * ================================================================== */
 const PDF_DPI = 200;
-const PDF_W_IN = 11, PDF_H_IN = 8.5;            // Letter, landscape
+/* Sheet size. The Arborist Report / Tree Preservation Plan for 1 Cynthia Crescent
+   is 17 x 11 in on every page, which is the usual size for a plan set — letter is
+   too small to read a site plan on. Both are offered; the choice is remembered and
+   drives the map sheets, the schedules, the tables and the assembled document, so
+   one document never mixes sizes. */
+const SHEET_SIZES = {
+  tabloid: { w:17, h:11,  name:"17 × 11 in (tabloid) — plan sets" },
+  letter:  { w:11, h:8.5, name:"11 × 8.5 in (letter)" }
+};
+let sheetSize = "tabloid";
+try{ sheetSize = (STORE&&STORE.getItem("st_sheet")) || "tabloid"; }catch(e){}
+function setSheetSize(k){
+  if(!SHEET_SIZES[k]) return;
+  sheetSize = k;
+  if(STORE){ try{ STORE.setItem("st_sheet", k); }catch(e){} }
+  PDF_W_IN = SHEET_SIZES[k].w; PDF_H_IN = SHEET_SIZES[k].h;
+  DOC_W_IN = PDF_W_IN; DOC_H_IN = PDF_H_IN;
+  /* Schedule B on its own keeps the 10 x 7.5 in page the existing appendices use —
+     4:3, so a photograph fills it with no bars. Inside the assembled document it is
+     rendered at the DOCUMENT size instead, because one document must not mix page
+     sizes. Both paths already take their dimensions separately, so nothing here
+     needs to change them. */
+  toast(SHEET_SIZES[k].name);
+}
+let PDF_W_IN = SHEET_SIZES[sheetSize].w, PDF_H_IN = SHEET_SIZES[sheetSize].h;
 const AERIAL_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 /* Roads and place names, drawn over the imagery. World Imagery carries no labels at
    all, so without this a reader cannot tell which street a tree is on — the one thing
@@ -7415,6 +7621,7 @@ function exportMapPDF(){
     : "No photos on the trees in view";
   $("mapPhotos").value = "0";
   $("mapSheets").value = "view";
+  $("mapSheetSize").value = sheetSize;
   mapSheetsChanged();
   $("mapOptSheet").classList.add("show");
 }
@@ -8061,13 +8268,29 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
   if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
 
+  /* The legend is laid out INSIDE the space left by the badge, not across a fixed
+     fraction of the panel. It used to run to 99% of the width in two fixed columns
+     and disappear underneath the red SHEET badge — "Tree protection zone" came out
+     as "Tree prote". Columns are now fitted to the room actually available. */
   const lx = x + Math.round(w*0.62), ly = top + Math.round(PDF_DPI*0.20);
+  const legendRight = badgeLeft - Math.round(PDF_DPI*0.18);
+  const availW = Math.max(Math.round(PDF_DPI*1.2), legendRight - lx);
+  const rowH = Math.round(PDF_DPI*0.145);
+  const maxRows = Math.max(1, Math.floor((panelH - Math.round(PDF_DPI*0.42)) / rowH));
+  // As many columns as fit, but never so many that a label has no room to be read.
+  const minColW = Math.round(PDF_DPI*1.05);
+  let cols = Math.max(1, Math.min(Math.floor(availW/minColW), Math.ceil(present.length/maxRows) || 1));
+  const colW = Math.floor(availW/cols);
+  // Narrower columns get a smaller face, so a full label still reads rather than
+  // being cut to "Tree protection zo…".
+  const lfs = (cols>1) ? PDF_DPI*0.082 : PDF_DPI*0.10;
+  const labelCh = Math.max(8, Math.floor((colW - Math.round(PDF_DPI*0.15)) / (lfs*0.52)));
+
   g.font=`bold ${Math.round(PDF_DPI*0.085)}px sans-serif`; g.fillStyle="#8fb59c";
   g.fillText("LEGEND — " + String(SYMBOL_LABEL[symbolMode]).toUpperCase(), lx, ly);
-  const rowH = Math.round(PDF_DPI*0.145), colW = Math.round(w*0.185);
-  g.font=`${Math.round(PDF_DPI*0.10)}px sans-serif`;
-  present.forEach((r,i)=>{
-    const col=i%2, row=Math.floor(i/2);
+  g.font=`${Math.round(lfs)}px sans-serif`;
+  present.slice(0, cols*maxRows).forEach((r,i)=>{
+    const col=i%cols, row=Math.floor(i/cols);
     const px2=lx+col*colW, py=ly+Math.round(PDF_DPI*0.16)+row*rowH;
     const cy=py-Math.round(PDF_DPI*0.035), rr=Math.round(PDF_DPI*0.045);
     g.strokeStyle="#fff"; g.lineWidth=2;
@@ -8083,7 +8306,9 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
       g.beginPath(); g.arc(px2+8, cy, rr, 0, 7);
       g.fillStyle=r.color; g.fill(); g.stroke();
     }
-    g.fillStyle="#e7ebe6"; g.fillText(r.label.slice(0,26), px2+Math.round(PDF_DPI*0.13), py);
+    g.fillStyle="#e7ebe6";
+    const lab = r.label.length>labelCh ? r.label.slice(0,labelCh-1)+"…" : r.label;
+    g.fillText(lab, px2+Math.round(PDF_DPI*0.13), py);
   });
   if(shown.some(t=>t._reviewed)){
     const py = ly+Math.round(PDF_DPI*0.16)+Math.ceil(present.length/2)*rowH;
@@ -8092,9 +8317,12 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     g.fillStyle="#e7ebe6"; g.fillText("Field checked", lx+Math.round(PDF_DPI*0.13), py);
   }
 
+  // Where the sheet badge sits, so the legend can keep clear of it.
+  const badgeW = Math.round(PDF_DPI*1.25), badgeGap = Math.round(PDF_DPI*0.20);
+  const badgeLeft = sheetNote ? (x + w - badgeW - badgeGap) : (x + w);
   if(sheetNote){
-    const bw=Math.round(PDF_DPI*1.25), bh=Math.round(PDF_DPI*0.34);
-    const bx=x+w-bw-Math.round(PDF_DPI*0.20), by=top+Math.round(PDF_DPI*0.16);
+    const bw=badgeW, bh=Math.round(PDF_DPI*0.34);
+    const bx=badgeLeft, by=top+Math.round(PDF_DPI*0.16);
     g.fillStyle="#FF1744"; g.fillRect(bx,by,bw,bh);
     g.fillStyle="#fff"; g.font=`bold ${Math.round(PDF_DPI*0.16)}px sans-serif`;
     g.textAlign="center"; g.textBaseline="middle";
@@ -8272,7 +8500,27 @@ function paintGroups(){
 function refreshMenuMode(){
   const on = isTPP(settings.project);
   const g = $("g_tpp"); if(g) g.style.display = on ? "block" : "none";
-  const h = $("tppHint"); if(h) h.style.display = on ? "none" : "block";
+  const b = $("tppSwitch");
+  if(b) b.innerHTML = on
+    ? `🛡 This project: <b>tree protection plan</b> <span class="ct">tap for plain inventory</span>`
+    : `🌳 This project: <b>tree inventory</b> <span class="ct">tap to add tree protection</span>`;
+}
+/* One tap, from the menu, because the setting was buried three levels down in
+   Settings and the start-of-project question is only ever asked once — so anyone
+   who answered "no", or who inherited an existing project, had no obvious way to
+   turn the protection fields and the document tools on. */
+function toggleProjectMode(){
+  const p = String(settings.project||"").trim();
+  if(!p){ toast("Set a project first, in Settings",true); return; }
+  const on = !isTPP(p);
+  if(on && !confirm(`Turn on tree protection for "${p}"?\n\n` +
+      `Adds potential impact, prognosis and recommended action to the tree form, and the ` +
+      `fence, plantings, schedules and document tools to the menu.`)) return;
+  if(!on && !confirm(`Switch "${p}" back to a plain tree inventory?\n\n` +
+      `Nothing already recorded is lost — the extra fields are just hidden.`)) return;
+  setTPP(p, on);
+  applyTPPMode(); refreshMenuMode();
+  toast(on ? "Tree protection on for this project" : "Plain inventory");
 }
 
 function openMenu(){
@@ -8669,9 +8917,13 @@ function showHelp(){
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
     <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
-    <p><b>The menu follows the job</b><br>Answer “tree protection plan” when the app asks at the start of a project and a <b>🛡 Tree protection &amp; reporting</b> group appears, holding everything for that work in the order you do it — on site, then the report tables, then the document. Answer “tree inventory” and the whole group stays hidden, so a crew recording street trees is not scrolling past schedules and plant lists to reach Sync. It follows the project, so the same phone can do both.</p>
+    <p><b>The menu follows the job</b><br>At the top of the menu a line reads <b>This project: tree inventory</b> or <b>tree protection plan</b> — tap it to change. On a tree protection plan the form gains potential impact, prognosis and recommended action, and a <b>🛡 Tree protection &amp; reporting</b> group appears with everything for that work in the order you do it: on site, then the report tables, then the document. On a plain inventory all of that stays hidden, so a crew recording street trees is not scrolling past schedules to reach Sync. It follows the project, so the same phone can do both, and nothing already recorded is lost by switching.</p>
     <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one paginated PDF. Tick the sections, order them with the arrows, and add your own PDFs — the arborist report, custom tables, figures — which are read page by page and merged. Page numbering is your choice: <b>TPP1, TPP2…</b> with an editable prefix, or plain numbers. The <b>contents page is built last, from the real page counts</b>, so it always matches. Tables are rendered from the same rows as the CSV exports, with the header repeated on every page.</p>
     <p><b>Fences and plantings</b><br><i>Menu → Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap and asks for species and stock size using the same species picker the inventory uses. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
+    <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
+    <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
+    <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached; <i>Tree Tools → Collect layers emailed in</i> files the attachments, and an hourly trigger can do it unattended.</p>
+    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri world imagery and municipal orthos — York Region 2025 and Simcoe County. Municipal imagery is sharper and more current over its own ground. It is served live so it needs a connection; the tiles you save for offline use are Esri.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
