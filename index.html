@@ -589,6 +589,7 @@
         <button class="menuitem" onclick="syncNow()">Sync now</button>
         <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
         <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
+        <button class="menuitem" onclick="reconcileWithSheet()">Check what the Sheet already has</button>
         <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
       </div>
@@ -947,6 +948,40 @@
   </div>
 </div>
 
+<!-- ===== fence / planting form ===== -->
+<div class="sheet" id="featSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2 id="featTitle">Feature</h2>
+
+    <div id="featPlantRows">
+      <div class="fld">
+        <label>Species</label>
+        <div class="picker" onclick="pickFeatSpecies()"><span class="val empty" id="featSpecies">Tap to choose</span><span style="color:var(--faint)">▸</span></div>
+      </div>
+      <div class="fld"><label>Stock size</label><select id="featStock"></select></div>
+    </div>
+
+    <div id="featFenceRows" style="display:none">
+      <div class="fld"><label>Fence type</label><select id="featType"></select></div>
+      <div class="fld"><label>Length</label><div class="picker"><span class="val" id="featLen">—</span></div></div>
+    </div>
+
+    <div class="fld">
+      <label>Address</label>
+      <input id="featAddress" type="text" placeholder="Fills in automatically…">
+      <div class="mini"><a href="#" onclick="lookupFeatAddress();return false;">Look up again</a></div>
+    </div>
+    <div class="fld"><label>Notes</label><textarea id="featNotes" rows="2" placeholder="Anything about this location"></textarea></div>
+
+    <div class="btnrow">
+      <button class="primary" onclick="saveFeat()">Save</button>
+      <button onclick="closeFeatForm()">Cancel</button>
+    </div>
+    <div class="btnrow"><button class="alt" id="featDelete" onclick="deleteFeatFromForm()" style="display:none">Delete this one</button></div>
+  </div>
+</div>
+
 <!-- ===== drive layers ===== -->
 <div class="sheet" id="driveSheet">
   <div class="sheet-inner">
@@ -1241,7 +1276,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v95";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v98";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -4722,9 +4757,11 @@ function deleteTree(){
   renderPins();
   if(!wasNew && connected && !isOffline()){
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"delete",TREE_ID:id})}).catch(()=>{});
+      body:JSON.stringify({_action:"delete",TREE_ID:id,by:settings.cruiser||""})}).catch(()=>{});
   }
-  if(lastDeleted) showUndo(`Deleted ${id}`); else toast("Discarded " + id);
+  // Undo is ten seconds on this phone; the Deleted tab is the real safety net.
+  if(lastDeleted) showUndo(`Deleted ${id} — kept on the Deleted tab`);
+  else toast("Discarded " + id);
 }
 
 
@@ -5489,6 +5526,56 @@ function syncNow(){
 function refreshPhotoLinks(){ closeMenu(); fetchPhotoLinks(false); }
 /* Verifies what actually landed and automatically re-sends the rest. Runs a couple of
    passes: a chunk that failed on a busy Sheet usually succeeds on the retry. */
+/* Reconciling the other way.
+
+   verifyAndRetry only ever looked at trees ALREADY MARKED SENT, asking whether the
+   Sheet still had them. It never asked the opposite question — is a tree marked
+   unsynced in fact already on the Sheet? — so a row that uploaded successfully but
+   whose flag was never cleared stayed "unsynced" for good, and every later sync
+   re-posted it.
+
+   Deliberate rather than automatic, because an unsynced flag can also mean a real
+   local edit made after the upload. Marking that as sent would stop the edit ever
+   reaching the Sheet, so the count is shown and the decision is the user's. */
+function reconcileWithSheet(){
+  closeMenu();
+  if(!connected || isOffline()){ toast("Needs a connection",true); return; }
+  const cb="__rc"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
+  const sc=document.createElement("script");
+  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
+                      if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  setStatus("Asking the Sheet what it already has…");
+  window[cb]=resp=>{
+    try{
+      const have={}; ((resp&&resp.ids)||[]).forEach(id=>have[String(id).trim()]=1);
+      const pending = trees.filter(t=>!t._sent);
+      const onSheet = pending.filter(t=>have[t.TREE_ID]);
+      const notThere = pending.length - onSheet.length;
+      setStatus(`${visibleTrees().length} trees on device`);
+      if(!pending.length){ toast("Nothing was waiting to sync"); cleanup(); return; }
+      if(!onSheet.length){
+        toast(`${pending.length} tree(s) really are missing from the Sheet — tap Sync`,true);
+        cleanup(); return;
+      }
+      if(confirm(`${onSheet.length} of the ${pending.length} tree(s) marked unsynced are already on the Sheet.\n\n` +
+        `Mark them as synced?\n\n` +
+        `Only do this if you have not edited them since. Any edit made after they were ` +
+        `uploaded would stop being sent.` +
+        (notThere ? `\n\n${notThere} genuinely missing tree(s) stay queued.` : ""))){
+        onSheet.forEach(t=>t._sent=true);
+        persistTrees();
+        renderPins();          // the header count is written here
+        toast(`${onSheet.length} marked as synced` + (notThere?` · ${notThere} still queued`:""));
+      }
+    }catch(e){ toast("Could not read the Sheet",true); }
+    cleanup();
+  };
+  sc.onerror=()=>{ setStatus(`${visibleTrees().length} trees on device`);
+                   toast("Could not reach the Sheet",true); cleanup(); };
+  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
+  document.body.appendChild(sc);
+}
+
 function verifyAndRetry(pass){
   if(!connected || isOffline()) return;
   const cb="__vr"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
@@ -5879,6 +5966,13 @@ function featsIn(project){
   const p = String(project===undefined ? (filterProject || (showAllProjects?"":settings.project) || "") : project);
   return feats.filter(f=> !p || String(f.project||"")===p );
 }
+const FENCE_D = [
+  ["Tree protection fence — 1.2 m orange plastic on T-posts at 2.5 m","Standard barrier — 1.2 m orange on T-posts"],
+  ["Solid hoarding — 3/8 in plywood on a 2x4 frame","Solid hoarding"],
+  ["Tree protection fence with silt fencing","Barrier combined with silt fencing"],
+  ["Root zone compaction protection","Root zone compaction protection"],
+  ["Existing fence used as the barrier","An existing fence used as the barrier"]
+];
 const STOCK_D = [
   ["50-60mm WB","50-60 mm caliper, wire basket"],
   ["60-70mm WB","60-70 mm caliper, wire basket"],
@@ -5942,38 +6036,111 @@ function cancelDraw(){
 function finishDraw(){
   if(drawMode==="fence"){
     if(drawPts.length<2){ toast("A fence needs at least two points",true); return; }
-    const type = prompt("Fence type:\n\nOK for the standard barrier, or type your own.",
-                        "Tree protection fence — 1.2 m orange plastic on T-posts at 2.5 m");
-    if(type===null){ return; }
-    feats.push({ id:"F"+Date.now().toString(36).toUpperCase(), kind:"fence",
-                 project: settings.project||"", pts: drawPts.slice(),
-                 type: normText(type)||"Tree protection fence",
-                 length_m: Math.round(fenceLength(drawPts)*10)/10,
-                 by: settings.cruiser||"", date: nowStr(), _sent:false });
-    persistFeats(); renderFeats();
-    toast(`Fence recorded · ${fenceLength(drawPts).toFixed(0)} m`);
+    editFeat = { id:"F"+Date.now().toString(36).toUpperCase(), kind:"fence",
+                 project: currentProject(), pts: drawPts.slice(),
+                 type: FENCE_D[0][0], length_m: Math.round(fenceLength(drawPts)*10)/10,
+                 address:"", notes:"", by: settings.cruiser||"", date: nowStr(),
+                 _sent:false, _isNew:true };
+    cancelDraw();
+    openFeatForm();
+    lookupFeatAddress();
+    return;
   }
   cancelDraw();
-  setTimeout(syncFeats, 600);
 }
 /* A planting is a point with a species from the same list the trees use, so the
    plant list and the inventory speak the same language. */
-let pendingPlant = null;
+/* A proper form rather than a chain of prompts. A planting is a record in its own
+   right — it carries the species, what stock to order, where it is, and any note
+   about the location — and prompt() cannot collect that without becoming a
+   interrogation. */
+let editFeat = null;
 function addPlantingAt(lat, lon){
-  pendingPlant = { lat, lon };
+  editFeat = { id:"P"+Date.now().toString(36).toUpperCase(), kind:"planting",
+               project: currentProject(), pts:[[lat,lon]],
+               species:"", stock: lastStock || "50-60mm WB", address:"", notes:"",
+               by: settings.cruiser||"", date: nowStr(), _sent:false, _isNew:true };
+  openFeatForm();
+  // The address is looked up the same way a tree's is, so both read alike.
+  lookupFeatAddress();
+}
+function openFeatForm(){
+  const f = editFeat; if(!f) return;
+  const planting = f.kind === "planting";
+  $("featTitle").textContent = planting
+    ? (f._isNew ? "Proposed planting" : "Edit planting")
+    : (f._isNew ? "Tree protection fence" : "Edit fence");
+  $("featPlantRows").style.display = planting ? "block" : "none";
+  $("featFenceRows").style.display = planting ? "none" : "block";
+  if(planting){
+    $("featSpecies").textContent = f.species || "Tap to choose";
+    $("featSpecies").classList.toggle("empty", !f.species);
+    fillSelect($("featStock"), STOCK_D, f.stock);
+  } else {
+    fillSelect($("featType"), FENCE_D, f.type || FENCE_D[0][0]);
+    $("featLen").textContent = (f.length_m || 0) + " m";
+  }
+  $("featAddress").value = f.address || "";
+  $("featNotes").value = f.notes || "";
+  $("featDelete").style.display = f._isNew ? "none" : "block";
+  $("featSheet").classList.add("show");
+}
+function fillSelect(el, pairs, val){
+  if(!el) return;
+  el.innerHTML = pairs.map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+  if(val) el.value = val;
+}
+function pickFeatSpecies(){
   openSpecies(sp=>{
-    const stock = prompt("Stock size:\n\n" + STOCK_D.map(s=>s[0]).join(" / "), lastStock||"50-60mm WB");
-    if(stock===null){ pendingPlant=null; return; }
-    lastStock = normText(stock);
-    feats.push({ id:"P"+Date.now().toString(36).toUpperCase(), kind:"planting",
-                 project: settings.project||"", pts:[[lat,lon]],
-                 species: sp, stock: lastStock,
-                 by: settings.cruiser||"", date: nowStr(), _sent:false });
-    persistFeats(); renderFeats();
-    pendingPlant = null;
-    toast(`${sp} planted here`);
-    setTimeout(syncFeats, 600);
+    if(editFeat) editFeat.species = sp;
+    $("featSpecies").textContent = sp;
+    $("featSpecies").classList.remove("empty");
   });
+}
+function lookupFeatAddress(){
+  const f = editFeat; if(!f || !f.pts.length) return;
+  const [la, lo] = f.pts[0];
+  const hit = addressFromParcels(la, lo);
+  if(hit && hit.value){ f.address = hit.value; const el=$("featAddress"); if(el) el.value = hit.value; return; }
+  if(!connected || isOffline()) return;
+  // The same two-geocoder lookup the trees use, including its distance rejection.
+  reverseGeocode(la, lo).then(r=>{
+    const a = r && r.address;
+    if(a && editFeat===f){ f.address = a; const el=$("featAddress"); if(el) el.value = a; }
+  }).catch(()=>{});
+}
+function saveFeat(){
+  const f = editFeat; if(!f) return;
+  if(f.kind === "planting"){
+    if(!f.species){ toast("Choose a species first", true); return; }
+    f.stock = $("featStock").value;
+    lastStock = f.stock;
+    if(STORE){ try{ STORE.setItem("st_stock", lastStock); }catch(e){} }
+  } else {
+    f.type = $("featType").value;
+  }
+  f.address = normText($("featAddress").value);
+  f.notes   = normText($("featNotes").value);
+  f._sent = false;
+  if(f._isNew){ delete f._isNew; feats.push(f); }
+  persistFeats(); renderFeats();
+  closeFeatForm();
+  toast(f.kind === "planting" ? `${f.species} recorded` : `Fence recorded · ${f.length_m} m`);
+  setTimeout(syncFeats, 600);
+}
+function closeFeatForm(){ $("featSheet").classList.remove("show"); editFeat = null; }
+function editFeatById(id){
+  const f = feats.find(x=>x.id===id);
+  if(!f) return;
+  fmap.closePopup();
+  editFeat = f;
+  openFeatForm();
+}
+function deleteFeatFromForm(){
+  if(!editFeat || editFeat._isNew) return;
+  const id = editFeat.id;
+  closeFeatForm();
+  deleteFeat(id);
 }
 let lastStock = "";
 try{ lastStock = (STORE&&STORE.getItem("st_stock")) || "50-60mm WB"; }catch(e){}
@@ -5987,12 +6154,14 @@ function renderFeats(){
     if(f.kind==="fence" && f.pts.length>1){
       shapes.push(L.polyline(f.pts,{color:"#FF6D00",weight:4,pane:"refPane"})
         .bindPopup(`<b>Tree protection fence</b><br>${esc(f.type||"")}<br>${f.length_m} m` +
-                   `<br><button onclick="deleteFeat('${f.id}')">Delete</button>`));
+                   (f.address?`<br>${esc(f.address)}`:"") + (f.notes?`<br>${esc(f.notes)}`:"") +
+                   `<br><button onclick="editFeatById('${f.id}')">Edit</button>`));
     } else if(f.kind==="planting"){
       shapes.push(L.circleMarker(f.pts[0],{radius:7,color:"#1B5E20",weight:2,
         fillColor:"#66BB6A",fillOpacity:.95,pane:"pinPane"})
         .bindPopup(`<b>Proposed planting</b><br>${esc(f.species||"")}<br>${esc(f.stock||"")}` +
-                   `<br><button onclick="deleteFeat('${f.id}')">Delete</button>`));
+                   (f.address?`<br>${esc(f.address)}`:"") + (f.notes?`<br>${esc(f.notes)}`:"") +
+                   `<br><button onclick="editFeatById('${f.id}')">Edit</button>`));
     }
   });
   if(shapes.length) featLayer = L.layerGroup(shapes).addTo(fmap);
@@ -6026,9 +6195,10 @@ function exportFeatsGeoJSON(){
       : { type:"Point", coordinates: [+f.pts[0][1], +f.pts[0][0]] },
     properties: f.kind==="fence"
       ? { ID:f.id, KIND:"fence", PROJECT:f.project||"", TYPE:f.type||"", LENGTH_M:f.length_m||0,
-          BY:f.by||"", DATE:f.date||"" }
+          ADDRESS:f.address||"", NOTES:f.notes||"", BY:f.by||"", DATE:f.date||"" }
       : { ID:f.id, KIND:"planting", PROJECT:f.project||"", SPECIES:f.species||"",
-          BOTANICAL:(taxonFor(f.species)[0]||""), STOCK:f.stock||"", BY:f.by||"", DATE:f.date||"" }
+          BOTANICAL:(taxonFor(f.species)[0]||""), STOCK:f.stock||"",
+          ADDRESS:f.address||"", NOTES:f.notes||"", BY:f.by||"", DATE:f.date||"" }
   }))};
   downloadText(JSON.stringify(fc,null,1),
     `FencesAndPlantings_${exportTag()}_${nowStr().slice(0,10)}.geojson`, "application/geo+json");
@@ -9294,7 +9464,7 @@ function showHelp(){
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
     <p><b>The menu follows the job</b><br>At the top of the menu a line reads <b>This project: tree inventory</b> or <b>tree protection plan</b> — tap it to change. On a tree protection plan the form gains potential impact, prognosis and recommended action, and a <b>🛡 Tree protection &amp; reporting</b> group appears with everything for that work in the order you do it: on site, then the report tables, then the document. On a plain inventory all of that stays hidden, so a crew recording street trees is not scrolling past schedules to reach Sync. It follows the project, so the same phone can do both, and nothing already recorded is lost by switching.</p>
     <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one paginated PDF. Tick the sections, order them with the arrows, and add your own PDFs — the arborist report, custom tables, figures — which are read page by page and merged. Page numbering is your choice: <b>TPP1, TPP2…</b> with an editable prefix, or plain numbers. The <b>contents page is built last, from the real page counts</b>, so it always matches. Tables are rendered from the same rows as the CSV exports, with the header repeated on every page.</p>
-    <p><b>Fences and plantings</b><br><i>Menu → Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap and asks for species and stock size using the same species picker the inventory uses. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
+    <p><b>Fences and plantings</b><br>Both live under <i>🛡 Tree protection &amp; reporting → On site</i>, which appears once the project is set to a tree protection plan. <i>Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap. Both then open a form: a planting takes <b>species</b> (the same picker the inventory uses), <b>stock size</b>, <b>address</b> and <b>notes</b>; a fence takes its <b>type</b>, with the length measured for you, plus address and notes. The address fills itself in from the parcel layer or the geocoder, exactly as a tree's does. Tap either on the map to edit or delete it. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
     <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
