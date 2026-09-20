@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v87";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v88";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1799,9 +1799,11 @@ function setBase(i){
      street and topographic maps and are unaffected. */
   if(baseIdx===0){
     const src = imagerySource();
-    baseLayer = offlineTileLayer(src.url,"sat",{ maxZoom:b[2],
-      maxNativeZoom:src.maxNative||b[3], zoomOffset:src.zOff||0,
-      attribution:src.credit }).addTo(fmap);
+    baseLayer = (src.type==="export"
+      ? new ExportTileLayer(src, { maxZoom:b[2], maxNativeZoom:src.maxNative||b[3],
+          attribution:src.credit })
+      : offlineTileLayer(src.url,"sat",{ maxZoom:b[2], maxNativeZoom:src.maxNative||b[3],
+          zoomOffset:src.zOff||0, attribution:src.credit })).addTo(fmap);
     watchImageryErrors(baseLayer);
   } else {
     baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
@@ -6501,13 +6503,19 @@ const IMAGERY = [
     url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     note:"Everywhere. The fallback, and what the others drop back to." },
 
-  { id:"york2025", name:"York Region 2025", zOff:-10, maxNative:21, credit:"York Region",
-    url:"https://ags2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YR_Imagery2025/MapServer/tile/{z}/{y}/{x}",
-    note:"10 cm, the sharpest over York Region." },
+  /* York's 2025 photography, taken from their DYNAMIC service rather than a cache.
+     A dynamic MapServer draws whatever extent you ask for, so there is no cache
+     scheme and no level offset to get wrong — which is what defeated the two
+     attempts at the cached endpoints. Layer 1 of this service is "2025 Ortho
+     Images", 10 cm, flown April-May 2025. */
+  { id:"york2025", name:"York Region 2025", type:"export", layer:1, maxNative:22,
+    credit:"York Region",
+    url:"https://ww3.yorkmaps.ca/arcgis/rest/services/WMS/YorkRegion_OrthoImages_WMS/MapServer",
+    note:"10 cm, flown spring 2025. The sharpest over York Region." },
 
-  { id:"york2025b", name:"York Region 2025 (alternate name)", zOff:-10, maxNative:21, credit:"York Region",
+  { id:"york2025c", name:"York Region 2025 (cached copy)", zOff:-10, maxNative:21, credit:"York Region",
     url:"https://ags2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YRImagery2025/MapServer/tile/{z}/{y}/{x}",
-    note:"Same photography. York's own map config spells it without the underscore — try this if the other is blank." },
+    note:"The same photography from the tile cache — quicker if it answers." },
 
   { id:"york2022", name:"York Region 2022", zOff:-10, maxNative:21, credit:"York Region",
     url:"https://ww2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YR_Imagery2022/MapServer/tile/{z}/{y}/{x}",
@@ -6602,6 +6610,26 @@ function customImagery(){
    combination and keeps whichever comes back. A tile that loads is proof; anything
    else is inference. */
 const IMG_OFFSETS = [0, -9, -10, -11, -8];
+/* A dynamic ArcGIS service renders an arbitrary extent, so a tile is requested by
+   its bounding box rather than by row and column. This turns the usual tile
+   coordinates into the Web Mercator box that covers them. */
+const MERC_HALF = 20037508.342789244;
+function tileBBox3857(x, y, z){
+  const span = (MERC_HALF * 2) / Math.pow(2, z);
+  const xmin = -MERC_HALF + x * span;
+  const ymax =  MERC_HALF - y * span;
+  return [xmin, ymax - span, xmin + span, ymax].join(",");
+}
+function exportTileUrl(src, x, y, z){
+  return src.url + "/export?bbox=" + tileBBox3857(x, y, z) +
+         "&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&transparent=false" +
+         "&layers=show:" + (src.layer != null ? src.layer : 0) + "&f=image";
+}
+const ExportTileLayer = L.TileLayer.extend({
+  initialize: function(src, opts){ this._src = src; L.TileLayer.prototype.initialize.call(this, "", opts); },
+  getTileUrl: function(c){ return exportTileUrl(this._src, c.x, c.y, c.z); }
+});
+
 function tileXYForView(z){
   const c = fmap.getCenter();
   const n = Math.pow(2, z);
@@ -6624,6 +6652,8 @@ function tryTile(url){
 async function probeImagery(src){
   const z = Math.min(18, Math.max(14, fmap.getZoom()));
   const t = tileXYForView(z);
+  // A dynamic service has no levels to get wrong — one request settles it.
+  if(src.type==="export") return (await tryTile(exportTileUrl(src, t.x, t.y, z))) ? 0 : null;
   for(const off of IMG_OFFSETS){
     const lvl = z + off;
     if(lvl < 0 || lvl > 23) continue;
@@ -6640,7 +6670,8 @@ async function testImagery(){
     if(!src.url || src.id === "esri"){ continue; }
     $("imgTestLine").textContent = "Trying " + src.name + "…";
     const off = await probeImagery(src);
-    if(off !== null){ src.zOff = off; results.push(`${src.name}: works, level offset ${off}`); }
+    if(off !== null){ src.zOff = off;
+      results.push(src.type==="export" ? `${src.name}: works` : `${src.name}: works, level offset ${off}`); }
     else results.push(`${src.name}: no tile here`);
   }
   if(btn){ btn.disabled = false; btn.textContent = "🔎 Test these over this view"; }
