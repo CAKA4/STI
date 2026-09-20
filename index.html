@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v94";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v95";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2688,8 +2688,21 @@ function askTPPIfNeeded(){
   setTPP(p, yes);
   applyTPPMode();
 }
-function applyTPPMode(){
-  const on = isTPP(settings.project);
+/* WHICH project the app means.
+
+   There are two, and they are not the same thing: settings.project is what a NEW
+   tree gets stamped with, and the Showing filter is what you are looking at. The
+   mode switch read the first while the crew was looking at the second — so with
+   Showing on one project and the recording project still set to another, the app
+   named the wrong one and switching it would have changed the wrong project.
+
+   What is on screen wins. */
+function currentProject(){
+  return String(filterProject || (showAllProjects ? "" : settings.project) || settings.project || "").trim();
+}
+
+function applyTPPMode(project){
+  const on = isTPP(project !== undefined ? project : currentProject());
   const sec = $("tppSection");
   if(sec) sec.style.display = on ? "block" : "none";
 }
@@ -4520,10 +4533,10 @@ function openTree(i){
   $("fDBH").innerHTML = dbhOptions();            // re-rank each time
   $("fDBH").value = selValue("fDBH", t.DBH);
   $("fEXT_ID").value = t.EXT_ID || "";
-  applyTPPMode();
+  applyTPPMode(projectOf(t));
   $("treeNoLine").textContent = t.TREE_NO ? ("Tree #" + t.TREE_NO + " in " + (projectOf(t)||"this project"))
                                           : "Tree # assigned when you save";
-  if(isTPP(settings.project)){
+  if(isTPP(projectOf(t))){
     $("fTREE_NO").value = t.TREE_NO || "";
     $("fTAG_NO").value  = t.TAG_NO  || "";
     if($("fYR_EXEMPT")) $("fYR_EXEMPT").value = ["Y","N"].indexOf(String(t.YR_EXEMPT||"").toUpperCase())>=0 ? String(t.YR_EXEMPT).toUpperCase() : "";
@@ -8857,19 +8870,20 @@ function paintGroups(){
    hidden unless the project is a tree protection plan — which the app already
    knows, and which is set in one place. */
 function refreshMenuMode(){
-  const on = isTPP(settings.project);
+  const on = isTPP(currentProject());
   const g = $("g_tpp"); if(g) g.style.display = on ? "block" : "none";
   const b = $("tppSwitch");
+  const p = currentProject() || "(no project)";
   if(b) b.innerHTML = on
-    ? `🛡 This project: <b>tree protection plan</b> <span class="ct">tap for plain inventory</span>`
-    : `🌳 This project: <b>tree inventory</b> <span class="ct">tap to add tree protection</span>`;
+    ? `🛡 <b>${esc(p)}</b>: tree protection plan <span class="ct">tap for plain inventory</span>`
+    : `🌳 <b>${esc(p)}</b>: tree inventory <span class="ct">tap to add tree protection</span>`;
 }
 /* One tap, from the menu, because the setting was buried three levels down in
    Settings and the start-of-project question is only ever asked once — so anyone
    who answered "no", or who inherited an existing project, had no obvious way to
    turn the protection fields and the document tools on. */
 function toggleProjectMode(){
-  const p = String(settings.project||"").trim();
+  const p = currentProject();
   if(!p){ toast("Set a project first, in Settings",true); return; }
   const on = !isTPP(p);
   if(on && !confirm(`Turn on tree protection for "${p}"?\n\n` +
@@ -9030,6 +9044,8 @@ function applyFilter(){
   persistFilters();
   try{ STORE&&STORE.setItem("st_showall", showAllProjects?"1":"0"); }catch(e){}
   renderPins(); updateProjBtn(); closeFilter();
+  // The menu describes whatever is being shown, so it has to follow the filter.
+  refreshMenuMode(); applyTPPMode();
   const n=visibleTrees().length;
   toast(`Showing ${n} tree(s) · ${scopeLabel()}`);
   if(n) fitTrees();
@@ -9080,7 +9096,7 @@ function openSettings(){
   $("setPhotoQ").innerHTML = Object.keys(PHOTO_PRESETS)
     .map(k=>`<option value="${k}">${esc(PHOTO_PRESETS[k].label)}</option>`).join("");
   $("setPhotoQ").value = photoQuality;
-  $("setTPP").value = isTPP(settings.project) ? "1" : "0";
+  $("setTPP").value = isTPP(currentProject()) ? "1" : "0";
   $("setYrDec").value = yrRateDec; $("setYrCon").value = yrRateCon; $("setYrYear").value = yrRateYear;
   $("setPhotoQ").onchange = paintPhotoQNote;
   paintPhotoQNote();
@@ -9128,7 +9144,7 @@ function saveSettings(){
   setCrownMethod($("setCrownMethod").value);
   setPhotoQuality($("setPhotoQ").value);
   setYrRates($("setYrDec").value, $("setYrCon").value, $("setYrYear").value);
-  setTPP(settings.project, $("setTPP").value === "1");
+  setTPP(currentProject(), $("setTPP").value === "1");
   applyTPPMode(); refreshMenuMode();
   persistSettings();
 
