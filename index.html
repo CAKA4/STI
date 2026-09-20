@@ -1277,7 +1277,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v102";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v103";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -3396,13 +3396,22 @@ function layersWithRole(role){ return refLayers.filter(l=>l.role===role && l.rol
 /* Address from the parcel fabric. A tree inside a parcel takes that parcel's address;
    one in the road allowance takes the nearest parcel within a short distance, which is
    the frontage it belongs to. */
+/* A parcel value that is nothing but digits is a house NUMBER, not an address —
+   municipal fabrics very often keep ADDR_NUM and STREET in separate columns, and
+   picking the number column gives every tree an address like "1". The value is still
+   used, because it may be all there is, but the form says where to look. */
+function bareNumberAddr(v){ return /^\d+[A-Za-z]?$/.test(String(v||"").trim()); }
+
 function addressFromParcels(lat, lon){
   const layers = layersWithRole("parcel");
   for(const L2 of layers){
     for(const f of L2.features){
       if(featureContains(f, lat, lon)){
         const v = String(f.props[L2.roleField]==null?"":f.props[L2.roleField]).trim();
-        if(v) return { value: v, how: "in parcel", dist: 0 };
+        if(v) return { value: v, dist: 0,
+                       how: bareNumberAddr(v)
+                            ? `in parcel — "${v}" is only a house number, check the parcel address column`
+                            : "in parcel" };
       }
     }
   }
@@ -3419,8 +3428,11 @@ function addressFromParcels(lat, lon){
       }
     }
   }
-  return best ? { value: best.value, how: `nearest parcel ${(Math.round(best.d*10)/10)} m`,
-                  dist: Math.round(best.d*10)/10 } : null;
+  return best ? { value: best.value, dist: Math.round(best.d*10)/10,
+                  how: `nearest parcel ${(Math.round(best.d*10)/10)} m` +
+                       (bareNumberAddr(best.value)
+                        ? ` — "${best.value}" is only a house number, check the parcel address column`
+                        : "") } : null;
 }
 const PARCEL_SNAP_M = 35;
 const STREET_SNAP_M = 60;
@@ -4970,7 +4982,13 @@ const GEOCODE_GOOD_M  = 20;   // close enough to quote a house number with confi
 function scoreGeo(r, lat, lon){
   if(!r) return null;
   r.dist = (r.glat!=null && r.glon!=null) ? distM(lat,lon,r.glat,r.glon) : null;
-  r.hasNum = /^\s*\d/.test(String(r.address||""));
+  /* hasNum USED TO BE "the string starts with a digit", which is true of an address
+     that is nothing but a house number. Photon will return a housenumber with no
+     street, and the address then came out as bare "1" — and because a house number
+     outranks one without, that "1" BEAT a complete address from the other geocoder.
+     The geocoders now report it themselves, from the number AND the street, so a
+     number without a street counts for nothing. */
+  if(r.hasNum == null) r.hasNum = /^\s*\d+\s+\S/.test(String(r.address||""));
   return r;
 }
 
@@ -5007,10 +5025,15 @@ function photonReverse(lat, lon){
       const street = p.street || (p.osm_key==="highway" ? p.name : "") || "";
       const num = p.housenumber || "";
       const city = p.city || p.town || p.village || p.district || "";
-      const addr = [ [num,street].filter(Boolean).join(" "), city, p.state ].filter(Boolean).join(", ");
+      // A HOUSE NUMBER WITHOUT A STREET IS NOT AN ADDRESS. Photon returns one often
+      // enough, and the number was being emitted on its own — a tree whose address
+      // read simply "1".
+      const line1 = street ? [num,street].filter(Boolean).join(" ") : "";
+      const addr = [ line1, city, p.state ].filter(Boolean).join(", ");
       const c = f.geometry && f.geometry.coordinates;
       const park = (p.osm_value==="park" || p.osm_value==="garden") ? (p.name||"") : "";
       return { address: addr || "", street: street, park: park, how: "photon",
+               hasNum: !!(num && street),
                glat: c?c[1]:null, glon: c?c[0]:null };
     });
 }
@@ -5022,8 +5045,10 @@ function nominatimReverse(lat, lon){
       const a=j&&j.address; if(!a) return null;
       const street=a.road||"";
       const city=a.city||a.town||a.village||a.municipality||"";
-      const addr=[[a.house_number,street].filter(Boolean).join(" "), city, a.state].filter(Boolean).join(", ");
+      const line1 = street ? [a.house_number,street].filter(Boolean).join(" ") : "";
+      const addr=[line1, city, a.state].filter(Boolean).join(", ");
       return { address: addr, street: street, park: a.leisure||"", how: "osm",
+               hasNum: !!(a.house_number && street),
                glat: parseFloat(j.lat), glon: parseFloat(j.lon) };
     });
 }
