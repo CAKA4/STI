@@ -634,6 +634,7 @@
         <button class="menuitem" onclick="exportSpeciesByLocation()">Table 1 — species by location</button>
         <button class="menuitem" onclick="exportPlantList()">Landscaping plant list</button>
         <button class="menuitem" onclick="exportYRCompensation()">York Region compensation table</button>
+        <button class="menuitem" onclick="exportFeatsShapefile()">Fences &amp; plantings (shapefile)</button>
         <button class="menuitem" onclick="exportFeatsGeoJSON()">Fences &amp; plantings (GeoJSON)</button>
         <div class="mini" style="padding:10px 4px 8px">The document</div>
         <button class="menuitem" onclick="exportScheduleB()">Schedule B — tree photographs (PDF)</button>
@@ -1276,7 +1277,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v99";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v102";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1428,7 +1429,8 @@ const FIELDS = [
   {k:"ITREE", t:"C", w:4},
   {k:"LOF", t:"C", w:12}, {k:"TARGET", t:"C", w:12}, {k:"IMPACT", t:"C", w:10}, {k:"CONSEQ", t:"C", w:12}, {k:"RISK", t:"C", w:10},
   {k:"ACTIVITY", t:"C", w:16}, {k:"REMOV_RSN", t:"C", w:26},
-  {k:"HEIGHT", t:"N", w:4, d:1}, {k:"TPZ_M", t:"N", w:5, d:1}, {k:"REPL_REQ", t:"N", w:2, d:0},
+  {k:"HEIGHT", t:"N", w:4, d:1}, {k:"HGT_BAS", t:"C", w:30},
+  {k:"TPZ_M", t:"N", w:5, d:1}, {k:"REPL_REQ", t:"N", w:2, d:0},
   // Tree protection plan. Only filled in when the project is a TPP.
   {k:"TREE_NO", t:"N", w:5, d:0}, {k:"TAG_NO", t:"C", w:12}, {k:"LOCATION", t:"C", w:40},
   {k:"PROP_ACT", t:"C", w:254}, {k:"LT_IMPACT", t:"C", w:60}, {k:"COMP_INCL", t:"C", w:3},
@@ -1854,6 +1856,18 @@ function setBase(i){
 function cycleBase(){ setBase(baseIdx+1); }
 
 function setStatus(t){ $("statusLine").textContent = t; }
+/* THE UNSYNCED COUNT INCLUDES FENCES, PLANTINGS AND PENDING DELETIONS, not just
+   trees. An unsent fence is just as lost as an unsent tree, and it used to appear
+   nowhere on screen at all. Its own function so anything that sends can refresh the
+   line without redrawing every pin. */
+function updateSubLine(){
+  const el = $("subLine"); if(!el) return;
+  const vis = visibleTrees();
+  const pendF = (typeof feats!=="undefined" ? feats.filter(f=>!f._sent).length : 0) +
+                (typeof featDeletes!=="undefined" ? featDeletes.length : 0);
+  const unsent = vis.filter(t=>!t._sent).length + pendF;
+  el.textContent = `${vis.length} trees · ${unsent} unsynced · ${scopeLabel()}`;
+}
 
 // Measure the app bar and hand its height to the layout, so nothing hides beneath it.
 function syncBarHeight(){
@@ -2025,8 +2039,7 @@ function renderPins(){
 
   renderLabels();
   const vis = visibleTrees();
-  const scope = scopeLabel();
-  $("subLine").textContent = `${vis.length} trees · ${vis.filter(t=>!t._sent).length} unsynced · ${scope}`;
+  updateSubLine();
   setStatus(pinsTruncated
     ? `Showing ${drawn} of ${vis.length} — zoom in to see the rest`
     : `${vis.length} trees on device`);
@@ -2076,7 +2089,7 @@ const FIELD_LABELS = {
   IMPEDMNT:"Impediment", RECOTREA:"Recommended treatment",
   STREET:"Street", PARK:"Park",
   CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
-  HEIGHT:"Height", ITREE:"i-Tree type",
+  HEIGHT:"Height", HGT_BAS:"Height basis", ITREE:"i-Tree type",
   TPZ_M:"Tree protection zone (m)", REPL_REQ:"Replacement trees required",
   TREE_NO:"Tree number", TAG_NO:"Tag number", LOCATION:"Location / ownership",
   PROP_ACT:"Proposed action", LT_IMPACT:"Potential long term impact",
@@ -3797,6 +3810,12 @@ function buildLegend(){
   h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 3px #FF1744"></span>red halo = field checked</div>`;
   if(tpzOn) h += `<div class="lr"><span class="sw" style="background:rgba(255,213,79,.25);border-color:#FFD54F"></span>dashed circle = tree protection zone</div>`;
+  // Name the fence and the plantings when there are any, on screen as on the sheet.
+  const onMap = (typeof featsIn==="function") ? featsIn() : [];
+  if(onMap.some(f=>f.kind==="fence"))
+    h += `<div class="lr"><span class="sw" style="background:#FF6D00"></span>tree protection fence</div>`;
+  if(onMap.some(f=>f.kind==="planting"))
+    h += `<div class="lr"><span class="sw" style="background:#66BB6A;border-color:#1B5E20"></span>proposed planting</div>`;
   const vis = refLayers.filter(l=>l.visible);
   if(vis.length){
     h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>
@@ -4706,8 +4725,17 @@ function saveTree(){
   t.ADDRESS = typedAddr;
   t.COMMENTS = normText($("fCOMMENTS").value);
   t.STREET = normText($("fSTREET").value);
+  /* HGT_BAS records how the height was arrived at, exactly as CROWN_BAS does for the
+     crown, and for the same reason: so nothing in the export is mistaken for a field
+     measurement, and so the Sheet's recalculation can leave a real measurement alone.
+     It used to live only in memory on this phone — it was in neither FIELDS nor
+     treeHeader(), so the Sheet's guard on it could never fire and every measured
+     height was silently replaced by the Aurora equation on the next recalculation. */
   const hv = parseFloat(normNumber($("fHEIGHT").value));
-  t.HEIGHT = (isFinite(hv) && hv>0) ? Math.round(hv*10)/10 : "";
+  if(isFinite(hv) && hv>0){
+    t.HEIGHT = Math.round(hv*10)/10;
+    if(t.HGT_BAS !== "measured") t.HGT_BAS = "estimated: Aurora equation";
+  } else { t.HEIGHT = ""; t.HGT_BAS = ""; }
 
   const crv = parseFloat(normNumber($("fCROWN_RAD").value));
   if(isFinite(crv) && crv>0){
@@ -5489,7 +5517,16 @@ function syncNow(){
   if(isOffline()){ toast("No connection",true); return; }
   const q = trees.filter(t=>!t._sent);
   flushPhotos();
-  if(!q.length){ toast("Everything is already synced"); setTimeout(()=>fetchPhotoLinks(true),1500); return; }
+  /* Fences, plantings and their deletions go up on the same tap. "Everything is
+     already synced" counted only the trees, so it could report success over a fence
+     that had never left the phone — the kind of confidently wrong message this app
+     exists to avoid. */
+  const qf = feats.filter(f=>!f._sent).length + featDeletes.length;
+  syncFeats(); flushFeatDeletes();
+  if(!q.length){
+    toast(qf ? `Sending ${qf} fence/planting change(s)…` : "Everything is already synced");
+    setTimeout(()=>fetchPhotoLinks(true),1500); return;
+  }
   /* Chunked rather than one giant POST: a few hundred trees in a single request risks
      running past the Apps Script execution limit. Chunks are deliberately spaced well
      apart — the Sheet processes one at a time behind a lock, and firing them faster
@@ -5869,7 +5906,12 @@ function dbfCell(f,v){
     const s = (n==null||!isFinite(n)) ? "" : n.toFixed(f.d||0);
     return s.length>f.w ? s.slice(0,f.w) : " ".repeat(f.w-s.length)+s;
   }
-  let s = String(v==null?"":v);
+  /* FOLD TYPOGRAPHIC PUNCTUATION BEFORE GIVING UP ON IT. Dictated text is folded by
+     normText on save, but the app's OWN pick-list values are not — and several carry
+     an em dash, so the fence type came out of the DBF as "Solid hoarding ? 3/8 in
+     plywood". An en dash is a hyphen; it is not an unknown character. Anything still
+     outside the DBF's range after folding becomes "?" as before. */
+  let s = normText(v);
   s = s.replace(/[^\x20-\xFF]/g,"?");
   if(s.length>f.w) s=s.slice(0,f.w);
   return s + " ".repeat(f.w-s.length);
@@ -5974,6 +6016,20 @@ function featsIn(project){
   const p = String(project===undefined ? (filterProject || (showAllProjects?"":settings.project) || "") : project);
   return feats.filter(f=> !p || String(f.project||"")===p );
 }
+/* The features that fall on one map sheet: the current project's, and only those
+   whose extent touches the frame, so a sheet in a series does not draw the neighbour's
+   fence. A fence is kept if ANY part of it is in view — a line crossing the sheet has
+   both ends outside it, which a centroid test would miss. */
+function featsOnSheet(b){
+  return featsIn().filter(f=>{
+    if(!f.pts || !f.pts.length) return false;
+    const lats = f.pts.map(p=>+p[0]), lons = f.pts.map(p=>+p[1]);
+    return Math.min.apply(null,lats) <= b.getNorth() && Math.max.apply(null,lats) >= b.getSouth() &&
+           Math.min.apply(null,lons) <= b.getEast()  && Math.max.apply(null,lons) >= b.getWest();
+  });
+}
+// What the current sheet actually carries, so the PDF legend can name them.
+let sheetFeats = { fences:0, plantings:0 };
 const FENCE_D = [
   ["Tree protection fence — 1.2 m orange plastic on T-posts at 2.5 m","Standard barrier — 1.2 m orange on T-posts"],
   ["Solid hoarding — 3/8 in plywood on a 2x4 frame","Solid hoarding"],
@@ -6174,11 +6230,24 @@ function renderFeats(){
   });
   if(shapes.length) featLayer = L.layerGroup(shapes).addTo(fmap);
 }
+/* Deleting used to be local only: the row stayed on the Fences or Plantings tab for
+   good, so a report built from those tabs showed a fence that is not there. The
+   deletion is now queued and sent, and QUEUED RATHER THAN FIRED ONCE — a delete made
+   with no signal has to survive until there is one, exactly like an unsent fence. */
+let featDeletes = [];
+try{ featDeletes = JSON.parse(STORE&&STORE.getItem("st_featdel")) || []; }catch(e){ featDeletes=[]; }
+function persistFeatDeletes(){ if(STORE){ try{ STORE.setItem("st_featdel", JSON.stringify(featDeletes)); }catch(e){} } }
+
 function deleteFeat(id){
   const i = feats.findIndex(f=>f.id===id);
   if(i<0) return;
-  if(!confirm("Delete this "+(feats[i].kind==="fence"?"fence":"planting")+"?")) return;
+  const f = feats[i];
+  if(!confirm("Delete this "+(f.kind==="fence"?"fence":"planting")+"?")) return;
+  // One that never reached the Sheet has nothing to delete there, the same rule the
+  // imported-batch removal uses for trees.
+  if(f._sent){ featDeletes.push({ id:f.id, kind:f.kind }); persistFeatDeletes(); }
   feats.splice(i,1); persistFeats(); renderFeats(); fmap.closePopup();
+  flushFeatDeletes();
   toast("Deleted");
 }
 function syncFeats(){
@@ -6188,8 +6257,164 @@ function syncFeats(){
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{"Content-Type":"text/plain;charset=utf-8"},
     body: JSON.stringify({_action:"feats", rows: pending}) })
-    .then(()=>{ pending.forEach(f=>f._sent=true); persistFeats(); })
+    .then(()=>{ pending.forEach(f=>f._sent=true); persistFeats(); updateSubLine(); })
     .catch(()=>{});
+}
+function flushFeatDeletes(){
+  if(isOffline() || !connected || !featDeletes.length) return;
+  // Taken off the queue before sending and put back if the send fails, so two quick
+  // taps cannot send the same deletion twice — the rule the inspection queue uses.
+  const batch = featDeletes.slice();
+  featDeletes = []; persistFeatDeletes();
+  fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({_action:"featdelete", rows: batch}) })
+    .then(()=>{ updateSubLine(); })
+    .catch(()=>{ featDeletes = batch.concat(featDeletes); persistFeatDeletes(); });
+}
+
+/* ---------- fences and plantings as shapefiles ----------
+   A SHAPEFILE HOLDS ONE GEOMETRY TYPE, so this cannot be one file the way the trees
+   are: a fence is a polyline and a planting is a point. It is two shapefiles written
+   into ONE zip — one tap, one file to hand over, and nothing to forget half of.
+   The tree writer above is point-only with FIELDS baked in; this one takes a shape
+   type and a field list, and shares dbfCell, strBytes, zipStore and crc32 with it
+   rather than keeping a second copy of any of them. */
+const FEAT_FENCE_FIELDS = [
+  {k:"ID",t:"C",w:16}, {k:"PROJECT",t:"C",w:40}, {k:"TYPE",t:"C",w:80},
+  {k:"LENGTH_M",t:"N",w:9,d:1}, {k:"ADDRESS",t:"C",w:80}, {k:"NOTES",t:"C",w:180},
+  {k:"BY",t:"C",w:24}, {k:"DATE",t:"C",w:19}
+];
+const FEAT_PLANT_FIELDS = [
+  {k:"ID",t:"C",w:16}, {k:"PROJECT",t:"C",w:40}, {k:"SPECIES",t:"C",w:40},
+  {k:"BOTANICAL",t:"C",w:60}, {k:"STOCK",t:"C",w:16}, {k:"ADDRESS",t:"C",w:80},
+  {k:"NOTES",t:"C",w:180}, {k:"LAT",t:"N",w:12,d:6}, {k:"LON",t:"N",w:13,d:6},
+  {k:"BY",t:"C",w:24}, {k:"DATE",t:"C",w:19}
+];
+
+// One DBF from any field list. The tree writer's own copy is left alone; this is the
+// same layout, parameterised.
+function dbfFor_(fields, rows){
+  const N = rows.length;
+  const hLen = 32 + 32*fields.length + 1;
+  const rLen = 1 + fields.reduce((s,f)=>s+f.w, 0);
+  const dbf = new Uint8Array(hLen + N*rLen + 1);
+  const dv = new DataView(dbf.buffer);
+  dbf[0]=0x03; const d=new Date();
+  dbf[1]=d.getFullYear()-1900; dbf[2]=d.getMonth()+1; dbf[3]=d.getDate();
+  dv.setUint32(4,N,true); dv.setUint16(8,hLen,true); dv.setUint16(10,rLen,true);
+  let p=32;
+  fields.forEach(f=>{
+    const nm=f.k.slice(0,10);                     // the DBF field-name limit
+    for(let k=0;k<nm.length;k++) dbf[p+k]=nm.charCodeAt(k);
+    dbf[p+11]=f.t.charCodeAt(0);
+    dbf[p+16]=f.w;
+    dbf[p+17]=f.t==="N" ? (f.d||0) : 0;
+    p+=32;
+  });
+  dbf[p++]=0x0D;
+  rows.forEach(r=>{
+    dbf[p++]=0x20;
+    fields.forEach(f=>{
+      const cell = dbfCell(f, r[f.k]==null ? "" : r[f.k]);
+      for(let k=0;k<f.w;k++){ let c=cell.charCodeAt(k); if(!isFinite(c)||c>255) c=0x3F; dbf[p+k]=c; }
+      p+=f.w;
+    });
+  });
+  dbf[p]=0x1A;
+  return dbf;
+}
+
+const SHP_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+
+/* One shapefile set. `type` is 1 for a point or 3 for a polyline; `recs` is
+   [{pts:[[lat,lon],…], attrs:{}}]. Returns the five files ready for zipStore. */
+function shapeFiles_(base, type, recs, fields){
+  const N = recs.length;
+  // A point record is 20 bytes of content; a polyline is 44 plus 4 per part and 16
+  // per vertex. Lengths are computed per record because they differ.
+  const clen = r => type===1 ? 20 : (44 + 4*1 + 16*r.pts.length);
+  let total = 0; recs.forEach(r=>{ total += 8 + clen(r); });
+  const shpBuf = new ArrayBuffer(100 + total), shxBuf = new ArrayBuffer(100 + N*8);
+  const shp = new DataView(shpBuf), shx = new DataView(shxBuf);
+
+  let xmin=Infinity, ymin=Infinity, xmax=-Infinity, ymax=-Infinity;
+  recs.forEach(r=>r.pts.forEach(p=>{
+    const y=+p[0], x=+p[1];
+    if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; }));
+  if(!isFinite(xmin)){ xmin=ymin=xmax=ymax=0; }
+
+  const hdr=(dv,words)=>{
+    dv.setInt32(0,9994,false); dv.setInt32(24,words,false);
+    dv.setInt32(28,1000,true); dv.setInt32(32,type,true);
+    dv.setFloat64(36,xmin,true); dv.setFloat64(44,ymin,true);
+    dv.setFloat64(52,xmax,true); dv.setFloat64(60,ymax,true);
+  };
+  hdr(shp,(100+total)/2); hdr(shx,(100+N*8)/2);
+
+  let off = 100;
+  recs.forEach((r,i)=>{
+    const cl = clen(r);
+    shp.setInt32(off, i+1, false);          // record number, 1-based, big-endian
+    shp.setInt32(off+4, cl/2, false);       // content length in 16-bit words
+    let o = off + 8;
+    shp.setInt32(o, type, true); o += 4;
+    if(type===1){
+      shp.setFloat64(o, +r.pts[0][1], true); o += 8;
+      shp.setFloat64(o, +r.pts[0][0], true); o += 8;
+    } else {
+      let ax=Infinity, ay=Infinity, bx=-Infinity, by=-Infinity;
+      r.pts.forEach(p=>{ const y=+p[0], x=+p[1];
+        if(x<ax)ax=x; if(y<ay)ay=y; if(x>bx)bx=x; if(y>by)by=y; });
+      shp.setFloat64(o,ax,true); shp.setFloat64(o+8,ay,true);
+      shp.setFloat64(o+16,bx,true); shp.setFloat64(o+24,by,true); o += 32;
+      shp.setInt32(o,1,true); o += 4;                      // one part
+      shp.setInt32(o,r.pts.length,true); o += 4;
+      shp.setInt32(o,0,true); o += 4;                      // that part starts at 0
+      r.pts.forEach(p=>{ shp.setFloat64(o,+p[1],true); shp.setFloat64(o+8,+p[0],true); o += 16; });
+    }
+    shx.setInt32(100+i*8, off/2, false);
+    shx.setInt32(100+i*8+4, cl/2, false);
+    off += 8 + cl;
+  });
+
+  return [
+    {name:base+".shp", data:new Uint8Array(shpBuf)},
+    {name:base+".shx", data:new Uint8Array(shxBuf)},
+    {name:base+".dbf", data:dbfFor_(fields, recs.map(r=>r.attrs))},
+    {name:base+".prj", data:strBytes(SHP_PRJ)},
+    {name:base+".cpg", data:strBytes("UTF-8")}
+  ];
+}
+
+function exportFeatsShapefile(){
+  closeMenu();
+  const list = featsIn();
+  const fences   = list.filter(f=>f.kind==="fence"    && f.pts && f.pts.length>1);
+  const plants   = list.filter(f=>f.kind==="planting" && f.pts && f.pts.length);
+  if(!fences.length && !plants.length){ toast("No fences or plantings recorded",true); return; }
+
+  let files = [];
+  if(fences.length) files = files.concat(shapeFiles_("Fences", 3, fences.map(f=>({
+    pts: f.pts,
+    attrs: { ID:f.id, PROJECT:f.project||"", TYPE:f.type||"", LENGTH_M:f.length_m||0,
+             ADDRESS:f.address||"", NOTES:f.notes||"", BY:f.by||"", DATE:f.date||"" }
+  })), FEAT_FENCE_FIELDS));
+  if(plants.length) files = files.concat(shapeFiles_("Plantings", 1, plants.map(f=>({
+    pts: [f.pts[0]],
+    attrs: { ID:f.id, PROJECT:f.project||"", SPECIES:f.species||"",
+             BOTANICAL:(taxonFor(f.species)[0]||""), STOCK:f.stock||"",
+             ADDRESS:f.address||"", NOTES:f.notes||"",
+             LAT:+f.pts[0][0], LON:+f.pts[0][1], BY:f.by||"", DATE:f.date||"" }
+  })), FEAT_PLANT_FIELDS));
+
+  const blob = new Blob([zipStore(files)],{type:"application/zip"});
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url;
+  a.download = `FencesAndPlantings_${exportTag()}_${nowStr().slice(0,10)}.zip`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast(`Shapefile: ${fences.length} fence(s) · ${plants.length} planting(s)`);
 }
 
 function exportFeatsGeoJSON(){
@@ -7174,6 +7399,7 @@ const SCHED_A_EXTRA = [
   ["i-Tree type",                t=>t.ITREE || ""],
   ["Stems",                      t=>t.STEMS || ""],
   ["Height (m)",                 t=>t.HEIGHT || ""],
+  ["Height basis",               t=>t.HGT_BAS || ""],
   ["Crown diameter (m)",         t=>t.CROWN_DIA || ""],
   ["Crown basis",                t=>t.CROWN_BAS || ""],
   ["Site location",              t=>t.SITELOCA || ""],
@@ -7429,6 +7655,7 @@ function exportDataDictionary(){
     ITREE:"i-Tree Streets type. B/C broadleaf-conifer, D/E deciduous-evergreen, L/M/S mature size.",
     HLTH_CODE:"1-9, matching the HEALTH classes in order.",
     CROWN_BAS:"How CROWN_RAD was arrived at: measured, or which allometry was used.",
+    HGT_BAS:"How HEIGHT was arrived at: measured, or the equation that produced it.",
     ADDR_DIST:"Metres to the parcel supplying ADDRESS. 0 = tree stands in it. Blank = not from a parcel.",
     STREET_M:"Metres to the centreline named in STREET.",
     HEIGHT:"Metres. Aurora DBH equation unless measured.",
@@ -7733,7 +7960,9 @@ function runRecalc(){
   jsonpGet("recalc", toolScope(), r=>{
     toolRunning("btnRecalc", false);
     if(!r || !r.ok){ $("recalcLine").textContent = "Could not reach the Sheet."; return; }
-    $("recalcLine").textContent = `${r.changed} row(s) updated · ${r.keptMeasured} measured value(s) left alone`;
+    const kept = (r.keptMeasured||0) + (r.keptMeasuredHgt||0);
+    $("recalcLine").textContent = `${r.changed} row(s) updated · ${kept} measured value(s) left alone` +
+      (r.keptMeasuredHgt ? ` (${r.keptMeasured} crown, ${r.keptMeasuredHgt} height)` : "");
     toast(`${r.changed} row(s) recalculated`);
     setTimeout(()=>pullFromSheet(true), 600);
   });
@@ -8261,9 +8490,18 @@ async function runSingleExport(opt){
     toast("Fetching roads and place names…");
     for(const [url,into] of [[ROADS_URL,"r"],[PLACES_URL,"p"]]){
       for(let i=0;i<want.length;i+=8){
+        /* THE OVERLAY IS ALWAYS THE OVERLAY'S OWN TEMPLATE. This read a bare `set`,
+           which is not in scope here — it is a PARAMETER of tileSetUrl/tileKey, and
+           the fragment was lifted from the offline-save loop at tileSetUrl(j.set),
+           where j.set is a real property. So every map export threw a ReferenceError
+           the moment it reached this line, and roads and place names are ON BY
+           DEFAULT: the single sheet, the series, the index sheet and therefore the
+           Tree Protection Site Plan in the assembled document all failed, reporting
+           an error instead of producing a PDF.
+           The aerial branch was meaningless anyway — roads and place names are never
+           the aerial, which is why there is nothing to replace it with. */
         const got = await Promise.all(want.slice(i,i+8).map(t=>
-          loadTile((set==="sat" ? satTileUrl(z,t.tx,t.ty)
-                                : url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty)),
+          loadTile(url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),
                    into==="r"?"road":"place", z, t.tx, t.ty)
             .then(im=>({im,tx:t.tx,ty:t.ty}))));
         got.forEach(x=> into==="r" ? roadTiles.push(x) : placeTiles.push(x));
@@ -8295,6 +8533,26 @@ async function runSingleExport(opt){
     });
   });
 
+  /* THE FENCE AND THE PLANTINGS GO ON THE PLAN. Drawing a tree protection fence is
+     only worth doing if it reaches the Tree Protection Site Plan, and this export
+     never read the feats array at all — it drew the imagery, the reference layers,
+     the site plan and the trees, and nothing else. The fence is drawn HERE, before
+     the tree symbols, so it sits under them exactly as it does on screen and can
+     never hide a pin. */
+  const sheetF = featsOnSheet(b);
+  sheetFeats = { fences: sheetF.filter(f=>f.kind==="fence").length,
+                 plantings: sheetF.filter(f=>f.kind==="planting").length };
+  const fenceW = Math.max(3, Math.round(PDF_DPI*0.035));
+  sheetF.filter(f=>f.kind==="fence" && f.pts.length>1).forEach(f=>{
+    g.strokeStyle="#FF6D00"; g.lineWidth=fenceW; g.lineJoin="round"; g.lineCap="round";
+    g.beginPath();
+    f.pts.forEach((pt,i)=>{ const p=P(+pt[0],+pt[1]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); });
+    // A white casing under the orange, so the line still reads over dark imagery —
+    // the same reason the north arrow and scale bar sit on white blocks.
+    g.save(); g.strokeStyle="rgba(255,255,255,.85)"; g.lineWidth=fenceW*1.9; g.stroke(); g.restore();
+    g.stroke();
+  });
+
   const shown = opt.bounds ? seriesTrees().filter(t=>{
       const la=num(t.LAT), lo=num(t.LON);
       return la<=b.getNorth() && la>=b.getSouth() && lo>=b.getWest() && lo<=b.getEast();
@@ -8319,6 +8577,14 @@ async function runSingleExport(opt){
     g.beginPath(); g.arc(p[0],p[1],R,0,7);
     g.fillStyle=healthColor(t.HEALTH); g.fill();
     g.strokeStyle="#fff"; g.lineWidth=R*0.34; g.stroke();
+  });
+  /* Proposed plantings sit with the trees, as they do on screen, but in their own
+     green with a dark ring so a proposal is never read as an existing tree. */
+  sheetF.filter(f=>f.kind==="planting" && f.pts.length).forEach(f=>{
+    const p=P(+f.pts[0][0], +f.pts[0][1]);
+    g.beginPath(); g.arc(p[0],p[1],R*0.95,0,7);
+    g.fillStyle="#66BB6A"; g.fill();
+    g.strokeStyle="#1B5E20"; g.lineWidth=R*0.34; g.stroke();
   });
   if(tc.on!==false && tc.fields.length){
     g.font=`600 ${FS}px sans-serif`; g.textAlign="left"; g.textBaseline="middle";
@@ -8814,6 +9080,8 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     return true;
   }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
   if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
+  if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:"#FF6D00", kind:"line"});
+  if(sheetFeats.plantings) present.push({label:"Proposed planting", color:"#66BB6A", kind:"dot"});
   refLayers.filter(l=>l.visible).forEach(l=>
     present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
   if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
@@ -8821,7 +9089,16 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
   /* The legend is laid out INSIDE the space left by the badge, not across a fixed
      fraction of the panel. It used to run to 99% of the width in two fixed columns
      and disappear underneath the red SHEET badge — "Tree protection zone" came out
-     as "Tree prote". Columns are now fitted to the room actually available. */
+     as "Tree prote". Columns are now fitted to the room actually available.
+
+     THE BADGE GEOMETRY IS WORKED OUT HERE, ABOVE ITS FIRST USE. It was declared with
+     const further down, after the legend that reads it, so every call threw
+     "Cannot access 'badgeLeft' before initialization" — a temporal dead zone, not a
+     hoisted var. drawTitleBlock is the last thing every map export does, so the
+     sheet was built in full and then thrown away, on every single export. */
+  const badgeW = Math.round(PDF_DPI*1.25), badgeGap = Math.round(PDF_DPI*0.20);
+  const badgeLeft = sheetNote ? (x + w - badgeW - badgeGap) : (x + w);
+
   const lx = x + Math.round(w*0.62), ly = top + Math.round(PDF_DPI*0.20);
   const legendRight = badgeLeft - Math.round(PDF_DPI*0.18);
   const availW = Math.max(Math.round(PDF_DPI*1.2), legendRight - lx);
@@ -8867,9 +9144,7 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     g.fillStyle="#e7ebe6"; g.fillText("Field checked", lx+Math.round(PDF_DPI*0.13), py);
   }
 
-  // Where the sheet badge sits, so the legend can keep clear of it.
-  const badgeW = Math.round(PDF_DPI*1.25), badgeGap = Math.round(PDF_DPI*0.20);
-  const badgeLeft = sheetNote ? (x + w - badgeW - badgeGap) : (x + w);
+  // The badge itself. Its geometry was computed above, where the legend needs it.
   if(sheetNote){
     const bw=badgeW, bh=Math.round(PDF_DPI*0.34);
     const bx=badgeLeft, by=top+Math.round(PDF_DPI*0.16);
@@ -9398,20 +9673,34 @@ function clearProjectLocal(){
   if(!name || !counts[name]){ toast("No trees for that project on this phone",true); return; }
 
   const mine = trees.filter(t=>(projectOf(t)||"(no project)")===name);
+  /* The project's fences and plantings go with it. They used to be left behind, so a
+     cleared project kept drawing its fence on the map with no trees under it — and
+     they are checked for unsynced work on the same rule, since an unsent fence is
+     lost just as completely as an unsent tree. */
+  const myFeats = feats.filter(f=>(String(f.project||"")||"(no project)")===name);
   const unsent = mine.filter(t=>!t._sent).length;
-  if(unsent){
-    toast(`${unsent} tree(s) have not synced — sync first`,true);
-    alert(`${unsent} of these ${mine.length} tree(s) have not reached the Sheet yet.\n\n` +
+  const unsentF = myFeats.filter(f=>!f._sent).length;
+  if(unsent || unsentF){
+    toast(`${unsent+unsentF} record(s) have not synced — sync first`,true);
+    alert(`${unsent} of these ${mine.length} tree(s)` +
+          (unsentF ? `, and ${unsentF} of ${myFeats.length} fence/planting record(s),` : "") +
+          ` have not reached the Sheet yet.\n\n` +
           `Clearing now would lose them. Run Sync, then Verify what reached the Sheet, and try again.`);
     return;
   }
-  if(!confirm(`Remove ${mine.length} tree(s) in "${name}" from this phone?\n\n` +
+  if(!confirm(`Remove ${mine.length} tree(s)` +
+              (myFeats.length ? ` and ${myFeats.length} fence/planting record(s)` : "") +
+              ` in "${name}" from this phone?\n\n` +
               `They stay in the Sheet and can be pulled back with "Load trees from Sheet".`)) return;
 
   const photoNames = {};
   mine.forEach(t=>String(t.PHOTOS||"").split(";").forEach(x=>{ const f=x.trim(); if(f) photoNames[f]=1; }));
   trees = trees.filter(t=>(projectOf(t)||"(no project)")!==name);
   persistTrees(); renderPins();
+  if(myFeats.length){
+    feats = feats.filter(f=>(String(f.project||"")||"(no project)")!==name);
+    persistFeats(); renderFeats();
+  }
 
   // Only drop photos already backed up; anything still waiting to upload stays put.
   if(HAS_IDB){
@@ -9427,13 +9716,17 @@ function clearProjectLocal(){
 }
 
 function clearAllData(){
-  const unsent = trees.filter(t=>!t._sent).length;
-  if(unsent && !confirm(`${unsent} tree(s) on this phone have NOT reached the Sheet.\n\nClearing now loses them for good. Continue anyway?`)) return;
-  if(!confirm("Delete every tree and photo stored on this phone?\n\nAnything already synced stays in the Google Sheet. This cannot be undone.")) return;
+  const unsent = trees.filter(t=>!t._sent).length + feats.filter(f=>!f._sent).length + featDeletes.length;
+  if(unsent && !confirm(`${unsent} record(s) on this phone have NOT reached the Sheet.\n\nClearing now loses them for good. Continue anyway?`)) return;
+  if(!confirm("Delete every tree, fence, planting and photo stored on this phone?\n\nAnything already synced stays in the Google Sheet. This cannot be undone.")) return;
   if(!confirm("Really delete? Last chance.")) return;
   trees=[]; persistTrees();
+  // The features were left behind, so a cleared device kept drawing fences and
+  // plantings with nothing under them.
+  feats=[]; persistFeats();
+  featDeletes=[]; persistFeatDeletes();
   idbClear().catch(()=>{});
-  renderPins(); closeMenu();
+  renderPins(); renderFeats(); closeMenu();
   toast("Device data cleared");
 }
 
@@ -9543,7 +9836,7 @@ document.addEventListener("touchend", e=>{
   lastTouchEnd = now;
 }, {passive:false});
 
-window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushDomains(); flushInspections(); });
+window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushDomains(); flushInspections(); syncFeats(); flushFeatDeletes(); });
 // Backgrounding the app mid-entry must not leave a half-made tree on the map.
 document.addEventListener("visibilitychange", ()=>{
   if(document.visibilityState==="hidden" && editIndex!=null && trees[editIndex] && trees[editIndex]._new){
@@ -9576,6 +9869,12 @@ window.addEventListener("offline", netDot);
   flushUsers();
   flushProjects();
   flushDomains();
+  /* Fences, plantings and their deletions queue on the phone exactly as the trees do,
+     so anything drawn with no signal goes up on the next launch. Without this they
+     were sent only in the 600 ms after a save: a fence drawn offline, with nothing
+     saved after it, never reached the Sheet and nothing on screen said so. */
+  syncFeats();
+  flushFeatDeletes();
   updateProjBtn();
   if(abandoned) setTimeout(()=>toast(`${abandoned} unfinished tree(s) discarded`), 900);
   if(!settings.cruiser) setTimeout(openSettings, 700);
