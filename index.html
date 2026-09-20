@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v84";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v85";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1799,11 +1799,9 @@ function setBase(i){
      street and topographic maps and are unaffected. */
   if(baseIdx===0){
     const src = imagerySource();
-    baseLayer = (src.type==="wms"
-      ? L.tileLayer.wms(src.url,{layers:src.layers,format:"image/jpeg",transparent:false,
-          maxZoom:src.max,attribution:src.credit})
-      : offlineTileLayer(src.url,"sat",{maxZoom:b[2],maxNativeZoom:src.maxNative||b[3],
-          attribution:src.credit})).addTo(fmap);
+    baseLayer = offlineTileLayer(src.url,"sat",{ maxZoom:b[2],
+      maxNativeZoom:src.maxNative||b[3], attribution:src.credit }).addTo(fmap);
+    watchImageryErrors(baseLayer);
   } else {
     baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
   }
@@ -5074,9 +5072,16 @@ function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO
    the map-export section, and referencing them from here at load time threw a
    temporal-dead-zone error that stopped the whole app from starting. */
 function tileSetUrl(set){
-  return set==="road" ? ROADS_URL : set==="place" ? PLACES_URL : AERIAL_URL;
+  // "sat" follows whichever aerial is chosen, so an offline area is saved from the
+  // same imagery the map is showing — not always Esri.
+  return set==="road" ? ROADS_URL : set==="place" ? PLACES_URL : imagerySource().url;
 }
-function tileKey(set,z,x,y){ return set+"/"+z+"/"+x+"/"+y; }
+/* The cache key carries the SOURCE for aerials. Without it, saving Simcoe 2018 over
+   ground already saved as Esri would silently overwrite it — same z/x/y, different
+   picture — and a crew would get whichever was downloaded last with no way to tell. */
+function tileKey(set,z,x,y){
+  return (set==="sat" ? "sat:"+imageryId : set) + "/" + z + "/" + x + "/" + y;
+}
 
 function idbGetTile(k){ return new Promise(res=>{ idbOpen().then(db=>{
   const tx=db.transaction(TILE_STORE,"readonly"), rq=tx.objectStore(TILE_STORE).get(k);
@@ -6476,26 +6481,62 @@ function drivePick(i){
 /* Esri is the default because it covers everywhere. The municipal orthos are far
    sharper and more current over their own ground, and are what a plan should be
    drawn on where they exist. */
+/* All of these are CACHED TILE services in Web Mercator, so they are plain
+   {z}/{y}/{x} requests — faster than WMS, and the service worker can keep them for
+   offline use the same way it keeps Esri. ArcGIS orders the path /tile/{z}/{y}/{x},
+   which is row before column, the opposite of the usual {z}/{x}/{y}.
+
+   A layer index on the end of a REST URL (…/MapServer/3) addresses a layer for
+   queries and does not apply to tiles; the tile endpoint hangs off the MapServer. */
 const IMAGERY = [
-  { id:"esri",  name:"Esri world imagery", max:22, maxNative:19, type:"xyz",
+  { id:"esri", name:"Esri world imagery", maxNative:19, credit:"Esri, Maxar, Earthstar Geographics",
     url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    credit:"Esri, Maxar, Earthstar Geographics" },
-  { id:"york",  name:"York Region ortho 2025", max:21, type:"wms",
-    url:"https://ww3.yorkmaps.ca/arcgis/rest/services/WMS/YorkRegion_OrthosImages_2025_WMS/MapServer/WMSServer",
-    layers:"0", credit:"York Region 2025 orthoimagery" },
-  { id:"simcoe", name:"Simcoe County imagery", max:21, type:"wms",
-    url:"https://opengis.simcoe.ca/geoserver/wms",
-    layers:"simcoe:Ortho2023", credit:"Simcoe County open GIS" }
+    note:"Everywhere. The fallback, and the only one saved offline by default." },
+
+  { id:"york2025", name:"York Region 2025", maxNative:21, credit:"York Region",
+    url:"https://ags2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YR_Imagery2025/MapServer/tile/{z}/{y}/{x}",
+    note:"Current, and the sharpest over York Region." },
+
+  { id:"simcoe2022", name:"Simcoe County 2022", maxNative:21, credit:"The Corporation of the County of Simcoe",
+    url:"https://maps.simcoe.ca/arcgis/rest/services/Public/Ortho_2022_Cache/MapServer/tile/{z}/{y}/{x}",
+    note:"Simcoe County's most recent public orthoimagery." },
+
+  { id:"simcoe2018", name:"Simcoe County 2018", maxNative:21, credit:"The Corporation of the County of Simcoe",
+    url:"https://maps.simcoe.ca/arcgis/rest/services/Public/Ortho_2018_Cache/MapServer/tile/{z}/{y}/{x}",
+    note:"Useful for comparing a tree against an earlier year." }
 ];
 let imageryId = "esri";
 try{ imageryId = (STORE&&STORE.getItem("st_imagery")) || "esri"; }catch(e){}
 function imagerySource(){ return IMAGERY.find(s=>s.id===imageryId) || IMAGERY[0]; }
+
+/* A municipal service can be down, or simply have no coverage where you are — a
+   York tile request over Simcoe returns nothing. Rather than leave a crew staring
+   at a blank map, count the failures and drop back to Esri, which covers
+   everywhere. Only while the tiles are actually missing; the choice is not
+   rewritten, so it comes back when the service does. */
+let imgFails = 0, imgFellBack = false;
+function watchImageryErrors(layer){
+  imgFails = 0;
+  layer.on("tileerror", ()=>{
+    if(imageryId==="esri" || imgFellBack) return;
+    if(++imgFails < 8) return;
+    imgFellBack = true;
+    const was = imagerySource().name;
+    const keep = imageryId;
+    imageryId = "esri";
+    setBase(0);
+    imageryId = keep;            // remembered, so it returns when the service does
+    imgFellBack = false;
+    toast(was + " is not answering here — showing Esri", true);
+  });
+  layer.on("tileload", ()=>{ if(imgFails) imgFails = Math.max(0, imgFails-1); });
+}
 function openImagery(){
   closeMenu();
   $("imgList").innerHTML = IMAGERY.map(s=>
     `<button class="menuitem${s.id===imageryId?" prime":""}" onclick="setImagery('${s.id}')">
-       ${s.id===imageryId?"✓ ":""}${esc(s.name)}<span class="ct">${esc(s.credit)}</span></button>`).join("") +
-    `<div class="mini" style="margin-top:10px">Municipal imagery is sharper and more current over its own ground. It is served live, so it needs a connection — the offline tiles you have saved are Esri.</div>`;
+       ${s.id===imageryId?"✓ ":""}${esc(s.name)}<span class="ct">${esc(s.note)}</span></button>`).join("") +
+    `<div class="mini" style="margin-top:10px">Municipal imagery is sharper and more current over its own ground, and is cached for offline use like any other. Outside its coverage it has nothing to show, so the map falls back to Esri on its own and says so.</div>`;
   $("imgSheet").classList.add("show");
 }
 function setImagery(id){
@@ -6503,7 +6544,7 @@ function setImagery(id){
   if(STORE){ try{ STORE.setItem("st_imagery", id); }catch(e){} }
   setBase(0);                                  // redraw the aerial with the new source
   $("imgSheet").classList.remove("show");
-  toast(imagerySource().name + " — needs a connection; saved offline tiles are Esri");
+  toast(imagerySource().name);
 }
 
 /* ---------- standard detail drawings appended to the map PDF ---------- */
@@ -7586,6 +7627,7 @@ function setSheetSize(k){
   toast(SHEET_SIZES[k].name);
 }
 let PDF_W_IN = SHEET_SIZES[sheetSize].w, PDF_H_IN = SHEET_SIZES[sheetSize].h;
+// Kept for the key map inset, which is always the Esri street map.
 const AERIAL_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 /* Roads and place names, drawn over the imagery. World Imagery carries no labels at
    all, so without this a reader cannot tell which street a tree is on — the one thing
@@ -7729,7 +7771,7 @@ async function runSingleExport(opt){
   const tiles=[];
   for(let i=0;i<want.length;i+=8){
     const got = await Promise.all(want.slice(i,i+8).map(t=>
-      loadTile(AERIAL_URL.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),"sat",z,t.tx,t.ty)
+      loadTile(tileSetUrl("sat").replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),"sat",z,t.tx,t.ty)
         .then(im=>({im,tx:t.tx,ty:t.ty}))));
     got.forEach(x=>tiles.push(x));
     if(want.length>60) setStatus(`Map export: ${Math.min(i+8,want.length)} of ${want.length} tiles`);
@@ -8951,7 +8993,7 @@ function showHelp(){
     <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
-    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri world imagery and municipal orthos — York Region 2025 and Simcoe County. Municipal imagery is sharper and more current over its own ground. It is served live so it needs a connection; the tiles you save for offline use are Esri.</p>
+    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025, Simcoe County 2022 and 2018. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
