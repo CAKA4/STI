@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v85";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v86";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1800,7 +1800,8 @@ function setBase(i){
   if(baseIdx===0){
     const src = imagerySource();
     baseLayer = offlineTileLayer(src.url,"sat",{ maxZoom:b[2],
-      maxNativeZoom:src.maxNative||b[3], attribution:src.credit }).addTo(fmap);
+      maxNativeZoom:src.maxNative||b[3], zoomOffset:src.zOff||0,
+      attribution:src.credit }).addTo(fmap);
     watchImageryErrors(baseLayer);
   } else {
     baseLayer = L.tileLayer(b[1],{maxZoom:b[2],maxNativeZoom:b[3]}).addTo(fmap);
@@ -6481,29 +6482,49 @@ function drivePick(i){
 /* Esri is the default because it covers everywhere. The municipal orthos are far
    sharper and more current over their own ground, and are what a plan should be
    drawn on where they exist. */
-/* All of these are CACHED TILE services in Web Mercator, so they are plain
-   {z}/{y}/{x} requests — faster than WMS, and the service worker can keep them for
-   offline use the same way it keeps Esri. ArcGIS orders the path /tile/{z}/{y}/{x},
-   which is row before column, the opposite of the usual {z}/{x}/{y}.
+/* Municipal ArcGIS caches rarely use the standard web-mercator scheme.
 
-   A layer index on the end of a REST URL (…/MapServer/3) addresses a layer for
-   queries and does not apply to tiles; the tile endpoint hangs off the MapServer. */
+   Esri's level 0 is one tile of the world at 156543 m/px. York Region's caches
+   start at 152.87 m/px and Simcoe's at 305.75 — which are the standard z10 and z9 —
+   and each holds only twelve levels, numbered 0 to 11. So at z18 the app was asking
+   for "level 18" of a cache that stops at 11, and got nothing back. That is why
+   Esri worked and these did not.
+
+   zOff is the correction: the URL level is (map zoom + zOff). Leaflet applies it
+   through its built-in zoomOffset option.
+       York    level = z - 10   levels 0-11 cover z10 to z21
+       Simcoe  level = z -  9   levels 0-11 cover z9  to z20
+   maxNative is then the deepest map zoom the cache can actually serve. */
 const IMAGERY = [
-  { id:"esri", name:"Esri world imagery", maxNative:19, credit:"Esri, Maxar, Earthstar Geographics",
+  { id:"esri", name:"Esri world imagery", zOff:0, maxNative:19,
+    credit:"Esri, Maxar, Earthstar Geographics",
     url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    note:"Everywhere. The fallback, and the only one saved offline by default." },
+    note:"Everywhere. The fallback, and what the others drop back to." },
 
-  { id:"york2025", name:"York Region 2025", maxNative:21, credit:"York Region",
+  { id:"york2025", name:"York Region 2025", zOff:-10, maxNative:21, credit:"York Region",
     url:"https://ags2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YR_Imagery2025/MapServer/tile/{z}/{y}/{x}",
-    note:"Current, and the sharpest over York Region." },
+    note:"10 cm, the sharpest over York Region." },
 
-  { id:"simcoe2022", name:"Simcoe County 2022", maxNative:21, credit:"The Corporation of the County of Simcoe",
+  { id:"york2025b", name:"York Region 2025 (alternate name)", zOff:-10, maxNative:21, credit:"York Region",
+    url:"https://ags2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YRImagery2025/MapServer/tile/{z}/{y}/{x}",
+    note:"Same photography. York's own map config spells it without the underscore — try this if the other is blank." },
+
+  { id:"york2022", name:"York Region 2022", zOff:-10, maxNative:21, credit:"York Region",
+    url:"https://ww2.yorkmaps.ca/arcgis/rest/services/CacheMaps/YR_Imagery2022/MapServer/tile/{z}/{y}/{x}",
+    note:"An earlier year, for comparing a tree against." },
+
+  { id:"simcoe2022", name:"Simcoe County 2022", zOff:-9, maxNative:20,
+    credit:"The Corporation of the County of Simcoe",
     url:"https://maps.simcoe.ca/arcgis/rest/services/Public/Ortho_2022_Cache/MapServer/tile/{z}/{y}/{x}",
-    note:"Simcoe County's most recent public orthoimagery." },
+    note:"Simcoe's most recent public orthoimagery." },
 
-  { id:"simcoe2018", name:"Simcoe County 2018", maxNative:21, credit:"The Corporation of the County of Simcoe",
+  { id:"simcoe2018", name:"Simcoe County 2018", zOff:-9, maxNative:20,
+    credit:"The Corporation of the County of Simcoe",
     url:"https://maps.simcoe.ca/arcgis/rest/services/Public/Ortho_2018_Cache/MapServer/tile/{z}/{y}/{x}",
-    note:"Useful for comparing a tree against an earlier year." }
+    note:"An earlier year." },
+
+  { id:"custom", name:"Another service…", zOff:0, maxNative:21, credit:"", url:"",
+    note:"Paste any ArcGIS cached tile URL and set its level offset." }
 ];
 let imageryId = "esri";
 try{ imageryId = (STORE&&STORE.getItem("st_imagery")) || "esri"; }catch(e){}
@@ -6536,10 +6557,43 @@ function openImagery(){
   $("imgList").innerHTML = IMAGERY.map(s=>
     `<button class="menuitem${s.id===imageryId?" prime":""}" onclick="setImagery('${s.id}')">
        ${s.id===imageryId?"✓ ":""}${esc(s.name)}<span class="ct">${esc(s.note)}</span></button>`).join("") +
+    `<button class="menuitem" onclick="customImagery()">✎ Edit the custom source</button>` +
     `<div class="mini" style="margin-top:10px">Municipal imagery is sharper and more current over its own ground, and is cached for offline use like any other. Outside its coverage it has nothing to show, so the map falls back to Esri on its own and says so.</div>`;
   $("imgSheet").classList.add("show");
 }
+/* Paste-your-own, so a service I have not listed — or one whose name changes —
+   can be used without waiting for a new build. */
+function customImagery(){
+  const src = IMAGERY.find(s=>s.id==="custom");
+  let saved = {};
+  try{ saved = JSON.parse(STORE&&STORE.getItem("st_imgcustom")) || {}; }catch(e){}
+  const url = prompt(
+    "Tile URL, with {z}/{y}/{x} where the level, row and column go.\n\n" +
+    "An ArcGIS cache looks like:\n" +
+    ".../MapServer/tile/{z}/{y}/{x}\n\n" +
+    "Note ArcGIS puts the ROW before the COLUMN.",
+    saved.url || "https://…/arcgis/rest/services/…/MapServer/tile/{z}/{y}/{x}");
+  if(url===null) return;
+  const off = prompt(
+    "Level offset.\n\n" +
+    "Open the MapServer page and look at Tile Info. If Level 0's resolution is\n" +
+    "  156543  enter 0   (the standard scheme)\n" +
+    "  305.75  enter -9\n" +
+    "  152.87  enter -10\n\n" +
+    "Halving the resolution is one more level.", String(saved.off!==undefined?saved.off:0));
+  if(off===null) return;
+  src.url = normText(url); src.zOff = parseInt(off,10)||0; src.credit = "Custom source";
+  if(STORE){ try{ STORE.setItem("st_imgcustom", JSON.stringify({url:src.url, off:src.zOff})); }catch(e){} }
+  setImagery("custom");
+}
+// Restore a saved custom source at startup.
+(function(){ try{
+  const c = JSON.parse(STORE&&STORE.getItem("st_imgcustom")) || null;
+  if(c && c.url){ const s = IMAGERY.find(x=>x.id==="custom"); s.url=c.url; s.zOff=c.off||0; s.credit="Custom source"; }
+}catch(e){} })();
+
 function setImagery(id){
+  if(id==="custom" && !IMAGERY.find(s=>s.id==="custom").url){ customImagery(); return; }
   imageryId = id;
   if(STORE){ try{ STORE.setItem("st_imagery", id); }catch(e){} }
   setBase(0);                                  // redraw the aerial with the new source
@@ -8993,7 +9047,7 @@ function showHelp(){
     <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
-    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025, Simcoe County 2022 and 2018. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
+    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
