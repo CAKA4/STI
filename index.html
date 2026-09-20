@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v86";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v87";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -6557,7 +6557,9 @@ function openImagery(){
   $("imgList").innerHTML = IMAGERY.map(s=>
     `<button class="menuitem${s.id===imageryId?" prime":""}" onclick="setImagery('${s.id}')">
        ${s.id===imageryId?"✓ ":""}${esc(s.name)}<span class="ct">${esc(s.note)}</span></button>`).join("") +
-    `<button class="menuitem" onclick="customImagery()">✎ Edit the custom source</button>` +
+    `<button class="menuitem" onclick="customImagery()">✎ Edit the custom source</button>
+     <button class="menuitem prime" id="imgTestBtn" onclick="testImagery()">🔎 Test these over this view</button>
+     <div class="mini" id="imgTestLine" style="margin-top:8px">Pan to your site first, then test — it asks each service for one real tile there and keeps the setting that works.</div>` +
     `<div class="mini" style="margin-top:10px">Municipal imagery is sharper and more current over its own ground, and is cached for offline use like any other. Outside its coverage it has nothing to show, so the map falls back to Esri on its own and says so.</div>`;
   $("imgSheet").classList.add("show");
 }
@@ -6590,6 +6592,68 @@ function customImagery(){
 (function(){ try{
   const c = JSON.parse(STORE&&STORE.getItem("st_imgcustom")) || null;
   if(c && c.url){ const s = IMAGERY.find(x=>x.id==="custom"); s.url=c.url; s.zOff=c.off||0; s.credit="Custom source"; }
+}catch(e){} })();
+
+/* Probing, rather than another round of guesswork.
+
+   Two things vary between municipal caches and neither is discoverable from the
+   URL: the exact service name, and the level offset. Instead of shipping a guess,
+   the app asks the server — it requests one tile over the current view for each
+   combination and keeps whichever comes back. A tile that loads is proof; anything
+   else is inference. */
+const IMG_OFFSETS = [0, -9, -10, -11, -8];
+function tileXYForView(z){
+  const c = fmap.getCenter();
+  const n = Math.pow(2, z);
+  const x = Math.floor((c.lng + 180) / 360 * n);
+  const r = c.lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * n);
+  return {x, y};
+}
+function tryTile(url){
+  return new Promise(res=>{
+    const im = new Image();
+    let done = false;
+    const end = ok => { if(!done){ done = true; res(ok); } };
+    im.onload  = ()=> end(im.width > 4);        // an error page can decode as a tiny image
+    im.onerror = ()=> end(false);
+    setTimeout(()=>end(false), 6000);
+    im.src = url;
+  });
+}
+async function probeImagery(src){
+  const z = Math.min(18, Math.max(14, fmap.getZoom()));
+  const t = tileXYForView(z);
+  for(const off of IMG_OFFSETS){
+    const lvl = z + off;
+    if(lvl < 0 || lvl > 23) continue;
+    const url = src.url.replace("{z}", lvl).replace("{y}", t.y).replace("{x}", t.x);
+    if(await tryTile(url)) return off;
+  }
+  return null;
+}
+async function testImagery(){
+  const btn = $("imgTestBtn");
+  if(btn){ btn.disabled = true; btn.textContent = "Testing…"; }
+  const results = [];
+  for(const src of IMAGERY){
+    if(!src.url || src.id === "esri"){ continue; }
+    $("imgTestLine").textContent = "Trying " + src.name + "…";
+    const off = await probeImagery(src);
+    if(off !== null){ src.zOff = off; results.push(`${src.name}: works, level offset ${off}`); }
+    else results.push(`${src.name}: no tile here`);
+  }
+  if(btn){ btn.disabled = false; btn.textContent = "🔎 Test these over this view"; }
+  $("imgTestLine").innerHTML = results.map(esc).join("<br>");
+  // Keep what was learned, so the next launch starts from fact rather than a guess.
+  const learned = {};
+  IMAGERY.forEach(s=>{ if(s.id!=="esri") learned[s.id] = s.zOff; });
+  if(STORE){ try{ STORE.setItem("st_imgoff", JSON.stringify(learned)); }catch(e){} }
+  openImagery();
+}
+(function(){ try{
+  const l = JSON.parse(STORE&&STORE.getItem("st_imgoff")) || null;
+  if(l) IMAGERY.forEach(s=>{ if(l[s.id]!==undefined) s.zOff = l[s.id]; });
 }catch(e){} })();
 
 function setImagery(id){
@@ -9047,7 +9111,7 @@ function showHelp(){
     <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
-    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
+    <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. If one shows blank, pan to your site and tap <b>Test these over this view</b> — the app asks each service for a real tile there and keeps whatever settings work. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
