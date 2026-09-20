@@ -365,6 +365,9 @@
   <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
   <button id="btnSelect" onclick="toggleSelect()" title="Select a group of trees">⬚</button>
   <button id="btnRoads" onclick="toggleRoads()" title="Roads and place names">🛣</button>
+  <button id="btnTPZ" onclick="toggleTPZ()" title="Tree protection zones">🛡</button>
+  <button id="btnSymbol" onclick="cycleSymbol()" title="Colour trees by…">🎯</button>
+  <button id="btnPdf" onclick="togglePDF()" title="Site plan" style="display:none">🗺</button>
 </div>
 
 <div class="legend" id="legend"></div>
@@ -514,6 +517,18 @@
           </select>
         </div>
         <div class="fld">
+          <label>Potential impact</label>
+          <div class="picker" onclick="openMulti('IMPACT_POT')"><span class="val empty" id="vIMPACT_POT">Tap to choose</span><span style="color:var(--faint)">▸</span></div>
+          <input id="fIMPACT_POT" type="hidden">
+        </div>
+        <div class="fld"><label>Future prognosis</label><select id="fPROGNOSIS"></select></div>
+        <div class="fld">
+          <label>Recommended action</label>
+          <div class="picker" onclick="openMulti('REC_ACT')"><span class="val empty" id="vREC_ACT">Tap to choose</span><span style="color:var(--faint)">▸</span></div>
+          <input id="fREC_ACT" type="hidden">
+        </div>
+
+        <div class="fld">
           <label>York Region exempt species</label>
           <select id="fYR_EXEMPT" onchange="refreshTPZ()">
             <option value="">Work it out from the species</option>
@@ -598,12 +613,34 @@
         <button class="menuitem" onclick="exportMapPDF()">Map of this view (PDF)</button>
         <button class="menuitem" onclick="exportAttachmentTable()">Photo attachment table</button>
         <button class="menuitem" onclick="exportDataDictionary()">Data dictionary</button>
-        <button class="menuitem" onclick="exportScheduleA()">Schedule A — tree inventory table</button>
-        <button class="menuitem" onclick="exportScheduleB()">Schedule B — tree photographs (PDF)</button>
-        <button class="menuitem" onclick="exportYRCompensation()">York Region compensation table</button>
         <button class="menuitem" onclick="downloadPhotos()">Download all photos (.zip)</button>
         <button class="menuitem" onclick="emailPackage()">Email me the data + photos</button>
       </div>
+    </div>
+
+    <div class="mgroup" id="g_tpp" style="display:none">
+      <button class="mhead" onclick="toggleGroup('tpp')">🛡 Tree protection &amp; reporting<span class="caret">▸</span></button>
+      <div class="mbody">
+        <div class="mini" style="padding:2px 4px 8px">On site</div>
+        <button class="menuitem" onclick="document.getElementById('sitePdfInput').click()">Load the site plan (georeferenced PDF)</button>
+        <button class="menuitem" onclick="startFence()">Draw the tree protection fence</button>
+        <button class="menuitem" onclick="startPlanting()">Place proposed plantings</button>
+        <div class="mini" style="padding:10px 4px 8px">Report tables</div>
+        <button class="menuitem" onclick="exportScheduleA()">Schedule A — tree inventory table</button>
+        <button class="menuitem" onclick="exportSpeciesByLocation()">Table 1 — species by location</button>
+        <button class="menuitem" onclick="exportPlantList()">Landscaping plant list</button>
+        <button class="menuitem" onclick="exportYRCompensation()">York Region compensation table</button>
+        <button class="menuitem" onclick="exportFeatsGeoJSON()">Fences &amp; plantings (GeoJSON)</button>
+        <div class="mini" style="padding:10px 4px 8px">The document</div>
+        <button class="menuitem" onclick="exportScheduleB()">Schedule B — tree photographs (PDF)</button>
+        <button class="menuitem" onclick="openDetails()">Standard detail drawings</button>
+        <button class="menuitem prime" onclick="openDoc()">📄 Assemble the final document</button>
+      </div>
+    </div>
+
+    <div class="mini" id="tppHint" style="display:none;padding:8px 10px;line-height:1.5;opacity:.8">
+      Doing a tree protection plan? Turn it on in <b>Settings &amp; help → Cruiser, project &amp; ID settings</b>
+      and the fence, plantings, schedules and document assembly appear here.
     </div>
 
     <div class="mgroup" id="g_review">
@@ -880,6 +917,13 @@
     </div>
 
     <div class="fld">
+      <label>Standard details</label>
+      <select id="mapDetails">
+        <option value="0">No detail drawings</option>
+        <option value="1">Append the selected detail drawings</option>
+      </select>
+    </div>
+    <div class="fld">
       <label>Photo pages</label>
       <select id="mapPhotos">
         <option value="0">Map only</option>
@@ -891,6 +935,62 @@
       <button class="primary" onclick="runMapExport()">Create the PDF</button>
       <button onclick="closeMapOpt()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== document assembly ===== -->
+<div class="sheet" id="docSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Assemble the document</h2>
+    <div class="hint">Tick what goes in, order it with the arrows, and the contents page is built from the real page numbers.</div>
+
+    <div class="fld"><label>Document title</label><input id="docTitle" type="text" placeholder="1 Cynthia Crescent, Richmond Hill"></div>
+    <div class="row2">
+      <div class="fld"><label>Page numbers</label>
+        <select id="docNumStyle" onchange="document.getElementById('docPrefixRow').style.display = this.value==='prefix' ? 'block' : 'none'">
+          <option value="prefix">TPP1, TPP2, TPP3…</option>
+          <option value="plain">1, 2, 3…</option>
+        </select>
+      </div>
+      <div class="fld" id="docPrefixRow"><label>Prefix</label><input id="docPrefix" type="text" value="TPP"></div>
+    </div>
+
+    <div id="docList"></div>
+    <div class="mini" id="docStatus" style="margin:8px 0">Add your arborist report, custom tables or figures as PDFs.</div>
+    <div class="btnrow">
+      <button onclick="document.getElementById('docInput').click()">Add PDFs</button>
+      <button class="primary" onclick="buildDocument()">Build the document</button>
+    </div>
+    <div class="btnrow"><button onclick="closeDoc()">Close</button></div>
+  </div>
+</div>
+<input id="docInput" type="file" accept=".pdf,application/pdf" multiple style="display:none">
+
+<!-- ===== detail drawings ===== -->
+<div class="sheet" id="detailSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Standard detail drawings</h2>
+    <div class="hint">Added once and kept on this device. Ticked drawings are appended to the map PDF as full pages. Municipalities differ, so use whichever yours requires.</div>
+    <div id="detailList"></div>
+    <div class="mini" id="detailCount" style="margin:8px 0">None selected</div>
+    <div class="btnrow">
+      <button class="primary" onclick="document.getElementById('detailInput').click()">Add drawings</button>
+      <button onclick="document.getElementById('detailSheet').classList.remove('show')">Done</button>
+    </div>
+  </div>
+</div>
+<input id="detailInput" type="file" accept="image/*" multiple style="display:none">
+
+<!-- ===== multi-select ===== -->
+<div class="sheet" id="multiSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2 id="multiTitle">Choose</h2>
+    <div class="hint">Choose as many as apply.</div>
+    <div id="multiList"></div>
+    <div class="btnrow"><button class="primary" onclick="closeMulti()">Done</button></div>
   </div>
 </div>
 
@@ -1051,7 +1151,20 @@
 </div>
 
 <input id="pointsInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<input id="sitePdfInput" type="file" accept=".pdf,application/pdf" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<div class="repobar" id="drawBar">
+  <span class="msg" id="drawMsg">—</span>
+  <button class="alt" onclick="undoDrawPt()">Undo</button>
+  <button class="alt" onclick="cancelDraw()">Cancel</button>
+  <button onclick="finishDraw()">Done</button>
+</div>
+<div class="repobar" id="pdfBar">
+  <span class="msg">Site plan</span>
+  <input id="pdfOpacity" type="range" min="10" max="100" value="85" oninput="setPDFOpacity(this.value)" style="flex:1">
+  <span class="msg" id="pdfOpacityVal">85%</span>
+  <button class="alt" onclick="unloadPDF()">Remove</button>
+</div>
 <div class="repobar" id="selBar">
   <span class="msg" id="selMsg">Tap the map to draw round a group of trees</span>
   <button onclick="selFinish()">Select</button>
@@ -1084,7 +1197,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-19 · v72";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v78";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1240,6 +1353,9 @@ const FIELDS = [
   // Tree protection plan. Only filled in when the project is a TPP.
   {k:"TREE_NO", t:"N", w:5, d:0}, {k:"TAG_NO", t:"C", w:12}, {k:"LOCATION", t:"C", w:40},
   {k:"PROP_ACT", t:"C", w:254}, {k:"LT_IMPACT", t:"C", w:60}, {k:"COMP_INCL", t:"C", w:3},
+  // Construction impact assessment. Each may hold several values, semicolon-separated.
+  {k:"IMPACT_POT", t:"C", w:160}, {k:"PROGNOSIS", t:"C", w:60}, {k:"REC_ACT", t:"C", w:200},
+  {k:"SHEET_NO", t:"N", w:4, d:0},
   // York Region compensation, alongside the Richmond Hill REPL_REQ above.
   {k:"COND_PCT", t:"N", w:4, d:2}, {k:"YR_EXEMPT", t:"C", w:3},
   {k:"YR_REPL", t:"N", w:7, d:2}, {k:"YR_REPL_R", t:"N", w:4, d:0}, {k:"YR_VALUE", t:"N", w:10, d:2},
@@ -1606,7 +1722,16 @@ async function initMap(){
   refGroup = L.layerGroup().addTo(fmap);
   pinLayer = L.layerGroup().addTo(fmap);
   labelLayer = L.layerGroup().addTo(fmap);
+  const dci=$("docInput");
+  if(dci) dci.addEventListener("change", e=>{ if(e.target.files.length) addDocPdfs(e.target.files); e.target.value=""; });
+  const di=$("detailInput");
+  if(di) di.addEventListener("change", e=>{ if(e.target.files.length) addDetailFiles(e.target.files); e.target.value=""; });
+  const spi=$("sitePdfInput");
+  if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) loadPdfOverlay(f); e.target.value=""; });
   loadRefLayers();
+  loadCachedPdf_();
+  renderFeats();
+  renderTPZ();
   buildLegend();
   fmap.on("moveend zoomend", scheduleRedraw);
   fmap.on("zoomstart", ()=>{ if(labelLayer) labelLayer.clearLayers(); });   // labels are the costly part
@@ -1720,10 +1845,44 @@ const PIN_MAX = 2500;            // safety ceiling for a single frame
 const PIN_PAD = 0.35;            // draw a little beyond the edge so panning looks continuous
 let pinRenderer = null, refRenderer = null, pinIndex = [], pinsTruncated = false;
 
+/* Tree protection zones, drawn as a true circle of TPZ_M metres round each trunk —
+   L.circle takes a radius in metres, so it stays correct as you zoom, which a
+   pixel-radius marker would not. Under the pins and non-interactive, so it cannot
+   take a tap meant for a tree. */
+let tpzLayer = null, tpzOn = false;
+try{ tpzOn = (STORE&&STORE.getItem("st_tpzon")) === "1"; }catch(e){}
+function toggleTPZ(){
+  tpzOn = !tpzOn;
+  if(STORE){ try{ STORE.setItem("st_tpzon", tpzOn?"1":"0"); }catch(e){} }
+  const b=$("btnTPZ"); if(b) b.classList.toggle("on", tpzOn);
+  renderTPZ();
+  toast(tpzOn ? "Tree protection zones on" : "Protection zones off");
+}
+function renderTPZ(){
+  if(!fmap) return;
+  if(tpzLayer){ fmap.removeLayer(tpzLayer); tpzLayer=null; }
+  const b=$("btnTPZ"); if(b) b.classList.toggle("on", tpzOn);
+  if(!tpzOn) return;
+  const view = fmap.getBounds().pad(0.3);
+  const shapes = [];
+  visibleTrees().forEach(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    if(la==null||lo==null || !view.contains([la,lo])) return;
+    // Fall back to the DBH rule for a tree whose TPZ has not been stored yet.
+    const r = parseFloat(t.TPZ_M) || tpzFor(t.DBH);
+    if(!r) return;
+    shapes.push(L.circle([la,lo], { radius:r, pane:"refPane", interactive:false,
+      color:"#FFD54F", weight:2, opacity:.95, dashArray:"5 4",
+      fillColor:"#FFD54F", fillOpacity:.10 }));
+  });
+  if(shapes.length) tpzLayer = L.layerGroup(shapes).addTo(fmap);
+  if(shapes.length > 400) setStatus(`${shapes.length} protection zones drawn`);
+}
+
 function pinStyle(t){
   return { radius: 7, weight: 2,
            color: t._sent ? "#ffffff" : "#ffd54f",   // amber ring = not yet synced
-           fillColor: healthColor(t.HEALTH), fillOpacity: 0.95 };
+           fillColor: symbolColor(t), fillOpacity: 0.95 };
 }
 // A soft halo marks a tree someone has actually opened and saved, so on an imported
 // street you can see at a glance how far along you are.
@@ -1786,6 +1945,8 @@ function scheduleRedraw(){
     // clear the very marker the popup belongs to, so it vanishes as you tap it.
     if(popupOpen) return;
     renderPins();
+    if(tpzOn) renderTPZ();
+    renderFeats();
     if(refLayers.length) drawRefLayers();
   }, 140);
 }
@@ -2292,6 +2453,122 @@ function yrReplDue(t){
   return (r && compIncluded(t)) ? r.rounded : 0;
 }
 const money = n => "$" + (Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* ================================================================== *
+ *  CONSTRUCTION IMPACT ASSESSMENT
+ *  Worked through tree by tree against the site plan. Potential impact and
+ *  recommended action can each be several things at once — a tree may lose roots
+ *  AND need limbs removed — so both are multi-select and stored semicolon-separated.
+ * ================================================================== */
+const IMPACT_POT_D = [
+  ["None","None anticipated"],
+  ["Limb removal","Limb removal"],
+  ["Root loss","Root loss"],
+  ["Root zone compaction","Root zone compaction"],
+  ["Grade change","Grade change"],
+  ["Trunk damage","Trunk damage"],
+  ["Tree mortality","Tree mortality"]
+];
+const PROGNOSIS_D = [
+  ["No change in health","No change in health"],
+  ["Minor decline in health","Minor decline in health"],
+  ["Decline in health","Decline in health"],
+  ["Severe decline in health","Severe decline in health"],
+  ["Mortality expected","Mortality expected"]
+];
+const REC_ACT_D = [
+  ["Prune deadwood","Prune deadwood"],
+  ["Raise canopy","Raise canopy"],
+  ["Crown reduce","Crown reduce"],
+  ["Prune obstructing limbs","Prune obstructing limbs"],
+  ["Root-sensitive excavation and root pruning","Root-sensitive excavation and root pruning"],
+  ["Root zone compaction protection","Root zone compaction protection"],
+  ["Tree protection fencing","Tree protection fencing"],
+  ["Stem protection","Stem protection"],
+  ["Remove tree","Remove tree"],
+  ["No action required","No action required"]
+];
+const MULTI_FIELDS = { IMPACT_POT:IMPACT_POT_D, PROGNOSIS:null, REC_ACT:REC_ACT_D };
+
+/* A tick list rather than a dropdown, because these are genuinely several-at-once
+   and a dropdown would force a false choice. */
+let multiTarget = null;
+function openMulti(field){
+  multiTarget = field;
+  const chosen = String($("f"+field).value||"").split(";").map(x=>x.trim()).filter(Boolean);
+  $("multiTitle").textContent = FIELD_LABELS[field] || field;
+  $("multiList").innerHTML = (MULTI_FIELDS[field]||[]).map(p=>{
+    const on = chosen.indexOf(p[0])>=0;
+    return `<button class="menuitem${on?" prime":""}" onclick="toggleMulti('${esc(p[0]).replace(/'/g,"\\\\'")}')">${on?"✓ ":""}${esc(p[1])}</button>`;
+  }).join("");
+  $("multiSheet").classList.add("show");
+}
+function toggleMulti(val){
+  const el = $("f"+multiTarget);
+  let cur = String(el.value||"").split(";").map(x=>x.trim()).filter(Boolean);
+  const i = cur.indexOf(val);
+  if(i>=0) cur.splice(i,1); else cur.push(val);
+  // "None" and a real impact cannot both be true, so choosing one clears the other.
+  if(val==="None" || val==="No action required") cur = (i>=0) ? [] : [val];
+  else cur = cur.filter(x=>x!=="None" && x!=="No action required");
+  el.value = cur.join("; ");
+  markChanged(el);
+  openMulti(multiTarget);
+  paintMulti(multiTarget);
+}
+function closeMulti(){ $("multiSheet").classList.remove("show"); multiTarget=null; }
+function paintMulti(field){
+  const el=$("f"+field), box=$("v"+field);
+  if(!el||!box) return;
+  const v = String(el.value||"").trim();
+  box.textContent = v || "Tap to choose";
+  box.classList.toggle("empty", !v);
+}
+
+/* What the tree needs, reduced to one word so the map can show it. A removal
+   outranks everything; then any work; then protection; then nothing. */
+function actionClass(t){
+  const a = String(t.REC_ACT||"");
+  if(!a.trim()) return "";
+  if(/remove tree/i.test(a)) return "remove";
+  if(/no action/i.test(a))   return "none";
+  if(/prun|excavat|reduc|raise/i.test(a)) return "work";
+  return "protect";
+}
+const ACTION_COLOR = { remove:"#D0402B", work:"#E8862B", protect:"#3FA45B", none:"#7f8c8d" };
+const ACTION_LABEL = { remove:"Remove tree", work:"Pruning or excavation", protect:"Protection measures", none:"No action required" };
+function impactClass(t){
+  const v = String(t.IMPACT_POT||"");
+  if(!v.trim()) return "";
+  if(/mortality/i.test(v)) return "fatal";
+  if(/^none/i.test(v.trim())) return "none";
+  return "some";
+}
+
+/* Three ways to colour the trees. Health is the default; the other two exist so a
+   crew can see at a glance which trees they have already assessed and what is
+   proposed — working through 700 trees against a site plan is otherwise blind. */
+let symbolMode = "health";
+try{ symbolMode = (STORE&&STORE.getItem("st_symbol")) || "health"; }catch(e){}
+const SYMBOL_MODES = ["health","action","impact"];
+const SYMBOL_LABEL = { health:"Health", action:"Recommended action", impact:"Potential impact" };
+function cycleSymbol(){
+  symbolMode = SYMBOL_MODES[(SYMBOL_MODES.indexOf(symbolMode)+1) % SYMBOL_MODES.length];
+  if(STORE){ try{ STORE.setItem("st_symbol", symbolMode); }catch(e){} }
+  renderPins(); buildLegend();
+  toast("Colouring by " + SYMBOL_LABEL[symbolMode].toLowerCase());
+}
+function symbolColor(t){
+  if(symbolMode==="action"){
+    const c = actionClass(t);
+    return c ? ACTION_COLOR[c] : "#37474f";        // dark grey = not yet assessed
+  }
+  if(symbolMode==="impact"){
+    const c = impactClass(t);
+    return c==="fatal" ? "#D0402B" : c==="some" ? "#E0B400" : c==="none" ? "#3FA45B" : "#37474f";
+  }
+  return healthColor(t.HEALTH);
+}
 
 /* ================================================================== *
  *  TREE PROTECTION PLAN fields
@@ -3359,12 +3636,24 @@ function toggleLabels(){
 /* ================================================================== *
  *  LEGEND
  * ================================================================== */
+function legendRows(){
+  if(symbolMode==="action")
+    return Object.keys(ACTION_COLOR).map(k=>[ACTION_LABEL[k], ACTION_COLOR[k]])
+             .concat([["Not yet assessed","#37474f"]]);
+  if(symbolMode==="impact")
+    return [["No impact anticipated","#3FA45B"],["Some impact","#E0B400"],
+            ["Tree mortality","#D0402B"],["Not yet assessed","#37474f"]];
+  return HEALTH.map(h=>[h[0],h[1]]);
+}
+
 function buildLegend(){
-  let h = `<h4>Tree health</h4>` + HEALTH.map(([n,c])=>
+  let h = `<h4>${esc(SYMBOL_LABEL[symbolMode])}</h4>` + legendRows().map(([n,c])=>
     `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
-  h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
+  if(symbolMode==="health")
+    h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 3px #FF1744"></span>red halo = field checked</div>`;
+  if(tpzOn) h += `<div class="lr"><span class="sw" style="background:rgba(255,213,79,.25);border-color:#FFD54F"></span>dashed circle = tree protection zone</div>`;
   const vis = refLayers.filter(l=>l.visible);
   if(vis.length){
     h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>
@@ -3921,7 +4210,7 @@ function fetchDomains(){
    have confirmed. For an existing tree only the empty fields start pending, since
    the rest already hold real recorded data. */
 let formSnapshot = {}, pendingFields = {};
-const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID","fSTREET","fPARK","fCROWN_RAD","fHEIGHT","fTREE_NO","fTAG_NO"];
+const TRACKED = ["fDBH","fSTEMS","fCOMMENTS","fADDRESS","fEXT_ID","fSTREET","fPARK","fCROWN_RAD","fHEIGHT","fTREE_NO","fTAG_NO","fIMPACT_POT","fREC_ACT"];
 function trackedIds(){ return TRACKED.concat(Object.keys(DOMAIN_FIELDS).map(f=>"f"+f)); }
 
 function setState(el, state){
@@ -4009,7 +4298,7 @@ let currentPhotos = [];
 const DOMAIN_FIELDS = {
   SITELOCA:SITELOCA_D, STRUDEFE:STRUDEFE_D, FAILPOTE:FAILPOTE_D, WOUNCANK:WOUNCANK_D,
   DEADDECAY:DEADDECAY_D, PESTDISEAS:PESTDISEAS_D, IMPEDMNT:IMPEDMNT_D, RECOTREA:RECOTREA_D,
-  LOCATION:LOCATION_D, PROP_ACT:PROP_ACT_D, LT_IMPACT:LT_IMPACT_D,
+  LOCATION:LOCATION_D, PROP_ACT:PROP_ACT_D, LT_IMPACT:LT_IMPACT_D, PROGNOSIS:PROGNOSIS_D,
   LOF:LOF_D, TARGET:TARGET_D, IMPACT:IMPACT_D, CONSEQ:CONSEQ_D, ACTIVITY:ACTIVITY_D, REMOV_RSN:REMOV_RSN_D
 };
 function domainLabel(field, code){
@@ -4140,6 +4429,9 @@ function openTree(i){
     $("fTREE_NO").value = t.TREE_NO || "";
     $("fTAG_NO").value  = t.TAG_NO  || "";
     if($("fYR_EXEMPT")) $("fYR_EXEMPT").value = ["Y","N"].indexOf(String(t.YR_EXEMPT||"").toUpperCase())>=0 ? String(t.YR_EXEMPT).toUpperCase() : "";
+    $("fIMPACT_POT").value = t.IMPACT_POT || "";
+    $("fREC_ACT").value    = t.REC_ACT || "";
+    paintMulti("IMPACT_POT"); paintMulti("REC_ACT");
     // A tree carrying anything already opens the section, so nothing is missed.
     const filled = t.LOCATION || t.PROP_ACT || t.LT_IMPACT || t.TAG_NO;
     $("tppBody").style.display = filled ? "block" : "none";
@@ -4239,6 +4531,8 @@ function saveTree(){
   if(!t.TREE_NO) t.TREE_NO = nextTreeNo(projectOf(t));
   if($("fTAG_NO"))  t.TAG_NO  = normText($("fTAG_NO").value);
   if($("fYR_EXEMPT") && isTPP(projectOf(t))) t.YR_EXEMPT = $("fYR_EXEMPT").value;
+  if($("fIMPACT_POT")) t.IMPACT_POT = normText($("fIMPACT_POT").value);
+  if($("fREC_ACT"))    t.REC_ACT    = normText($("fREC_ACT").value);
   t.TPZ_M = tpzFor(t.DBH);
   // The figure the DBH earns, recorded on every tree; COMP_INCL decides the total.
   t.REPL_REQ = replacementFor(t.DBH);
@@ -4603,9 +4897,16 @@ function setSpeciesVal(v){
   el.textContent = v || "Tap to choose species";
   el.classList.toggle("empty", !v);
 }
-function openSpecies(){ $("spSearch").value=""; renderSpecies(); $("speciesFull").classList.add("show"); setTimeout(()=>$("spSearch").focus(),60); }
-function closeSpecies(){ $("speciesFull").classList.remove("show"); }
-function chooseSpecies(name){ setSpeciesVal(name); closeSpecies(); markSpeciesChanged(); refreshCrown(); }
+/* The picker normally writes into the tree form. A callback lets a planting borrow
+   it, so both use one species list, one search and one add-a-species path. */
+let speciesCb = null;
+function openSpecies(cb){ speciesCb = (typeof cb==="function") ? cb : null;
+  $("spSearch").value=""; renderSpecies(); $("speciesFull").classList.add("show"); setTimeout(()=>$("spSearch").focus(),60); }
+function closeSpecies(){ $("speciesFull").classList.remove("show"); speciesCb=null; }
+function chooseSpecies(name){
+  if(speciesCb){ const cb=speciesCb; speciesCb=null; $("speciesFull").classList.remove("show"); cb(name); return; }
+  setSpeciesVal(name); closeSpecies(); markSpeciesChanged(); refreshCrown();
+}
 
 // Dictation yields "sugar maple." or "Hick's yew" — strip punctuation before matching.
 function searchKey(v){ return String(v||"").toLowerCase().replace(/[‘’']/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim(); }
@@ -5419,6 +5720,669 @@ function zipStore(files){
   return out;
 }
 
+/* ================================================================== *
+ *  FENCES AND PLANTINGS
+ *  Two more feature classes alongside the trees: the tree protection fence as a
+ *  line, and proposed planting locations as points. Kept in one array with a KIND,
+ *  rather than two parallel systems, so storage, sync, map drawing and export are
+ *  written once.
+ * ================================================================== */
+let feats = [];                       // {id, kind:"fence"|"planting", pts:[[lat,lon]], ...}
+try{ feats = JSON.parse(STORE&&STORE.getItem("st_feats")) || []; }catch(e){ feats=[]; }
+function persistFeats(){ if(STORE){ try{ STORE.setItem("st_feats", JSON.stringify(feats)); }catch(e){} } }
+function featsIn(project){
+  const p = String(project===undefined ? (filterProject || (showAllProjects?"":settings.project) || "") : project);
+  return feats.filter(f=> !p || String(f.project||"")===p );
+}
+const STOCK_D = [
+  ["50-60mm WB","50-60 mm caliper, wire basket"],
+  ["60-70mm WB","60-70 mm caliper, wire basket"],
+  ["150cm","150 cm conifer"],
+  ["200cm","200 cm conifer"],
+  ["3-5 gal","3-5 gallon potted sapling"],
+  ["1 gal","1 gallon potted"],
+  ["Bare root","Bare root"]
+];
+
+let drawMode = null, drawPts = [], drawLine = null, drawMarks = [];
+function startFence(){
+  closeMenu();
+  drawMode = "fence"; drawPts = []; clearDrawing();
+  $("drawBar").classList.add("show");
+  $("drawMsg").textContent = "Tap along the fence line";
+  fmap.on("click", drawClick);
+  toast("Tap the map to lay out the fence");
+}
+function startPlanting(){
+  closeMenu();
+  drawMode = "planting"; drawPts = []; clearDrawing();
+  $("drawBar").classList.add("show");
+  $("drawMsg").textContent = "Tap each planting location";
+  fmap.on("click", drawClick);
+  toast("Tap the map to place trees");
+}
+function drawClick(e){
+  if(!drawMode) return;
+  const p = [e.latlng.lat, e.latlng.lng];
+  if(drawMode==="planting"){
+    // Each tap is its own planting, asked for its species straight away.
+    addPlantingAt(p[0], p[1]);
+    return;
+  }
+  drawPts.push(p);
+  redrawDrawing();
+  $("drawMsg").textContent = `${drawPts.length} point(s) · ${fenceLength(drawPts).toFixed(0)} m`;
+}
+function fenceLength(pts){
+  let m=0; for(let i=1;i<pts.length;i++) m += distM(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]);
+  return m;
+}
+function redrawDrawing(){
+  clearDrawing();
+  if(drawPts.length>1) drawLine = L.polyline(drawPts,{color:"#FF6D00",weight:4,dashArray:"8 5",pane:"labelPane"}).addTo(fmap);
+  drawPts.forEach(p=>drawMarks.push(
+    L.circleMarker(p,{radius:5,color:"#fff",weight:2,fillColor:"#FF6D00",fillOpacity:1,pane:"labelPane"}).addTo(fmap)));
+}
+function clearDrawing(){
+  if(drawLine){ fmap.removeLayer(drawLine); drawLine=null; }
+  drawMarks.forEach(m=>fmap.removeLayer(m)); drawMarks=[];
+}
+function undoDrawPt(){ drawPts.pop(); redrawDrawing();
+  $("drawMsg").textContent = drawPts.length ? `${drawPts.length} point(s) · ${fenceLength(drawPts).toFixed(0)} m` : "Tap along the fence line"; }
+function cancelDraw(){
+  drawMode=null; drawPts=[]; clearDrawing();
+  fmap.off("click", drawClick);
+  $("drawBar").classList.remove("show");
+}
+function finishDraw(){
+  if(drawMode==="fence"){
+    if(drawPts.length<2){ toast("A fence needs at least two points",true); return; }
+    const type = prompt("Fence type:\n\nOK for the standard barrier, or type your own.",
+                        "Tree protection fence — 1.2 m orange plastic on T-posts at 2.5 m");
+    if(type===null){ return; }
+    feats.push({ id:"F"+Date.now().toString(36).toUpperCase(), kind:"fence",
+                 project: settings.project||"", pts: drawPts.slice(),
+                 type: normText(type)||"Tree protection fence",
+                 length_m: Math.round(fenceLength(drawPts)*10)/10,
+                 by: settings.cruiser||"", date: nowStr(), _sent:false });
+    persistFeats(); renderFeats();
+    toast(`Fence recorded · ${fenceLength(drawPts).toFixed(0)} m`);
+  }
+  cancelDraw();
+  setTimeout(syncFeats, 600);
+}
+/* A planting is a point with a species from the same list the trees use, so the
+   plant list and the inventory speak the same language. */
+let pendingPlant = null;
+function addPlantingAt(lat, lon){
+  pendingPlant = { lat, lon };
+  openSpecies(sp=>{
+    const stock = prompt("Stock size:\n\n" + STOCK_D.map(s=>s[0]).join(" / "), lastStock||"50-60mm WB");
+    if(stock===null){ pendingPlant=null; return; }
+    lastStock = normText(stock);
+    feats.push({ id:"P"+Date.now().toString(36).toUpperCase(), kind:"planting",
+                 project: settings.project||"", pts:[[lat,lon]],
+                 species: sp, stock: lastStock,
+                 by: settings.cruiser||"", date: nowStr(), _sent:false });
+    persistFeats(); renderFeats();
+    pendingPlant = null;
+    toast(`${sp} planted here`);
+    setTimeout(syncFeats, 600);
+  });
+}
+let lastStock = "";
+try{ lastStock = (STORE&&STORE.getItem("st_stock")) || "50-60mm WB"; }catch(e){}
+
+let featLayer = null;
+function renderFeats(){
+  if(!fmap) return;
+  if(featLayer){ fmap.removeLayer(featLayer); featLayer=null; }
+  const shapes = [];
+  featsIn().forEach(f=>{
+    if(f.kind==="fence" && f.pts.length>1){
+      shapes.push(L.polyline(f.pts,{color:"#FF6D00",weight:4,pane:"refPane"})
+        .bindPopup(`<b>Tree protection fence</b><br>${esc(f.type||"")}<br>${f.length_m} m` +
+                   `<br><button onclick="deleteFeat('${f.id}')">Delete</button>`));
+    } else if(f.kind==="planting"){
+      shapes.push(L.circleMarker(f.pts[0],{radius:7,color:"#1B5E20",weight:2,
+        fillColor:"#66BB6A",fillOpacity:.95,pane:"pinPane"})
+        .bindPopup(`<b>Proposed planting</b><br>${esc(f.species||"")}<br>${esc(f.stock||"")}` +
+                   `<br><button onclick="deleteFeat('${f.id}')">Delete</button>`));
+    }
+  });
+  if(shapes.length) featLayer = L.layerGroup(shapes).addTo(fmap);
+}
+function deleteFeat(id){
+  const i = feats.findIndex(f=>f.id===id);
+  if(i<0) return;
+  if(!confirm("Delete this "+(feats[i].kind==="fence"?"fence":"planting")+"?")) return;
+  feats.splice(i,1); persistFeats(); renderFeats(); fmap.closePopup();
+  toast("Deleted");
+}
+function syncFeats(){
+  if(isOffline() || !connected) return;
+  const pending = feats.filter(f=>!f._sent);
+  if(!pending.length) return;
+  fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({_action:"feats", rows: pending}) })
+    .then(()=>{ pending.forEach(f=>f._sent=true); persistFeats(); })
+    .catch(()=>{});
+}
+
+function exportFeatsGeoJSON(){
+  closeMenu();
+  const list = featsIn();
+  if(!list.length){ toast("No fences or plantings recorded",true); return; }
+  const fc = { type:"FeatureCollection", features: list.map(f=>({
+    type:"Feature",
+    geometry: f.kind==="fence"
+      ? { type:"LineString", coordinates: f.pts.map(p=>[+p[1],+p[0]]) }
+      : { type:"Point", coordinates: [+f.pts[0][1], +f.pts[0][0]] },
+    properties: f.kind==="fence"
+      ? { ID:f.id, KIND:"fence", PROJECT:f.project||"", TYPE:f.type||"", LENGTH_M:f.length_m||0,
+          BY:f.by||"", DATE:f.date||"" }
+      : { ID:f.id, KIND:"planting", PROJECT:f.project||"", SPECIES:f.species||"",
+          BOTANICAL:(taxonFor(f.species)[0]||""), STOCK:f.stock||"", BY:f.by||"", DATE:f.date||"" }
+  }))};
+  downloadText(JSON.stringify(fc,null,1),
+    `FencesAndPlantings_${exportTag()}_${nowStr().slice(0,10)}.geojson`, "application/geo+json");
+  const nf = list.filter(f=>f.kind==="fence").length;
+  toast(`${nf} fence(s) · ${list.length-nf} planting(s)`);
+}
+
+/* ---------- the two summary tables the report needs ---------- */
+/* Table 1: species down the side, ownership across the top — exactly the shape of
+   the table in the report, so it can be pasted in. */
+function speciesByLocationRows(list){
+  const cols = ["SUBJECT PROPERTY (OUTSIDE WOODLOT)","SUBJECT PROPERTY (WOODLOT)",
+                "PRIVATE (ADJACENT PROPERTY)","PUBLIC (ROAD ALLOWANCE)","SUBJECT PROPERTY (SHARED)"];
+  const head = ["Species","Botanical name","Outside of woodlot","Woodlot trees",
+                "Adjacent private property","Public property (road allowance)","Shared","Total"];
+  const by = {};
+  list.forEach(t=>{
+    const k = t.SPECIES || "(blank)";
+    if(!by[k]) by[k] = { bot: t.BOTANICAL||"", counts: cols.map(()=>0), total:0 };
+    if(!by[k].bot && t.BOTANICAL) by[k].bot = t.BOTANICAL;
+    const i = cols.indexOf(String(t.LOCATION||"").trim());
+    if(i>=0) by[k].counts[i]++;
+    by[k].total++;
+  });
+  const rows = [head];
+  const tot = cols.map(()=>0); let grand = 0;
+  Object.keys(by).sort().forEach(k=>{
+    const r = by[k];
+    rows.push([k, r.bot].concat(r.counts.map(n=>n||""), [r.total]));
+    r.counts.forEach((n,i)=>tot[i]+=n); grand += r.total;
+  });
+  rows.push(["Grand Total",""].concat(tot.map(n=>n||""), [grand]));
+  return rows;
+}
+/* The CSV and the PDF page are built from the SAME rows, so the table in the
+   document can never drift from the table you paste into the report. */
+function exportSpeciesByLocation(){
+  closeMenu();
+  const list = reportTrees();
+  if(!list.length){ toast("No trees in view",true); return; }
+  const rows = speciesByLocationRows(list);
+  downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
+    `Table1_SpeciesByLocation_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  const unplaced = list.filter(t=>!String(t.LOCATION||"").trim()).length;
+  toast(`${rows.length-2} species · ${list.length} trees` + (unplaced?` · ${unplaced} with no location`:""));
+}
+
+/* The landscaping plant list: what to order, grouped the way a nursery quotes it. */
+function plantListRows(){
+  const plants = featsIn().filter(f=>f.kind==="planting");
+  if(!plants.length) return [];
+  const by = {};
+  plants.forEach(p=>{
+    const key = (p.species||"(unspecified)") + "|" + (p.stock||"");
+    if(!by[key]) by[key] = { species:p.species||"(unspecified)", stock:p.stock||"", n:0 };
+    by[key].n++;
+  });
+  const rows = [["Key","Qty","Botanical Name","Common Name","Size","Comments"]];
+  const keys = Object.keys(by).sort((a,b)=>by[a].species.localeCompare(by[b].species));
+  const used = {};
+  keys.forEach(k=>{
+    const r = by[k];
+    const tx = taxonFor(r.species);
+    // Two-letter key from the botanical name, the way the plant list does it.
+    const bot = tx[0] || r.species;
+    let key = (bot.split(/\s+/)[0]||"X").slice(0,1).toUpperCase() +
+              ((bot.split(/\s+/)[1]||"x").slice(0,1).toLowerCase());
+    while(used[key]) key += "x";
+    used[key] = 1;
+    rows.push([key, r.n, bot, r.species, r.stock, ""]);
+  });
+  rows.push(["","Total", plants.length, "trees proposed for planting","",""]);
+  return rows;
+}
+function exportPlantList(){
+  closeMenu();
+  const rows = plantListRows();
+  if(!rows.length){ toast("No planting locations recorded",true); return; }
+  downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
+    `PlantList_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  toast(`${rows[rows.length-1][2]} planting(s) · ${rows.length-2} line(s)`);
+}
+
+/* The plan sheets, as pages rather than a download — the assembler needs the images,
+   not a file. Reuses the series builder so the document and a standalone export are
+   the same sheets. */
+async function documentMapPages(W,H){
+  const scale = parseInt(($("mapScale")&&$("mapScale").value) || "1000", 10);
+  const cells = sheetGrid(scale);
+  if(!cells.length) return [];
+  const title = normText($("docTitle").value) || settings.project || "Tree Protection Plan";
+  const b = seriesBounds();
+  const padLat = Math.max((b.n-b.s)*0.12, 0.00065), padLon = Math.max((b.e-b.w)*0.12, 0.00090);
+  const all = L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]);
+  const pages=[];
+  pages.push(await runSingleExport({ bounds:all, title:title+" | Index — "+cells.length+" sheets at 1:"+scale.toLocaleString(),
+                                     grid:cells, sheetNote:"INDEX", photoPages:false, returnPage:true }));
+  for(const c of cells){
+    setStatus(`Document: plan sheet ${c.no} of ${cells.length}`);
+    pages.push(await runSingleExport({ bounds:L.latLngBounds([c.s,c.w],[c.n,c.e]),
+      title:title+" | Sheet "+c.no+" of "+cells.length+" — 1:"+scale.toLocaleString(),
+      sheetNote:"SHEET "+c.no, photoPages:false, returnPage:true }));
+  }
+  return pages;
+}
+async function schedulePhotoPages(W,H){
+  const list = reportTrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
+  if(!list.length || !HAS_IDB) return [];
+  const M=Math.round(PDF_DPI*0.35);
+  return await buildPhotoPages(list, W, H, M, normText($("docTitle").value) || settings.project || "");
+}
+
+/* ================================================================== *
+ *  ASSEMBLING THE FINAL DOCUMENT
+ *
+ *  The slow part of a tree protection report is not writing it — it is collating
+ *  the arborist report, the inventory table, the plan sheets, the standard details
+ *  and the photographs into one paginated PDF with a contents page that matches.
+ *  This does that: every section, generated or uploaded, in an order the user sets,
+ *  with the contents built from the ACTUAL page counts afterwards.
+ * ================================================================== */
+const DOC_W_IN = 11, DOC_H_IN = 8.5;      // letter landscape, as the plan sheets are
+
+/* Uploaded PDFs are rasterised page by page with pdf.js — the same library the
+   georeferenced plans use. Merging PDF objects properly would mean a full writer;
+   rasterising gives a faithful page at print resolution and keeps one code path. */
+function pdfToPages(file, onProgress){
+  return loadPdfJs()
+    .then(()=>file.arrayBuffer())
+    .then(buf=>pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise)
+    .then(async pdf=>{
+      const out=[];
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const vp0=page.getViewport({scale:1});
+        // Render at roughly 150 dpi of the printed sheet, whatever the source size.
+        const target=Math.round(DOC_W_IN*150);
+        const sc=Math.min(3, Math.max(1, target/vp0.width));
+        const vp=page.getViewport({scale:sc});
+        const cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
+        await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+        out.push(cv.toDataURL("image/jpeg",0.85));
+        if(onProgress) onProgress(i, pdf.numPages);
+      }
+      return out;
+    });
+}
+
+function docSections(){
+  try{ return JSON.parse(STORE&&STORE.getItem("st_doc")) || defaultSections(); }
+  catch(e){ return defaultSections(); }
+}
+function docSave(l){ if(STORE){ try{ STORE.setItem("st_doc", JSON.stringify(l)); }catch(e){} } }
+function defaultSections(){
+  return [
+    {id:"contents",  name:"Contents",                       kind:"toc",    on:true,  fixed:true},
+    {id:"mapseries", name:"Tree protection site plan",      kind:"maps",   on:true},
+    {id:"schedA",    name:"Schedule A — Tree Inventory Table", kind:"table", on:true},
+    {id:"table1",    name:"Table 1 — List of trees by species and location", kind:"table", on:true},
+    {id:"plantlist", name:"Landscaping plan — plant list",  kind:"table",  on:true},
+    {id:"details",   name:"Standard details",               kind:"details",on:true},
+    {id:"schedB",    name:"Schedule B — Tree Photographs",   kind:"photos", on:true}
+  ];
+}
+function openDoc(){
+  closeMenu();
+  renderDoc();
+  $("docSheet").classList.add("show");
+}
+function renderDoc(){
+  const l = docSections();
+  $("docList").innerHTML = l.map((d,i)=>
+    `<div class="statrow" style="gap:8px;align-items:center">
+       <label style="flex:1;display:flex;align-items:center;gap:8px">
+         <input type="checkbox" ${d.on?"checked":""} ${d.fixed?"disabled":""} onchange="docToggle(${i},this.checked)">
+         <span>${esc(d.name)}${d.pages?` <span class="ct">${d.pages} pp</span>`:""}</span></label>
+       <button class="alt" style="padding:3px 9px" onclick="docMove(${i},-1)">↑</button>
+       <button class="alt" style="padding:3px 9px" onclick="docMove(${i},1)">↓</button>
+       ${d.kind==="upload"?`<button class="alt" style="padding:3px 9px" onclick="docRemove(${i})">✕</button>`:""}
+     </div>`).join("");
+}
+function docToggle(i,on){ const l=docSections(); if(l[i]&&!l[i].fixed){ l[i].on=!!on; docSave(l); renderDoc(); } }
+function docMove(i,d){
+  const l=docSections(); const j=i+d;
+  if(j<1 || j>=l.length || i===0) return;      // contents always first
+  const t=l[i]; l[i]=l[j]; l[j]=t; docSave(l); renderDoc();
+}
+function docRemove(i){
+  const l=docSections();
+  if(!l[i] || l[i].kind!=="upload") return;
+  if(!confirm("Remove "+l[i].name+" from the document?")) return;
+  idbDelete("doc:"+l[i].id);
+  l.splice(i,1); docSave(l); renderDoc();
+}
+function addDocPdfs(files){
+  const l = docSections();
+  let i = 0;
+  const next = ()=>{
+    if(i>=files.length){ docSave(l); renderDoc(); toast("Added"); return; }
+    const f = files[i++];
+    $("docStatus").textContent = "Reading " + f.name + "…";
+    pdfToPages(f, (p,n)=>{ $("docStatus").textContent = `${f.name} — page ${p} of ${n}`; })
+      .then(pages=>{
+        const id = "u"+Date.now().toString(36)+Math.floor(Math.random()*1000);
+        return idbPut({filename:"doc:"+id, data:JSON.stringify(pages)}).then(()=>{
+          l.push({id:id, name:f.name.replace(/\.pdf$/i,""), kind:"upload", on:true, pages:pages.length});
+          docSave(l); renderDoc(); next();
+        });
+      })
+      .catch(()=>{ toast("Could not read "+f.name, true); next(); });
+  };
+  next();
+}
+
+/* A table rendered to pages, with the header repeated on every one. Column widths
+   come from the widest cell, capped, then scaled to fit the sheet. */
+function tablePages(rows, title, W, H, M){
+  if(!rows || rows.length<2) return [];
+  const head = rows[0], body = rows.slice(1);
+  const pad = Math.round(PDF_DPI*0.06);
+  const probe = document.createElement("canvas").getContext("2d");
+  const fs = Math.round(PDF_DPI*0.085);
+  probe.font = `${fs}px sans-serif`;
+  const widths = head.map((h,c)=>{
+    let w = probe.measureText(String(h)).width;
+    body.forEach(r=>{ const t=String(r[c]==null?"":r[c]);
+      w = Math.max(w, probe.measureText(t.length>44?t.slice(0,44):t).width); });
+    return Math.min(w + pad*2, Math.round(PDF_DPI*2.6));
+  });
+  const totalW = widths.reduce((a,b)=>a+b,0);
+  const avail = W - M*2;
+  const sc = Math.min(1, avail/totalW);
+  const colW = widths.map(w=>w*sc);
+  const rowH = Math.round(PDF_DPI*0.20);
+  const topY = M + Math.round(PDF_DPI*0.55);
+  const perPage = Math.floor((H - topY - M) / rowH) - 1;
+
+  const pages=[];
+  for(let start=0; start<body.length; start+=perPage){
+    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const g=cv.getContext("2d");
+    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.16)}px sans-serif`;
+    g.fillText(title, M, M+Math.round(PDF_DPI*0.22));
+
+    let y = topY;
+    // header
+    g.fillStyle="#12201a"; g.fillRect(M, y-rowH+Math.round(rowH*0.28), avail*1, rowH);
+    g.fillStyle="#ffffff"; g.font=`bold ${Math.round(fs*sc)}px sans-serif`;
+    let x = M;
+    head.forEach((h,c)=>{ g.fillText(String(h).slice(0,40), x+pad, y); x += colW[c]; });
+    y += rowH;
+
+    g.font=`${Math.round(fs*sc)}px sans-serif`;
+    const slice = body.slice(start, start+perPage);
+    slice.forEach((r,ri)=>{
+      if(ri%2===1){ g.fillStyle="#f2f5f2"; g.fillRect(M, y-rowH+Math.round(rowH*0.28), avail, rowH); }
+      g.fillStyle="#1d2b23";
+      let cx = M;
+      r.forEach((v,c)=>{
+        const t = String(v==null?"":v);
+        const maxCh = Math.max(4, Math.floor(colW[c]/(fs*sc*0.52)));
+        g.fillText(t.length>maxCh ? t.slice(0,maxCh-1)+"…" : t, cx+pad, y);
+        cx += colW[c];
+      });
+      y += rowH;
+    });
+    // rules
+    g.strokeStyle="#c8d2c9"; g.lineWidth=1;
+    let gx = M;
+    colW.forEach(w=>{ gx += w; g.beginPath(); g.moveTo(gx, topY-rowH+Math.round(rowH*0.28)); g.lineTo(gx, y-rowH+Math.round(rowH*0.28)); g.stroke(); });
+    pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
+  }
+  return pages;
+}
+
+// Page label: TPP1, TPP2… or plain numbers.
+function pageLabel(n, style, prefix){
+  return (style==="prefix") ? (prefix||"TPP")+n : String(n);
+}
+function stampPageNumber(dataUrl, W, H, label){
+  return new Promise(res=>{
+    const im=new Image();
+    im.onload=()=>{
+      const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+      const g=cv.getContext("2d");
+      g.drawImage(im,0,0,W,H);
+      const bw=Math.round(PDF_DPI*0.9), bh=Math.round(PDF_DPI*0.26);
+      const bx=W-bw-Math.round(PDF_DPI*0.22), by=H-bh-Math.round(PDF_DPI*0.18);
+      g.fillStyle="rgba(18,32,26,.88)"; g.fillRect(bx,by,bw,bh);
+      g.fillStyle="#ffffff"; g.font=`bold ${Math.round(PDF_DPI*0.14)}px sans-serif`;
+      g.textAlign="center"; g.textBaseline="middle";
+      g.fillText(label, bx+bw/2, by+bh/2);
+      g.textAlign="left"; g.textBaseline="alphabetic";
+      res(cv.toDataURL("image/jpeg",0.9));
+    };
+    im.onerror=()=>res(dataUrl);
+    im.src=dataUrl;
+  });
+}
+
+function tocPages(entries, title, W, H, M, style, prefix){
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const g=cv.getContext("2d");
+  g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+  g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.26)}px sans-serif`;
+  g.fillText("Contents", M, M+Math.round(PDF_DPI*0.34));
+  g.font=`${Math.round(PDF_DPI*0.12)}px sans-serif`; g.fillStyle="#4a5b50";
+  g.fillText(title, M, M+Math.round(PDF_DPI*0.58));
+
+  const head = M+Math.round(PDF_DPI*0.95);
+  g.fillStyle="#12201a"; g.fillRect(M, head-Math.round(PDF_DPI*0.16), W-M*2, Math.round(PDF_DPI*0.24));
+  g.fillStyle="#ffffff"; g.font=`bold ${Math.round(PDF_DPI*0.10)}px sans-serif`;
+  g.fillText("PAGE", M+Math.round(PDF_DPI*0.08), head+Math.round(PDF_DPI*0.03));
+  g.fillText("DESCRIPTION", M+Math.round(PDF_DPI*1.3), head+Math.round(PDF_DPI*0.03));
+
+  let y = head + Math.round(PDF_DPI*0.44);
+  const rowH = Math.round(PDF_DPI*0.30);
+  entries.forEach(e=>{
+    const lab = (e.pages>1)
+      ? pageLabel(e.start,style,prefix) + " – " + pageLabel(e.start+e.pages-1,style,prefix)
+      : pageLabel(e.start,style,prefix);
+    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.11)}px sans-serif`;
+    g.fillText(lab, M+Math.round(PDF_DPI*0.08), y);
+    g.font=`${Math.round(PDF_DPI*0.11)}px sans-serif`; g.fillStyle="#1d2b23";
+    g.fillText(e.name.slice(0,72), M+Math.round(PDF_DPI*1.3), y);
+    g.strokeStyle="#d7dedb"; g.lineWidth=1;
+    g.beginPath(); g.moveTo(M, y+Math.round(rowH*0.28)); g.lineTo(W-M, y+Math.round(rowH*0.28)); g.stroke();
+    y += rowH;
+  });
+  return [{data:cv.toDataURL("image/jpeg",0.92), w:W, h:H}];
+}
+
+async function buildDocument(){
+  closeDoc();
+  const W=Math.round(DOC_W_IN*PDF_DPI), H=Math.round(DOC_H_IN*PDF_DPI), M=Math.round(PDF_DPI*0.45);
+  const style = $("docNumStyle").value;
+  const prefix = normText($("docPrefix").value) || "TPP";
+  const title = normText($("docTitle").value) || lastMapTitle || settings.project || "Tree Preservation Plan";
+
+  const list = docSections().filter(d=>d.on && d.kind!=="toc");
+  if(!list.length){ toast("Nothing selected",true); return; }
+
+  setStatus("Assembling the document…");
+  const built = [];                    // {name, pages:[dataUrl…]}
+
+  for(const d of list){
+    setStatus("Assembling: " + d.name);
+    try{
+      if(d.kind==="upload"){
+        const rec = await idbGet("doc:"+d.id);
+        const arr = rec && rec.data ? JSON.parse(rec.data) : [];
+        built.push({name:d.name, pages:arr});
+      } else if(d.kind==="maps"){
+        const pages = await documentMapPages(W,H);
+        built.push({name:d.name, pages:pages.map(p=>p.data)});
+      } else if(d.kind==="details"){
+        const pages = await detailPagesReady(W,H,Math.round(PDF_DPI*0.35));
+        built.push({name:d.name, pages:pages.map(p=>p.data)});
+      } else if(d.kind==="photos"){
+        const pages = await schedulePhotoPages(W,H);
+        built.push({name:d.name, pages:pages.map(p=>p.data)});
+      } else if(d.kind==="table"){
+        const rows = docTableRows(d.id);
+        built.push({name:d.name, pages:tablePages(rows, d.name, W, H, M).map(p=>p.data)});
+      }
+    }catch(e){ built.push({name:d.name, pages:[]}); }
+  }
+
+  const used = built.filter(b=>b.pages.length);
+  if(!used.length){ setStatus(""); toast("Nothing to assemble",true); return; }
+
+  /* The contents can only be written once the page counts are known, and the
+     contents itself occupies pages — so count first, reserve, then number. */
+  const tocCount = 1;
+  let at = tocCount + 1;
+  const entries = used.map(b=>{ const e={name:b.name, start:at, pages:b.pages.length}; at += b.pages.length; return e; });
+
+  const toc = tocPages(entries, title, W, H, M, style, prefix);
+  const all = toc.concat(used.reduce((acc,b)=>acc.concat(b.pages.map(p=>({data:p,w:W,h:H}))), []));
+
+  setStatus("Numbering pages…");
+  const stamped = [];
+  for(let i=0;i<all.length;i++){
+    stamped.push({ data: await stampPageNumber(all[i].data, W, H, pageLabel(i+1, style, prefix)), w:W, h:H });
+  }
+
+  const bytes = jpegPdfPages(stamped, DOC_W_IN*72, DOC_H_IN*72);
+  const blob = new Blob([bytes],{type:"application/pdf"});
+  const url = URL.createObjectURL(blob), a=document.createElement("a");
+  const slug = title.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+  a.href=url; a.download=`${slug||"TreeProtectionPlan"}_${nowStr().slice(0,10)}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+  setStatus(`${visibleTrees().length} trees on device`);
+  toast(`${stamped.length} page document assembled`);
+}
+function closeDoc(){ $("docSheet").classList.remove("show"); }
+
+function docTableRows(which){
+  const list = reportTrees();
+  if(which==="schedA"){
+    const cols = SCHED_A_COLS;
+    const rows=[cols.map(c=>c[0])];
+    list.forEach((t,i)=>rows.push(cols.map(c=>c[1](t,i))));
+    return rows;
+  }
+  if(which==="table1")   return speciesByLocationRows(list);
+  if(which==="plantlist") return plantListRows();
+  return [];
+}
+
+/* ---------- standard detail drawings appended to the map PDF ---------- */
+/* Municipalities each have their own approved details, so these are not baked into
+   the app: the user adds the images once and they are kept on the device. Selected
+   ones are appended as full pages after the map sheets. */
+function detailList(){
+  try{ return JSON.parse(STORE&&STORE.getItem("st_details")) || []; }catch(e){ return []; }
+}
+function detailSave(list){ if(STORE){ try{ STORE.setItem("st_details", JSON.stringify(list)); }catch(e){} } }
+function openDetails(){
+  closeMenu();
+  renderDetails();
+  $("detailSheet").classList.add("show");
+}
+function renderDetails(){
+  const list = detailList();
+  $("detailList").innerHTML = list.length ? list.map((d,i)=>
+    `<div class="statrow" style="gap:10px">
+       <label style="flex:1;display:flex;align-items:center;gap:8px">
+         <input type="checkbox" ${d.on?"checked":""} onchange="detailToggle(${i},this.checked)">
+         <span>${esc(d.name)}</span></label>
+       <button class="alt" style="padding:4px 10px" onclick="detailRemove(${i})">Remove</button>
+     </div>`).join("")
+    : `<div class="mini">No drawings yet. Add the ones your municipality requires — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details.</div>`;
+  const on = list.filter(d=>d.on).length;
+  $("detailCount").textContent = on ? `${on} will be appended to the map PDF` : "None selected";
+}
+function detailToggle(i,on){ const l=detailList(); if(l[i]){ l[i].on=!!on; detailSave(l); renderDetails(); } }
+function detailRemove(i){ const l=detailList(); l.splice(i,1); detailSave(l); renderDetails(); }
+function addDetailFiles(files){
+  const l = detailList();
+  let done = 0, tooBig = 0;
+  const next = ()=>{ if(done+tooBig===files.length){ detailSave(l); renderDetails();
+      toast(tooBig ? `${tooBig} image(s) too large` : `${files.length} drawing(s) added`); } };
+  Array.from(files).forEach(f=>{
+    const r = new FileReader();
+    r.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        // Re-encoded to a sensible page size: a 5 MB scan would blow the storage cap
+        // and print no better than this.
+        const max = 2200, sc = Math.min(1, max/Math.max(img.width,img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width*sc); cv.height = Math.round(img.height*sc);
+        cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+        l.push({ name: f.name.replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").slice(0,60),
+                 data: cv.toDataURL("image/jpeg",0.88), w:cv.width, h:cv.height, on:true });
+        done++; next();
+      };
+      img.onerror = ()=>{ tooBig++; next(); };
+      img.src = r.result;
+    };
+    r.onerror = ()=>{ tooBig++; next(); };
+    r.readAsDataURL(f);
+  });
+}
+/* Rendered onto the same sheet size as the map pages so the PDF stays one size. */
+function detailPages(W,H,M){
+  const chosen = detailList().filter(d=>d.on);
+  return chosen.map(d=>{
+    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const g=cv.getContext("2d");
+    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+    const boxW=W-M*2, boxH=H-M*2;
+    const sc=Math.min(boxW/d.w, boxH/d.h);
+    const iw=d.w*sc, ih=d.h*sc;
+    const im=new Image(); im.src=d.data;
+    try{ g.drawImage(im, M+(boxW-iw)/2, M+(boxH-ih)/2, iw, ih); }catch(e){}
+    return {data:cv.toDataURL("image/jpeg",0.92), w:W, h:H, _src:d.data, _name:d.name};
+  });
+}
+// Images must be decoded before they can be drawn, so warm them first.
+function detailPagesReady(W,H,M){
+  const chosen = detailList().filter(d=>d.on);
+  if(!chosen.length) return Promise.resolve([]);
+  return Promise.all(chosen.map(d=>new Promise(res=>{
+    const im=new Image(); im.onload=()=>res({d,im}); im.onerror=()=>res(null); im.src=d.data;
+  }))).then(loaded=>loaded.filter(Boolean).map(({d,im})=>{
+    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const g=cv.getContext("2d");
+    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+    const boxW=W-M*2, boxH=H-M*2;
+    const sc=Math.min(boxW/d.w, boxH/d.h);
+    g.drawImage(im, M+(boxW-d.w*sc)/2, M+(boxH-d.h*sc)/2, d.w*sc, d.h*sc);
+    return {data:cv.toDataURL("image/jpeg",0.92), w:W, h:H};
+  }));
+}
+
 /* ---------- Schedule A — Tree Inventory Table ---------- */
 /* Column order, headings and values copied from the report, so the CSV drops
    straight into the Schedule A table without renaming or reordering anything. */
@@ -5437,6 +6401,8 @@ const SCHED_A_COLS = [
   ["Potential long term impact", t=>t.LT_IMPACT || (tppRemoval(t) ? "-" : "")],
   ["Notes",                      t=>t.COMMENTS || ""]
 ];
+// Appended to the report table only when a series has actually been produced.
+const SCHED_A_SHEET = ["Map sheet", t=>t.SHEET_NO || ""];
 /* The number used on every report output. A tree recorded before TREE_NO existed has
    none, and Schedule A was printing a blank while the photo captions fell back to the
    tree's position — so the table and the photographs disagreed, which is worse than
@@ -5518,7 +6484,10 @@ const SCHED_A_EXTRA = [
   ["Photos",                     t=>t.PHOTOS || ""],
   ["Recorded by",                t=>t.CRUISER || ""],
   ["Date",                       t=>t.DATE || ""],
-  ["Tree ID",                    t=>t.TREE_ID || ""]
+  ["Tree ID",                    t=>t.TREE_ID || ""],
+  ["Potential impact",           t=>t.IMPACT_POT || ""],
+  ["Future prognosis",           t=>t.PROGNOSIS || ""],
+  ["Recommended action",         t=>t.REC_ACT || ""]
 ];
 
 function exportScheduleA(){
@@ -5531,7 +6500,9 @@ function exportScheduleA(){
     "Schedule A — which columns?\n\n" +
     "OK — the report table only: the thirteen columns in the Arborist Report.\n" +
     "Cancel — those thirteen plus every other attribute, appended after Notes.");
-  const cols = full ? SCHED_A_COLS : SCHED_A_COLS.concat(SCHED_A_EXTRA);
+  let cols = full ? SCHED_A_COLS : SCHED_A_COLS.concat(SCHED_A_EXTRA);
+  // Only worth a column once the sheets exist.
+  if(list.some(t=>t.SHEET_NO)) cols = cols.concat([SCHED_A_SHEET]);
   const rows = [cols.map(c=>c[0])];
   list.forEach((t,i)=>rows.push(cols.map(c=>c[1](t,i))));
   downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
@@ -6205,6 +7176,169 @@ function offlineTileLayer(url, set, opts){
   return new Cls(url, opts);
 }
 
+
+/* ================================================================== *
+ *  GEOREFERENCED SITE PLANS
+ *  Ported from the FRI plot card, where this is proven in the field. A GeoPDF
+ *  carries its corner positions in /GPTS and /LPTS; the page is rendered with
+ *  pdf.js, cropped to the georeferenced frame, and pinned to those four corners
+ *  with a projective transform — so a rotated or skewed plan lands true rather
+ *  than being squashed into a north-up rectangle.
+ * ================================================================== */
+let pdfOverlay=null, pdfBounds=null, pdfVisible=true, pdfName="", pdfCorners=null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+
+function cornerImageOverlay_(url, corners){
+  const layer=L.layerGroup();
+  const img=document.createElement("img");
+  img.src=url; img.style.position="absolute"; img.style.transformOrigin="0 0";
+  img.style.pointerEvents="none"; img.style.opacity="0.85"; img.decoding="async";
+  layer._img=img; layer._corners=corners; layer._opacity=0.85;
+  layer.onAdd=function(map){ this._map=map; map.getPanes().overlayPane.appendChild(img);
+    const redraw=()=>positionCornerImg_(map,img,corners);
+    this._redraw=redraw; img.onload=redraw;
+    map.on("move zoom zoomanim viewreset resize moveend",redraw); redraw(); };
+  layer.onRemove=function(map){ map.off("move zoom zoomanim viewreset resize moveend",this._redraw);
+    if(img.parentNode) img.parentNode.removeChild(img); };
+  layer.setOpacity=function(o){ this._opacity=o; img.style.opacity=String(o); };
+  return layer;
+}
+function positionCornerImg_(map,img,corners){
+  if(!img.naturalWidth) return;
+  const p=corners.map(c=>map.latLngToLayerPoint(L.latLng(c[0],c[1])));  // TL,TR,BR,BL on screen
+  const W=img.naturalWidth, H=img.naturalHeight;
+  L.DomUtil.setPosition(img,new L.Point(0,0));
+  img.style.width=W+"px"; img.style.height=H+"px"; img.style.transformOrigin="0 0";
+  // Full 4-corner projective (perspective) placement — maps the image's pixel corners exactly onto all
+  // four ground corners, so rotated frames and meridian convergence land true (like Avenza). A 3-corner
+  // affine would force a parallelogram and drift, worse far from the UTM zone's central meridian.
+  const t=quadTransform_(W,H,p[0],p[1],p[2],p[3]);
+  if(t){ img.style.transform="matrix3d("+t.join(",")+")"; }
+  else { // degenerate geometry — fall back to a 3-corner affine
+    const a=(p[1].x-p[0].x)/W,b=(p[1].y-p[0].y)/W,c=(p[3].x-p[0].x)/H,d=(p[3].y-p[0].y)/H;
+    img.style.transform=`matrix(${a},${b},${c},${d},${p[0].x},${p[0].y})`;
+  }
+}
+// Homography mapping image pixels (0,0)(W,0)(W,H)(0,H) → dest screen points d0,d1,d2,d3 (TL,TR,BR,BL),
+// returned as a 16-value column-major matrix3d array; null if degenerate.
+function quadTransform_(W,H,d0,d1,d2,d3){
+  const s=basisToPoints_(0,0, W,0, W,H, 0,H);
+  const d=basisToPoints_(d0.x,d0.y, d1.x,d1.y, d2.x,d2.y, d3.x,d3.y);
+  if(!s||!d) return null;
+  const m=multmm3_(d,adj3_(s));
+  if(!isFinite(m[8])||Math.abs(m[8])<1e-9) return null;
+  for(let i=0;i<9;i++) m[i]/=m[8];
+  return [m[0],m[3],0,m[6], m[1],m[4],0,m[7], 0,0,1,0, m[2],m[5],0,m[8]];
+}
+function adj3_(m){ return [
+  m[4]*m[8]-m[5]*m[7], m[2]*m[7]-m[1]*m[8], m[1]*m[5]-m[2]*m[4],
+  m[5]*m[6]-m[3]*m[8], m[0]*m[8]-m[2]*m[6], m[2]*m[3]-m[0]*m[5],
+  m[3]*m[7]-m[4]*m[6], m[1]*m[6]-m[0]*m[7], m[0]*m[4]-m[1]*m[3] ]; }
+function multmm3_(a,b){ const c=[]; for(let i=0;i<3;i++) for(let j=0;j<3;j++){ let s=0; for(let k=0;k<3;k++) s+=a[3*i+k]*b[3*k+j]; c[3*i+j]=s; } return c; }
+function multmv3_(m,v){ return [ m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2] ]; }
+function basisToPoints_(x1,y1,x2,y2,x3,y3,x4,y4){
+  const m=[x1,x2,x3, y1,y2,y3, 1,1,1];
+  const v=multmv3_(adj3_(m),[x4,y4,1]);
+  return multmm3_(m,[v[0],0,0, 0,v[1],0, 0,0,v[2]]);
+}
+/* ---- georeferenced PDF overlay (reads embedded GeoPDF georeferencing) ---- */
+function loadPdfOverlay(file){
+  toast("Reading PDF…");
+  file.arrayBuffer().then(buf=>{ const geo=parseGeo(new Uint8Array(buf));
+    if(!geo){ toast("No georeference found in that PDF",true); return; }
+    toast("Rendering…");
+    renderPDF(buf.slice(0),geo).then(res=>{
+      const imgUrl=(typeof res==="string")?res:res.url;
+      // Corner geo-positions (true, possibly rotated) + where each sits on the rendered image (0..1).
+      const cs=geo.corners.map(c=>({lat:c.lat,lon:c.lon,px:c.px,py:c.py}));
+      // order corners to TL,TR,BR,BL by their image fraction so we can map image edges to ground
+      const TL=cs.find(c=>c.px<0.5&&c.py<0.5)||cs[0], TR=cs.find(c=>c.px>=0.5&&c.py<0.5)||cs[1],
+            BR=cs.find(c=>c.px>=0.5&&c.py>=0.5)||cs[2], BL=cs.find(c=>c.px<0.5&&c.py>=0.5)||cs[3];
+      if(pdfOverlay) fmap.removeLayer(pdfOverlay);
+      pdfBounds=L.latLngBounds(cs.map(c=>[c.lat,c.lon]));
+      pdfCorners=[[TL.lat,TL.lon],[TR.lat,TR.lon],[BR.lat,BR.lon],[BL.lat,BL.lon]];
+      pdfOverlay=cornerImageOverlay_(imgUrl, pdfCorners).addTo(fmap); pdfVisible=true; pdfName=file.name||"PDF";
+      /* Kept in IndexedDB, not localStorage. A rendered site plan is several megabytes
+         as a data URL and localStorage caps out around 5 MB on iOS — the same trap the
+         reference layers hit. */
+      idbPutLayer({id:"__sitepdf", name:pdfName, url:imgUrl, corners:pdfCorners, isPdf:true, features:[]})
+        .catch(()=>toast("Plan shown but too large to keep on this device",true));
+      $("btnPdf").style.display="flex"; $("btnPdf").classList.add("on");
+      $("pdfBar").classList.add("show"); $("pdfOpacity").value=85; $("pdfOpacityVal").textContent="85%";
+      fmap.fitBounds(pdfBounds,{padding:[30,30]}); toast("Site plan loaded"); buildLegend();
+    }).catch(()=>toast("PDF render failed",true));
+  }).catch(()=>toast("Couldn't read the PDF",true));
+}
+function setPDFOpacity(v){ $("pdfOpacityVal").textContent=v+"%"; if(pdfOverlay&&pdfVisible) pdfOverlay.setOpacity(v/100); }
+// Restore a georeferenced PDF (image + its 4 corners) saved from a previous session.
+function loadCachedPdf_(){
+  if(!HAS_IDB || pdfOverlay) return;
+  idbAllLayers().then(list=>{
+    const s = (list||[]).find(x=>x && x.isPdf);
+    if(!s || !s.url || !s.corners) return;
+    pdfCorners=s.corners; pdfName=s.name||"Site plan";
+    pdfBounds=L.latLngBounds(s.corners.map(c=>[c[0],c[1]]));
+    pdfOverlay=cornerImageOverlay_(s.url,s.corners).addTo(fmap); pdfVisible=true;
+    $("btnPdf").style.display="flex"; $("btnPdf").classList.add("on");
+    $("pdfBar").classList.add("show"); $("pdfOpacity").value=85; $("pdfOpacityVal").textContent="85%";
+    buildLegend();
+  }).catch(()=>{});
+}
+function togglePDF(){ if(!pdfOverlay) return; pdfVisible=!pdfVisible; const btn=$("btnPdf");
+  if(pdfVisible){ pdfOverlay.setOpacity($("pdfOpacity").value/100); btn.classList.add("on"); } else { pdfOverlay.setOpacity(0); btn.classList.remove("on"); } }
+// Fully remove the georeferenced PDF from the map.
+function unloadPDF(){
+  if(pdfOverlay){ try{ fmap.removeLayer(pdfOverlay); }catch(e){} pdfOverlay=null; }
+  pdfBounds=null; pdfVisible=false; pdfName="";
+  const t=$("btnPdf"); if(t){ t.classList.remove("on"); t.style.display="none"; }
+  $("pdfBar").classList.remove("show");
+  idbDelLayer("__sitepdf");
+  buildLegend(); toast("Site plan removed");
+}
+function parseGeo(bytes){
+  const text=new TextDecoder("latin1").decode(bytes);
+  const gm=text.match(/\/GPTS\s*\[([^\]]+)\]/); if(!gm) return null;
+  const gpts=gm[1].trim().split(/\s+/).map(Number);
+  const lm=text.match(/\/LPTS\s*\[([^\]]+)\]/); const lpts=lm?lm[1].trim().split(/\s+/).map(Number):[0,0,1,0,1,1,0,1];
+  const mbm=text.match(/\/MediaBox\s*\[([^\]]+)\]/); const mb=mbm?mbm[1].trim().split(/\s+/).map(Number):[0,0,612,792];
+  const pageW=mb[2]-mb[0], pageH=mb[3]-mb[1];
+  const gptsPos=text.indexOf("/GPTS"); let bboxArr=[0,0,pageW,pageH];
+  const win=text.substring(Math.max(0,gptsPos-3000),gptsPos+500); const mm=[...win.matchAll(/\/BBox\s*\[([^\]]+)\]/g)];
+  if(mm.length){ const arr=mm[mm.length-1][1].trim().split(/\s+/).map(Number); if(arr.length===4) bboxArr=arr; }
+  const bbox={left:bboxArr[0],bottom:bboxArr[1],right:bboxArr[2],top:bboxArr[3]}, bW=bbox.right-bbox.left, bH=bbox.top-bbox.bottom;
+  const corners=[];
+  for(let i=0;i<4;i++){ const lat=gpts[i*2], lon=gpts[i*2+1], lx=lpts[i*2], ly=lpts[i*2+1];
+    const absX=bbox.left+lx*bW, absY=bbox.bottom+ly*bH; corners.push({lat,lon,px:absX/pageW,py:1-(absY/pageH)}); }
+  const needsCrop=(bboxArr[0]>2||bboxArr[1]>2||Math.abs(bboxArr[2]-pageW)>2||Math.abs(bboxArr[3]-pageH)>2);
+  return {corners,pageW,pageH,bboxPts:needsCrop?bbox:null};
+}
+function renderPDF(buf,geo){
+  return loadPdfJs().then(()=>pdfjsLib.getDocument({data:buf}).promise).then(pdf=>pdf.getPage(1)).then(page=>{
+    const sc=(window.devicePixelRatio||2)*1.5, vp=page.getViewport({scale:sc});
+    const full=document.createElement("canvas"); full.width=vp.width; full.height=vp.height;
+    return page.render({canvasContext:full.getContext("2d"),viewport:vp}).promise.then(()=>{
+      const view=page.view, pageWpts=view[2]-view[0], pageHpts=view[3]-view[1];
+      if(geo&&geo.bboxPts&&geo.corners&&geo.corners.length===4){
+        const bb=geo.bboxPts, scaleX=full.width/pageWpts, scaleY=full.height/pageHpts;
+        // Some GeoPDFs (e.g. ArcGIS) give the viewport BBox with y inverted (bottom > top) or x reversed;
+        // normalize so the crop rectangle is always valid regardless of the order the corners are listed.
+        const x0=Math.min(bb.left,bb.right), x1=Math.max(bb.left,bb.right), y0=Math.min(bb.bottom,bb.top), y1=Math.max(bb.bottom,bb.top);
+        const cropX=Math.round(x0*scaleX), cropY=Math.round((pageHpts-y1)*scaleY), cropW=Math.round((x1-x0)*scaleX), cropH=Math.round((y1-y0)*scaleY);
+        if(cropW>10&&cropH>10){
+          // Crop to the georeferenced map frame and hand it back flat — the corner overlay does the
+          // geo-placement (including any rotation), so no north-up warp here.
+          const cropped=document.createElement("canvas"); cropped.width=cropW; cropped.height=cropH;
+          cropped.getContext("2d").drawImage(full,cropX,cropY,cropW,cropH,0,0,cropW,cropH);
+          // report each geo corner's position within THIS cropped image (0..1)
+          geo.corners.forEach(c=>{ c.px=Math.min(1,Math.max(0,(c.px*geo.pageW - x0)/(x1-x0)));
+                                   c.py=Math.min(1,Math.max(0,(c.py*geo.pageH - (geo.pageH-y1))/(y1-y0))); });
+          return { url: cropped.toDataURL("image/jpeg",.92) };
+        }
+      }
+      return { url: full.toDataURL("image/jpeg",.92) };
+    });
+  });
+}
 /* ================================================================== *
  *  MAP EXPORT -> PDF
  *  Everything in the current view: aerial background, reference layers,
@@ -6503,6 +7637,8 @@ async function runSingleExport(opt){
 
   toast("Building the PDF…");
   const pages = [{ data: cv.toDataURL("image/jpeg", 0.92), w:W, h:H }];
+  if($("mapDetails") && $("mapDetails").value==="1")
+    (await detailPagesReady(W,H,M)).forEach(p=>pages.push(p));
   if(wantPhotoPages){
     const extra = await buildPhotoPages(shown, W, H, M, title);
     extra.forEach(p=>pages.push(p));
@@ -6682,6 +7818,17 @@ async function runSeriesExport(){
   const padLon = Math.max((b.e-b.w)*0.12, 0.00090);
   const all = L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]);
 
+  /* Stamp each tree with the sheet it falls on, so the inventory table can say
+     where to look for it. Written back and re-synced. */
+  let stamped = 0;
+  seriesTrees().forEach(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    const cell = cells.find(c=> la<=c.n && la>=c.s && lo>=c.w && lo<=c.e);
+    const no = cell ? cell.no : "";
+    if(String(t.SHEET_NO||"") !== String(no)){ t.SHEET_NO = no; t._sent=false; stamped++; }
+  });
+  if(stamped){ persistTrees(); setTimeout(syncNow, 1200); }
+
   const pages=[];
   toast(`Building ${cells.length+1} sheets…`);
   setStatus("Map series: index sheet");
@@ -6698,6 +7845,10 @@ async function runSeriesExport(){
       sheetNote:"SHEET "+c.no, noKeyMap:false, photoPages:false, returnPage:true }));
   }
 
+  if($("mapDetails") && $("mapDetails").value==="1"){
+    const W=Math.round(PDF_W_IN*PDF_DPI), H=Math.round(PDF_H_IN*PDF_DPI), M=Math.round(PDF_DPI*0.35);
+    (await detailPagesReady(W,H,M)).forEach(p=>pages.push(p));
+  }
   if(wantPhotoPages){
     setStatus("Map series: photo pages");
     const W=Math.round(PDF_W_IN*PDF_DPI), H=Math.round(PDF_H_IN*PDF_DPI), M=Math.round(PDF_DPI*0.35);
@@ -6896,19 +8047,43 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     mx += Math.max(g.measureText(v).width, Math.round(PDF_DPI*0.9)) + Math.round(PDF_DPI*0.28);
   });
 
-  // legend, only the classes present on this sheet
-  const present = HEALTH.filter(h=>shown.some(t=>t.HEALTH===h[0]));
+  /* Legend of EVERY layer on the sheet — the tree classes actually present, the
+     protection zones, each reference layer and the site plan. A legend that names
+     only the trees leaves a reader guessing what the other lines and shading are. */
+  const present = legendRows().filter(r=>{
+    if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
+    if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
+                                      (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
+    return true;
+  }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
+  if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
+  refLayers.filter(l=>l.visible).forEach(l=>
+    present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
+  if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
+
   const lx = x + Math.round(w*0.62), ly = top + Math.round(PDF_DPI*0.20);
   g.font=`bold ${Math.round(PDF_DPI*0.085)}px sans-serif`; g.fillStyle="#8fb59c";
-  g.fillText("TREE HEALTH", lx, ly);
+  g.fillText("LEGEND — " + String(SYMBOL_LABEL[symbolMode]).toUpperCase(), lx, ly);
   const rowH = Math.round(PDF_DPI*0.145), colW = Math.round(w*0.185);
   g.font=`${Math.round(PDF_DPI*0.10)}px sans-serif`;
-  present.forEach((h,i)=>{
+  present.forEach((r,i)=>{
     const col=i%2, row=Math.floor(i/2);
     const px2=lx+col*colW, py=ly+Math.round(PDF_DPI*0.16)+row*rowH;
-    g.beginPath(); g.arc(px2+8, py-Math.round(PDF_DPI*0.035), Math.round(PDF_DPI*0.045),0,7);
-    g.fillStyle=h[1]; g.fill(); g.strokeStyle="#fff"; g.lineWidth=2; g.stroke();
-    g.fillStyle="#e7ebe6"; g.fillText(h[0], px2+Math.round(PDF_DPI*0.13), py);
+    const cy=py-Math.round(PDF_DPI*0.035), rr=Math.round(PDF_DPI*0.045);
+    g.strokeStyle="#fff"; g.lineWidth=2;
+    if(r.kind==="square"){
+      g.fillStyle=r.color; g.fillRect(px2+8-rr, cy-rr, rr*2, rr*2); g.strokeRect(px2+8-rr, cy-rr, rr*2, rr*2);
+    } else if(r.kind==="line"){
+      g.strokeStyle=r.color; g.lineWidth=Math.round(PDF_DPI*0.03);
+      g.beginPath(); g.moveTo(px2+8-rr, cy); g.lineTo(px2+8+rr, cy); g.stroke();
+    } else if(r.kind==="circle"){
+      g.strokeStyle=r.color; g.lineWidth=2; g.setLineDash([5,4]);
+      g.beginPath(); g.arc(px2+8, cy, rr, 0, 7); g.stroke(); g.setLineDash([]);
+    } else {
+      g.beginPath(); g.arc(px2+8, cy, rr, 0, 7);
+      g.fillStyle=r.color; g.fill(); g.stroke();
+    }
+    g.fillStyle="#e7ebe6"; g.fillText(r.label.slice(0,26), px2+Math.round(PDF_DPI*0.13), py);
   });
   if(shown.some(t=>t._reviewed)){
     const py = ly+Math.round(PDF_DPI*0.16)+Math.ceil(present.length/2)*rowH;
@@ -7090,7 +8265,18 @@ function paintGroups(){
   });
 }
 
+/* A crew recording street trees should not have to scroll past schedules, plant
+   lists and document assembly to reach Sync. The whole tree-protection group is
+   hidden unless the project is a tree protection plan — which the app already
+   knows, and which is set in one place. */
+function refreshMenuMode(){
+  const on = isTPP(settings.project);
+  const g = $("g_tpp"); if(g) g.style.display = on ? "block" : "none";
+  const h = $("tppHint"); if(h) h.style.display = on ? "none" : "block";
+}
+
 function openMenu(){
+  refreshMenuMode();
   const un = trees.filter(t=>!t._sent).length;
   const iq = pendingInspections.length;
   $("menuStats").textContent = `${trees.length} trees · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
@@ -7336,7 +8522,7 @@ function saveSettings(){
   setPhotoQuality($("setPhotoQ").value);
   setYrRates($("setYrDec").value, $("setYrCon").value, $("setYrYear").value);
   setTPP(settings.project, $("setTPP").value === "1");
-  applyTPPMode();
+  applyTPPMode(); refreshMenuMode();
   persistSettings();
 
 
@@ -7483,6 +8669,14 @@ function showHelp(){
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
     <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
+    <p><b>The menu follows the job</b><br>Answer “tree protection plan” when the app asks at the start of a project and a <b>🛡 Tree protection &amp; reporting</b> group appears, holding everything for that work in the order you do it — on site, then the report tables, then the document. Answer “tree inventory” and the whole group stays hidden, so a crew recording street trees is not scrolling past schedules and plant lists to reach Sync. It follows the project, so the same phone can do both.</p>
+    <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one paginated PDF. Tick the sections, order them with the arrows, and add your own PDFs — the arborist report, custom tables, figures — which are read page by page and merged. Page numbering is your choice: <b>TPP1, TPP2…</b> with an editable prefix, or plain numbers. The <b>contents page is built last, from the real page counts</b>, so it always matches. Tables are rendered from the same rows as the CSV exports, with the header repeated on every page.</p>
+    <p><b>Fences and plantings</b><br><i>Menu → Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap and asks for species and stock size using the same species picker the inventory uses. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
+    <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
+    <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
+    <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
+    <p><b>Map sheet number</b><br>Producing a map series stamps each tree with the sheet it falls on, so the inventory table can say where to find it. The column appears in Schedule A once a series has been made.</p>
+    <p><b>Protection zones on the map</b><br>The 🛡 button draws each tree's protection zone as a dashed circle at its true size on the ground — 2.4 m up to 24 cm DBH, then DBH ÷ 10 — so you can see at a glance where zones overlap and where works would encroach. A tree with no DBH yet gets no circle. They sit under the pins and cannot take a tap meant for a tree, and the setting is remembered.</p>
     <p><b>Protection zone and replacements</b><br>Both are worked out from DBH, and <b>every</b> tree carries its compensation figure whether or not it is coming down — the arborist decides what counts, not the app. <b>Count in compensation</b> defaults to following the proposed action and can be set to yes or no per tree. The statistics show the counted total alongside what it would be if every tree were removed. <b>TPZ_M</b> is the tree protection zone radius: 2.4 m up to 24 cm DBH, then DBH ÷ 10. <b>REPL_REQ</b> is the number of replacement trees the DBH earns under the City table — 0 up to 20 cm, then 1, 2, 3, 4 and 5 through the bands. The statistics panel totals both, which are the figures a tree preservation plan has to state.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
