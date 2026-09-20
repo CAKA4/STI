@@ -1276,7 +1276,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v98";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v99";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5608,7 +5608,11 @@ function verifyAndRetry(pass){
   };
   sc.onerror=cleanup;
   sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb +
-           (settings.project && !showAllProjects ? "&project="+encodeURIComponent(settings.project) : "");
+           /* currentProject(), not settings.project. settings.project is what a NEW
+              tree is stamped with; what you are looking at is the Showing filter.
+              Asking for the wrong one meant "Load trees from Sheet" fetched the
+              recording project while the crew was filtered to another. */
+           (currentProject() && !showAllProjects ? "&project="+encodeURIComponent(currentProject()) : "");
   document.body.appendChild(sc);
 }
 
@@ -5642,7 +5646,11 @@ function pullFromSheet(){
   };
   sc.onerror=()=>{ toast("Could not reach the Sheet",true); cleanup(); };
   sc.src = SCRIPT_URL + sep + "action=trees&callback=" + cb +
-           (settings.project && !showAllProjects ? "&project="+encodeURIComponent(settings.project) : "");
+           /* currentProject(), not settings.project. settings.project is what a NEW
+              tree is stamped with; what you are looking at is the Showing filter.
+              Asking for the wrong one meant "Load trees from Sheet" fetched the
+              recording project while the crew was filtered to another. */
+           (currentProject() && !showAllProjects ? "&project="+encodeURIComponent(currentProject()) : "");
   document.body.appendChild(sc);
 }
 
@@ -9216,6 +9224,24 @@ function applyFilter(){
   renderPins(); updateProjBtn(); closeFilter();
   // The menu describes whatever is being shown, so it has to follow the filter.
   refreshMenuMode(); applyTPPMode();
+
+  /* Two projects drifting apart is the thing that confuses: the one you are LOOKING
+     at and the one a NEW tree is stamped with. Switching Showing to a single
+     project almost always means you have moved on to that job, so offer to move the
+     recording project with it rather than leaving the next tree filed under the
+     old one. */
+  if(filterProject && filterProject !== settings.project){
+    setTimeout(()=>{
+      if(confirm(`Record new trees into "${filterProject}" as well?\n\n` +
+        `New trees are currently filed under "${settings.project||"(none)"}".\n\n` +
+        `Nothing already recorded moves — this only affects trees added from now on.`)){
+        settings.project = filterProject;
+        persistSettings();
+        refreshMenuMode(); applyTPPMode(); updateProjBtn();
+        toast(`New trees go to ${filterProject}`);
+      }
+    }, 400);
+  }
   const n=visibleTrees().length;
   toast(`Showing ${n} tree(s) · ${scopeLabel()}`);
   if(n) fitTrees();
