@@ -1241,7 +1241,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v93";   // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v94";   // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -6469,26 +6469,35 @@ function renderDrive(){
    run all day for the few minutes it matters, and Apps Script's daily runtime is
    shared with everything else the backend does — the phones syncing, the comment
    tidy. Better that whoever is waiting for the plan asks for it. */
-function checkEmailedLayers(){
+function checkEmailedLayers(rescan){
   if(!connected || isOffline()){ toast("Needs a connection",true); return; }
   const b=$("btnMail"); if(b){ b.disabled=true; b.textContent="Checking…"; }
-  $("mailLine").textContent = "Looking in the mailbox…";
-  jsonpGet("maillayers", {}, r=>{
+  $("mailLine").textContent = rescan ? "Rescanning every matching message…" : "Looking in the mailbox…";
+  jsonpGet("maillayers", rescan?{rescan:"1"}:{}, r=>{
     if(b){ b.disabled=false; b.textContent="📧 Check email"; }
     if(!r || !r.ok){
       $("mailLine").textContent = (r && r.error) ? r.error : "Could not reach the Sheet.";
       return;
     }
-    const refused = (r.refused && r.refused.length)
-      ? ` · ignored ${r.refused.length} from senders not on the list` : "";
     if(r.saved){
-      $("mailLine").textContent = `${r.saved} file(s) collected: ${r.names.join(", ")}${refused}`;
+      $("mailLine").textContent = `${r.saved} file(s) collected: ${esc(r.names.join(", "))}`;
       toast(`${r.saved} layer(s) collected from email`);
       openDriveLayers();                      // the list is now out of date
-    } else {
-      $("mailLine").textContent = "Nothing new in the mailbox" + refused +
-        ". Send one with TREE LAYER in the subject.";
+      return;
     }
+    /* Say what was found at each stage. "Nothing new" on its own gives no way to
+       tell an empty mailbox from a search, a sender check or a file-type check
+       quietly rejecting everything — which is exactly what made this hard to
+       diagnose the first time. */
+    const bits = [];
+    bits.push(`${r.threads||0} matching message(s)`);
+    if(r.attachments) bits.push(`${r.attachments} attachment(s) seen`);
+    if(r.skipped)     bits.push(`${r.skipped} of the wrong type (${esc((r.skippedNames||[]).join(", "))})`);
+    if(r.refused && r.refused.length) bits.push(`sender not on the list: ${esc(r.refused.join(", "))}`);
+    let msg = bits.join(" · ") + ".";
+    if(!r.threads) msg += " Check the subject contains TREE LAYER, that there is an attachment, and that it is under 30 days old.";
+    if(!r.threads && !rescan) msg += ` <a href="#" onclick="checkEmailedLayers(true);return false;">Rescan everything</a> — a message collected before is skipped by default.`;
+    $("mailLine").innerHTML = msg;
   });
 }
 
