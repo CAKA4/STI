@@ -1277,7 +1277,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v103";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-20 · v104";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -7891,12 +7891,12 @@ function runTidy(){
       `About ${Math.ceil(st.pending/40)} request(s), roughly ${Math.ceil(st.pending/40*11.5/60)} minute(s).\n\n` +
       `The original wording is kept and can be put back.`)) return;
 
-    let done = 0, left = st.pending, fails = 0;
+    let done = 0, edited = 0, left = st.pending, fails = 0;
     toolRunning("btnTidy", true);
     $("btnTidy").textContent = "🪄 Tidying… tap to stop";
     const step = ()=>{
-      if(toolStop){ finish("Stopped. " + done + " tidied, " + left + " left."); return; }
-      $("tidyLine").textContent = `Tidied ${done} · ${left} to go…`;
+      if(toolStop){ finish(`Stopped. ${done} checked, ${edited} edited, ${left} left.`); return; }
+      $("tidyLine").textContent = `Checked ${done} · ${edited} edited · ${left} to go…`;
       jsonpGet("tidybatch", toolScope(), r=>{
         if(!r){ fails++; if(fails>=3){ finish("Lost contact with the Sheet after " + done + "."); return; }
                 setTimeout(step, 6500); return; }
@@ -7907,8 +7907,18 @@ function runTidy(){
           if(fails>=3){ finish("Stopped after " + done + " — " + (r.error||"the Sheet refused")); return; }
           setTimeout(step, 6500); return;
         }
-        fails = 0; done += r.done||0; left = r.remaining||0;
-        if(r.finished || !left){ finish(done + " comment(s) tidied."); return; }
+        /* CHECKED and EDITED are different numbers, and only the second says whether
+           the AI did anything. A tidied row is never looked at again, so this is the
+           only moment the difference shows. Most notes needing no change is normal;
+           none of them needing one, over a whole run, is worth knowing about. */
+        fails = 0; done += r.done||0; edited += r.edited||0; left = r.remaining||0;
+        if(r.finished || !left){
+          finish(edited
+            ? `${done} comment(s) checked · ${edited} edited · ${done-edited} already correct.`
+            : `${done} comment(s) checked · none needed changing. If you expected ` +
+              `corrections, ask the owner to test the AI connection on the Sheet.`);
+          return;
+        }
         setTimeout(step, 6500);
       });
     };
