@@ -1277,7 +1277,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-20 · v104";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-21 · v106";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5272,13 +5272,26 @@ function idbPutArea(a){ return new Promise(res=>{ idbOpen().then(db=>{
   const tx=db.transaction(AREA_STORE,"readwrite"); tx.objectStore(AREA_STORE).put(a);
   tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();};
 }).catch(()=>res()); }); }
-function idbDropArea(a){ return new Promise(res=>{ idbOpen().then(db=>{
-  const tx=db.transaction([AREA_STORE,TILE_STORE],"readwrite");
-  tx.objectStore(AREA_STORE).delete(a.id);
-  const st=tx.objectStore(TILE_STORE);
-  (a.keys||[]).forEach(k=>st.delete(k));
-  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();};
-}).catch(()=>res()); }); }
+/* A TILE IS ONLY DELETED IF NO OTHER SAVED AREA STILL CLAIMS IT. Two areas that
+   overlap hold the same keys — each records everything it downloaded, with no check
+   against what is already saved. Deleting the keys blindly took the shared tiles out
+   from under the area that remained, which then showed its original size and tile
+   count over a map that had gone blank in the overlap. */
+function idbDropArea(a){ return new Promise(res=>{
+  idbAllAreas().then(all=>{
+    const keep = {};
+    all.forEach(o=>{ if(o.id!==a.id) (o.keys||[]).forEach(k=>{ keep[k]=1; }); });
+    const drop = (a.keys||[]).filter(k=>!keep[k]);
+    idbOpen().then(db=>{
+      const tx=db.transaction([AREA_STORE,TILE_STORE],"readwrite");
+      tx.objectStore(AREA_STORE).delete(a.id);
+      const st=tx.objectStore(TILE_STORE);
+      drop.forEach(k=>st.delete(k));
+      tx.oncomplete=()=>{db.close();res({removed:drop.length, shared:(a.keys||[]).length-drop.length});};
+      tx.onerror=()=>{db.close();res({removed:0, shared:0});};
+    }).catch(()=>res({removed:0, shared:0}));
+  }).catch(()=>res({removed:0, shared:0}));
+}); }
 
 // Which tiles a bounding box needs, across a zoom range.
 function tilesForArea(b, zMin, zMax){
@@ -8081,7 +8094,18 @@ async function downloadArea(){
   for(let i=0;i<jobs.length;i+=8){
     const chunk=jobs.slice(i,i+8);
     const got=await Promise.all(chunk.map(j=>{
-      const url=tileSetUrl(j.set).replace("{z}",j.z).replace("{x}",j.x).replace("{y}",j.y);
+      /* THE AERIAL GOES THROUGH satTileUrl, the same builder the live map and the PDF
+         export use. It applies the cache LEVEL OFFSET and handles a DYNAMIC service,
+         which asks for its tiles by bounding box and has no {z}/{x}/{y} to replace at
+         all. This used to build the URL itself with a blind .replace on
+         tileSetUrl(set) — so saving from Simcoe asked for level 18 of a cache that
+         stops at 11 and every tile failed, and saving from York 2025 produced the
+         same unmodified MapServer URL for every tile in the area. Only Esri, which
+         needs neither, ever worked. Roads and place names are plain templates and
+         keep the straight substitution. */
+      const url = j.set==="sat"
+        ? satTileUrl(j.z, j.x, j.y)
+        : tileSetUrl(j.set).replace("{z}",j.z).replace("{x}",j.x).replace("{y}",j.y);
       return fetch(url).then(r=>r.ok?r.blob():null).then(bl=>({j,bl})).catch(()=>({j,bl:null}));
     }));
     got.forEach(({j,bl})=>{
@@ -8131,7 +8155,13 @@ function dropArea(id){
   idbAllAreas().then(list=>{
     const a=list.find(x=>x.id===id); if(!a) return;
     if(!confirm(`Delete the saved imagery for "${a.name}"?\n\n${(a.n||0).toLocaleString()} tiles, ${((a.bytes||0)/1048576).toFixed(0)} MB. The trees are not affected.`)) return;
-    idbDropArea(a).then(()=>{ renderAreaList(); toast("Saved imagery deleted"); });
+    idbDropArea(a).then(r=>{
+      renderAreaList();
+      // Say when tiles were kept back — they belong to an overlapping area too.
+      toast(r && r.shared
+        ? `Deleted · ${r.shared.toLocaleString()} tile(s) kept for an overlapping area`
+        : "Saved imagery deleted");
+    });
   });
 }
 
@@ -9347,8 +9377,16 @@ function toggleGroup(k){
   if(STORE){ try{ STORE.setItem("st_menugroup", now); }catch(e){} }
   paintGroups();
 }
+/* EVERY GROUP MUST BE IN THIS LIST, including tpp. A group's items live in .mbody,
+   which is display:none until the group carries the "open" class — and this is the
+   only thing that sets it. "tpp" was missing, so the tree protection group could
+   never open: refreshMenuMode unhid its header, but tapping that header ran
+   toggleGroup("tpp"), which set openGroup and then CLOSED the five groups listed
+   here without opening the sixth. The whole menu collapsed and nothing appeared,
+   which reads exactly like the group not being there at all. */
+const MENU_GROUPS = ["sync","layers","out","tpp","review","set"];
 function paintGroups(){
-  ["sync","layers","out","review","set"].forEach(k=>{
+  MENU_GROUPS.forEach(k=>{
     const el=$("g_"+k); if(el) el.classList.toggle("open", openGroup===k);
   });
 }
