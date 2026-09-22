@@ -637,6 +637,7 @@
         <button class="menuitem" onclick="exportFeatsShapefile()">Fences &amp; plantings (shapefile)</button>
         <button class="menuitem" onclick="exportFeatsGeoJSON()">Fences &amp; plantings (GeoJSON)</button>
         <div class="mini" style="padding:10px 4px 8px">The document</div>
+        <button class="menuitem" onclick="openTppText()">TPP wording &amp; branding</button>
         <button class="menuitem" onclick="exportScheduleB()">Schedule B — tree photographs (PDF)</button>
         <button class="menuitem" onclick="openDetails()">Standard detail drawings</button>
         <button class="menuitem prime" onclick="openDoc()">📄 Assemble the final document</button>
@@ -960,7 +961,8 @@
         <label>Species</label>
         <div class="picker" onclick="pickFeatSpecies()"><span class="val empty" id="featSpecies">Tap to choose</span><span style="color:var(--faint)">▸</span></div>
       </div>
-      <div class="fld"><label>Stock size</label><select id="featStock"></select></div>
+      <div class="fld"><label>Stock size</label><select id="featStock" onchange="stockChanged()"></select></div>
+      <div class="fld"><label>Planting class</label><select id="featClass" onchange="featClassTouched=true"></select></div>
     </div>
 
     <div id="featFenceRows" style="display:none">
@@ -1046,6 +1048,49 @@
   </div>
 </div>
 <input id="docInput" type="file" accept=".pdf,application/pdf" multiple style="display:none">
+
+<!-- ===== TPP boilerplate: the wording that repeats from job to job ===== -->
+<div class="sheet" id="tppTextSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>TPP wording &amp; branding</h2>
+    <div class="hint">Typed once and kept on this phone. Only the top two boxes normally change between jobs — the rest carry forward to the next plan.</div>
+
+    <div class="fld"><label>Prepared for — client block</label>
+      <textarea id="tpp_preparedFor" rows="4" placeholder="LAND SERVICES GROUP&#10;Contact: Amin Sarang&#10;Email: amin@landservicesgroup.ca&#10;Phone: 647-528-7711"></textarea></div>
+
+    <div class="fld"><label>Title block</label>
+      <textarea id="tpp_title" rows="4" placeholder="TREE INVENTORY,&#10;PRESERVATION,&#10;&amp; LANDSCAPING PLAN&#10;1 CYNTHIA CRESCENT&#10;CITY OF RICHMOND HILL"></textarea></div>
+
+    <div class="fld"><label>Base data credits</label>
+      <textarea id="tpp_credits" rows="3" placeholder="Aerial photo: 2023 York Region. Site Plan provided by Land Services Group. Grading &amp; Servicing Plan by SitePlantech Inc."></textarea></div>
+
+    <div class="fld"><label>Prepared by</label>
+      <textarea id="tpp_preparedBy" rows="3"></textarea></div>
+
+    <div class="fld"><label>Landscaping — notes &amp; instructions</label>
+      <textarea id="tpp_landscape" rows="7" placeholder="The wording printed above the plant list on the landscaping sheet. Leave it empty to leave that section out."></textarea>
+      <div class="mini">Printed above the plant list. Blank lines start a new paragraph; a line beginning <b>Timing:</b> or <b>Watering:</b> prints with its lead word in bold.</div></div>
+
+    <div class="fld"><label>Contents page note</label>
+      <textarea id="tpp_contentsNote" rows="2"></textarea></div>
+
+    <div class="fld"><label>Logo</label>
+      <div id="tppLogoBox" style="padding:6px 0"></div>
+      <div class="btnrow">
+        <button class="alt" onclick="document.getElementById('tppLogoInput').click()">Choose an image</button>
+        <button class="alt" id="tppLogoClear" onclick="clearTppLogo()" style="display:none">Remove</button>
+      </div>
+      <div class="mini">Drawn in the <i>Prepared by</i> box on every sheet.</div></div>
+
+    <div class="btnrow">
+      <button class="primary" onclick="saveTppText()">Save</button>
+      <button onclick="document.getElementById('tppTextSheet').classList.remove('show')">Close</button>
+    </div>
+    <div class="btnrow"><button class="alt" onclick="resetTppText()">Back to the shipped wording</button></div>
+  </div>
+</div>
+<input id="tppLogoInput" type="file" accept="image/*" style="display:none">
 
 <!-- ===== detail drawings ===== -->
 <div class="sheet" id="detailSheet">
@@ -1277,7 +1322,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-21 · v106";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-22 · v108";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1667,6 +1712,21 @@ function normText(v){
     .replace(/\s+/g," ")
     .trim();
 }
+/* The same tidy-up for text where the LINE BREAKS ARE THE POINT - a client block, a
+   title block, a paragraph of notes. normText collapses every run of whitespace,
+   newlines included, which turns a five-line address into one long line. */
+function normBlock(v){
+  return String(v==null?"":v)
+    .replace(/[\u2018\u2019\u201b]/g,"'")
+    .replace(/[\u201c\u201d\u201f]/g,'"')
+    .replace(/[\u2013\u2014]/g,"-")
+    .replace(/\u2026/g,"...")
+    .replace(/\u00a0/g," ")
+    .replace(/\r\n?/g,"\n")
+    .split("\n").map(function(l){ return l.replace(/[ \t]+/g," ").trim(); }).join("\n")
+    .replace(/\n{3,}/g,"\n\n")
+    .trim();
+}
 // Dictated numbers arrive with stray words or punctuation ("42 point 5", "42.5 cm.").
 function normNumber(v){
   let t = String(v==null?"":v).toLowerCase()
@@ -1811,6 +1871,8 @@ async function initMap(){
   if(di) di.addEventListener("change", e=>{ if(e.target.files.length) addDetailFiles(e.target.files); e.target.value=""; });
   const spi=$("sitePdfInput");
   if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) loadPdfOverlay(f); e.target.value=""; });
+  const tli=$("tppLogoInput");
+  if(tli) tli.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) addTppLogo(f); e.target.value=""; });
   setSheetSize(sheetSize);
   // If the chosen aerial is a dynamic service and we have not learned its image
   // sublayer yet, find it now and redraw — otherwise the first view shows the grid.
@@ -3165,10 +3227,12 @@ function estimateCrown(speciesName, dbhCm, stems){
    These are the values a tree takes unless the assessor says otherwise — the
    ordinary case, which is what a default should be.
 
-   NOTE what this means for risk: with these in place every tree gets a rating
-   without anyone having assessed the target. That is the right trade only because
-   the field stays RED until it is touched, so an unconsidered rating is visible as
-   unconsidered. */
+   NOTE what this means for risk: target and consequences are assumed, so the rating
+   resolves as soon as likelihood of failure is set rather than waiting for three
+   answers. LOF itself is NOT defaulted and should not be — it is the assessor's
+   structural judgement and there is no ordinary case to assume — so an unassessed
+   tree still shows no rating. The assumed pair stay RED until touched, so an
+   unconsidered rating is visible as unconsidered. */
 const NEW_TREE_DEFAULTS = {
   fTARGET:     "Occasional",
   fCONSEQ:     "Minor",
@@ -3177,17 +3241,84 @@ const NEW_TREE_DEFAULTS = {
   fLT_IMPACT:  "None anticipated",
   fTAG_NO:     "NT"
 };
-function applyNewTreeDefaults(){
-  Object.keys(NEW_TREE_DEFAULTS).forEach(id=>{
+/* The protection fields take the no-impact case too. Most trees on a job are simply
+   left alone, so leaving these blank meant hand-setting the same three answers on
+   every tree and, worse, Schedule A printing empty cells for the ones that were
+   missed. LOCATION is normally worked out from where the tree actually stands (see
+   locationFromPlacement) and only falls back to this.
+
+   SEPARATE from the list above because these only apply on a tree protection plan.
+   A street inventory has no proposed action and no prognosis, and stamping them
+   would put answers in columns nobody on that job ever looked at. */
+const TPP_TREE_DEFAULTS = {
+  fLOCATION:   "PUBLIC (ROAD ALLOWANCE)",
+  fPROP_ACT:   "No action required",
+  fPROGNOSIS:  "No change in health"
+};
+
+/* WHERE THE TREE STANDS ANSWERS LOCATION, when there is a parcel fabric to ask.
+   The road allowance is the space between the parcels — it has no polygon of its own
+   — so a tree that falls inside no parcel is in it. A tree inside a parcel is on
+   private land, and which private land follows from whose parcel it is: the project
+   is normally the site address, so a parcel addressed to something else is the
+   neighbour.
+
+   Compared on house number plus the first word of the street, because a parcel
+   fabric writes "1 CYNTHIA CRES" where the project says "1 Cynthia Crescent" and no
+   amount of exact matching will ever join those two up.
+
+   Returns "" when it cannot tell — no fabric loaded, no position yet — and the
+   static default above stands. A guess is only ever a default here; the assessor
+   overrides it like any other field. */
+function addrKey(v){
+  const s = String(v||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+  const m = s.match(/^(\d+[a-z]?)\s+([a-z]+)/);
+  return m ? m[1] + " " + m[2] : "";
+}
+function locationFromPlacement(lat, lon){
+  const la = parseFloat(lat), lo = parseFloat(lon);
+  if(!isFinite(la) || !isFinite(lo)) return "";
+  const layers = layersWithRole("parcel");
+  if(!layers.length) return "";                         // no fabric, no opinion
+  let hit = null;
+  for(const L2 of layers){
+    for(const f of L2.features){
+      if(featureContains(f, la, lo)){ hit = { L2:L2, f:f }; break; }
+    }
+    if(hit) break;
+  }
+  if(!hit) return "PUBLIC (ROAD ALLOWANCE)";
+  const site   = addrKey(currentProject());
+  const parcel = addrKey(String(hit.f.props[hit.L2.roleField]==null ? "" : hit.f.props[hit.L2.roleField]));
+  // Either side unreadable means no basis to call it the neighbour's.
+  if(!site || !parcel || site === parcel) return "SUBJECT PROPERTY (OUTSIDE WOODLOT)";
+  return "PRIVATE (ADJACENT PROPERTY)";
+}
+
+/* Applied to a tree being EDITED as well as a new one. An older record with these
+   fields blank is the ordinary case rather than a considered "no answer", and a
+   blank prints as a blank cell in Schedule A. Only ever fills what is empty, so
+   nothing recorded is touched, and the field stays RED until tapped — an untouched
+   default still reads as untouched. */
+function applyNewTreeDefaults(lat, lon, tpp){
+  const want = tpp ? Object.assign({}, NEW_TREE_DEFAULTS, TPP_TREE_DEFAULTS)
+                   : NEW_TREE_DEFAULTS;
+  Object.keys(want).forEach(id=>{
     const el = $(id);
     if(!el) return;
     if(String(el.value||"").trim()) return;            // never overwrite a real value
-    el.value = NEW_TREE_DEFAULTS[id];
+    let v = want[id];
+    if(id === "fLOCATION"){
+      const placed = locationFromPlacement(lat, lon);
+      if(placed) v = placed;
+    }
+    el.value = v;
   });
   // Occupancy drives the likelihood of impact, and both feed the rating.
   if(typeof onDomainChange==="function"){ try{ onDomainChange("TARGET"); }catch(e){} }
   paintMulti("IMPACT_POT"); paintMulti("REC_ACT");
   refreshRisk();
+  refreshTPPLine();
 }
 
 function refreshTPPLine(){
@@ -4409,9 +4540,12 @@ function confirmField(id){
 }
 function confirmAllPending(){
   let n=0;
-  // Fill before confirming: accepting a default that was never written left the
-  // field empty, which is not what "accept" reads as.
-  applyNewTreeDefaults();
+  /* Fill before confirming: accepting a default that was never written left the
+     field empty, which is not what "accept" reads as. Coordinates come off the FORM
+     here rather than the record, because the pin may have been dragged since it
+     opened and location follows the pin. */
+  const et = trees[editIndex];
+  applyNewTreeDefaults($("fLAT").value, $("fLON").value, !!et && isTPP(projectOf(et)));
   trackedIds().forEach(id=>{ if(pendingFields[id]){ confirmField(id); n++; } });
   if(pendingFields._species){ pendingFields._species=false; setState($("spPicker"),"changed"); n++; }
   if(pendingFields._health){ pendingFields._health=false; setState($("healthChips"),"changed"); n++; }
@@ -4609,20 +4743,14 @@ function openTree(i){
     $("fIMPACT_POT").value = t.IMPACT_POT || "";
     $("fREC_ACT").value    = t.REC_ACT || "";
     paintMulti("IMPACT_POT"); paintMulti("REC_ACT");
-    // A tree carrying anything already opens the section, so nothing is missed.
-    const filled = t.LOCATION || t.PROP_ACT || t.LT_IMPACT || t.TAG_NO;
-    $("tppBody").style.display = filled ? "block" : "none";
-    $("tppCaret").textContent  = filled ? "▾" : "▸";
+    /* Open, always. It used to open only for a tree that already carried something,
+       which on a tree protection job is backwards: the protection fields are the
+       point of the exercise and a collapsed section is a section that gets skipped.
+       Still collapsible by hand for the run of trees that need nothing. */
+    $("tppBody").style.display = "block";
+    $("tppCaret").textContent  = "▾";
     refreshTPPLine();
   }
-
-  /* AFTER everything has been loaded from the tree, not before.
-
-     The first attempt filled the defaults early and the tree-protection block then
-     assigned t.TAG_NO || "" over the top, wiping them — which is why the tag,
-     potential impact and recommended action still came up empty. Defaults are the
-     last word on a new tree, so they go last. */
-  if(t._new) applyNewTreeDefaults();
 
   $("extRow").style.display = (t.EXT_ID || t.SOURCE==="import" || t.SOURCE==="reference") ? "block" : "none";
   $("fSTEMS").value = selValue("fSTEMS", t.STEMS || "1");
@@ -4632,6 +4760,23 @@ function openTree(i){
     el.innerHTML = domainOptions(f);                         // re-rank on every open
     el.value = domainPairs(f).some(p=>p[0]===v) ? v : "";
   });
+
+  /* THE LAST WORD, and it has to be, because everything above writes the tree's own
+     value over whatever is in the box.
+
+     This was already learnt once — the note that used to sit here explained that
+     filling the defaults early let the protection block wipe them. It was then moved
+     to just ABOVE the DOMAIN_FIELDS loop, which re-ranks every domain select and
+     assigns t[f] || "" into it. That loop silently undid five of the six defaults:
+     target, consequences, long-term impact, location and proposed action all came
+     back blank, and the risk rating the comment promised "from the moment the form
+     opens" never computed. Only the tag and the two tick lists survived, because
+     they are not domain selects.
+
+     Nothing may be added between this call and the end of the function that writes
+     to a field named in NEW_TREE_DEFAULTS. */
+  applyNewTreeDefaults(t.LAT, t.LON, isTPP(projectOf(t)));
+
   $("fADDRESS").value = t.ADDRESS || "";
   $("fCOMMENTS").value = t.COMMENTS || "";
   $("fSTREET").value = t.STREET || "";
@@ -6049,6 +6194,17 @@ function zipStore(files){
  * ================================================================== */
 let feats = [];                       // {id, kind:"fence"|"planting", pts:[[lat,lon]], ...}
 try{ feats = JSON.parse(STORE&&STORE.getItem("st_feats")) || []; }catch(e){ feats=[]; }
+/* A planting recorded before there was a planting class is stamped with the one its
+   stock size implies, ONCE, at load. Leaving it blank and falling back at each point
+   of use would mean the same guess written out in the form, three exports, the plan
+   symbol and the Sheet — five places to disagree. Nothing is marked unsent: the
+   Sheet derives the identical value from the same stock size, so the row there is
+   already right and there is nothing to re-send. */
+(function stampPlantingClass(){
+  let n = 0;
+  feats.forEach(f=>{ if(f.kind==="planting" && !f.pclass){ f.pclass = pclassFromStock(f.stock); n++; } });
+  if(n) persistFeats();
+})();
 function persistFeats(){ if(STORE){ try{ STORE.setItem("st_feats", JSON.stringify(feats)); }catch(e){} } }
 function featsIn(project){
   const p = String(project===undefined ? (filterProject || (showAllProjects?"":settings.project) || "") : project);
@@ -6152,6 +6308,25 @@ function finishDraw(){
 }
 /* A planting is a point with a species from the same list the trees use, so the
    plant list and the inventory speak the same language. */
+/* Where a planting goes, which the plan and the plant list both split on: caliper
+   stock in the open ground, potted saplings under an existing canopy. The two carry
+   different symbols on the sheet and head their own blocks of the plant list, so it
+   is a field on the record rather than something guessed at print time. The stock
+   size implies it — nothing is sold as a potted caliper tree — so choosing the stock
+   sets the class, and the class stops following the stock the moment you set it by
+   hand. */
+const PCLASS_D = [
+  ["caliper","Caliper — outside the woodlot"],
+  ["sapling","Sapling — within the woodlot"]
+];
+function pclassFromStock(stock){ return /gal/i.test(String(stock||"")) ? "sapling" : "caliper"; }
+let featClassTouched = false;
+function stockChanged(){
+  if(featClassTouched) return;
+  const el = $("featClass");
+  if(el) el.value = pclassFromStock($("featStock").value);
+}
+
 /* A proper form rather than a chain of prompts. A planting is a record in its own
    right — it carries the species, what stock to order, where it is, and any note
    about the location — and prompt() cannot collect that without becoming a
@@ -6160,7 +6335,7 @@ let editFeat = null;
 function addPlantingAt(lat, lon){
   editFeat = { id:"P"+Date.now().toString(36).toUpperCase(), kind:"planting",
                project: currentProject(), pts:[[lat,lon]],
-               species:"", stock: lastStock || "50-60mm WB", address:"", notes:"",
+               species:"", stock: lastStock || "50-60mm WB", pclass:"", address:"", notes:"",
                by: settings.cruiser||"", date: nowStr(), _sent:false, _isNew:true };
   openFeatForm();
   // The address is looked up the same way a tree's is, so both read alike.
@@ -6178,6 +6353,8 @@ function openFeatForm(){
     $("featSpecies").textContent = f.species || "Tap to choose";
     $("featSpecies").classList.toggle("empty", !f.species);
     fillSelect($("featStock"), STOCK_D, f.stock);
+    featClassTouched = !!f.pclass;
+    fillSelect($("featClass"), PCLASS_D, f.pclass || pclassFromStock(f.stock));
   } else {
     fillSelect($("featType"), FENCE_D, f.type || FENCE_D[0][0]);
     $("featLen").textContent = (f.length_m || 0) + " m";
@@ -6216,6 +6393,7 @@ function saveFeat(){
   if(f.kind === "planting"){
     if(!f.species){ toast("Choose a species first", true); return; }
     f.stock = $("featStock").value;
+    f.pclass = $("featClass").value || pclassFromStock(f.stock);
     lastStock = f.stock;
     if(STORE){ try{ STORE.setItem("st_stock", lastStock); }catch(e){} }
   } else {
@@ -6262,6 +6440,7 @@ function renderFeats(){
       shapes.push(L.circleMarker(f.pts[0],{radius:7,color:"#1B5E20",weight:2,
         fillColor:"#66BB6A",fillOpacity:.95,pane:"pinPane"})
         .bindPopup(`<b>Proposed planting</b><br>${esc(f.species||"")}<br>${esc(f.stock||"")}` +
+                   `<br>${(f.pclass||pclassFromStock(f.stock))==="sapling" ? "sapling, within the woodlot" : "caliper, outside the woodlot"}` +
                    (f.address?`<br>${esc(f.address)}`:"") + (f.notes?`<br>${esc(f.notes)}`:"") +
                    `<br><button onclick="editFeatById('${f.id}')">Edit</button>`));
     }
@@ -6292,9 +6471,23 @@ function syncFeats(){
   if(isOffline() || !connected) return;
   const pending = feats.filter(f=>!f._sent);
   if(!pending.length) return;
+  /* The payload is BUILT, not the record posted raw. Posting the object itself sent
+     the phone's own _sent and _isNew flags to the Sheet and, worse, sent whatever a
+     record happened to be missing — a planting written by an older build went up with
+     no planting class at all. Every field the Sheet reads is named here, so a gap is
+     a gap in one place instead of a silent blank in a column. */
+  const rows = pending.map(f=>{
+    const base = { id:f.id, kind:f.kind, project:f.project||"", pts:f.pts||[],
+                   address:f.address||"", notes:f.notes||"",
+                   by:f.by||"", date:f.date||"" };
+    return f.kind==="fence"
+      ? Object.assign(base, { type:f.type||"", length_m:f.length_m||0 })
+      : Object.assign(base, { species:f.species||"", stock:f.stock||"",
+                              pclass:f.pclass || pclassFromStock(f.stock) });
+  });
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({_action:"feats", rows: pending}) })
+    body: JSON.stringify({_action:"feats", rows: rows}) })
     .then(()=>{ pending.forEach(f=>f._sent=true); persistFeats(); updateSubLine(); })
     .catch(()=>{});
 }
@@ -6325,7 +6518,8 @@ const FEAT_FENCE_FIELDS = [
 ];
 const FEAT_PLANT_FIELDS = [
   {k:"ID",t:"C",w:16}, {k:"PROJECT",t:"C",w:40}, {k:"SPECIES",t:"C",w:40},
-  {k:"BOTANICAL",t:"C",w:60}, {k:"STOCK",t:"C",w:16}, {k:"ADDRESS",t:"C",w:80},
+  {k:"BOTANICAL",t:"C",w:60}, {k:"STOCK",t:"C",w:16}, {k:"PCLASS",t:"C",w:10},
+  {k:"CODE",t:"C",w:6}, {k:"ADDRESS",t:"C",w:80},
   {k:"NOTES",t:"C",w:180}, {k:"LAT",t:"N",w:12,d:6}, {k:"LON",t:"N",w:13,d:6},
   {k:"BY",t:"C",w:24}, {k:"DATE",t:"C",w:19}
 ];
@@ -6438,13 +6632,18 @@ function exportFeatsShapefile(){
     attrs: { ID:f.id, PROJECT:f.project||"", TYPE:f.type||"", LENGTH_M:f.length_m||0,
              ADDRESS:f.address||"", NOTES:f.notes||"", BY:f.by||"", DATE:f.date||"" }
   })), FEAT_FENCE_FIELDS));
-  if(plants.length) files = files.concat(shapeFiles_("Plantings", 1, plants.map(f=>({
+  const codes = plantCodeMap();
+  if(plants.length) files = files.concat(shapeFiles_("Plantings", 1, plants.map(f=>{
+    const bot = taxonFor(f.species)[0] || f.species || "";
+    return {
     pts: [f.pts[0]],
     attrs: { ID:f.id, PROJECT:f.project||"", SPECIES:f.species||"",
-             BOTANICAL:(taxonFor(f.species)[0]||""), STOCK:f.stock||"",
+             BOTANICAL:bot, STOCK:f.stock||"",
+             PCLASS:f.pclass || pclassFromStock(f.stock), CODE:codes[bot]||"",
              ADDRESS:f.address||"", NOTES:f.notes||"",
              LAT:+f.pts[0][0], LON:+f.pts[0][1], BY:f.by||"", DATE:f.date||"" }
-  })), FEAT_PLANT_FIELDS));
+    };
+  }), FEAT_PLANT_FIELDS));
 
   const blob = new Blob([zipStore(files)],{type:"application/zip"});
   const url = URL.createObjectURL(blob), a = document.createElement("a");
@@ -6459,6 +6658,7 @@ function exportFeatsGeoJSON(){
   closeMenu();
   const list = featsIn();
   if(!list.length){ toast("No fences or plantings recorded",true); return; }
+  const gcodes = plantCodeMap();
   const fc = { type:"FeatureCollection", features: list.map(f=>({
     type:"Feature",
     geometry: f.kind==="fence"
@@ -6469,6 +6669,8 @@ function exportFeatsGeoJSON(){
           ADDRESS:f.address||"", NOTES:f.notes||"", BY:f.by||"", DATE:f.date||"" }
       : { ID:f.id, KIND:"planting", PROJECT:f.project||"", SPECIES:f.species||"",
           BOTANICAL:(taxonFor(f.species)[0]||""), STOCK:f.stock||"",
+          PCLASS:f.pclass || pclassFromStock(f.stock),
+          CODE:gcodes[taxonFor(f.species)[0] || f.species || ""] || "",
           ADDRESS:f.address||"", NOTES:f.notes||"", BY:f.by||"", DATE:f.date||"" }
   }))};
   downloadText(JSON.stringify(fc,null,1),
@@ -6517,6 +6719,56 @@ function exportSpeciesByLocation(){
   toast(`${rows.length-2} species · ${list.length} trees` + (unplaced?` · ${unplaced} with no location`:""));
 }
 
+/* ---------- species codes ----------
+   The code that labels a planting spot on the site plan and heads the plant list:
+   the genus initial in capitals plus the first letter of the species, so
+   "Acer rubrum" is Ar and "Amelanchier canadensis" is Ac. Two species that would
+   share a code take more letters of the species name until they differ. A few pairs
+   never differ inside four letters — Acer saccharum against Acer saccharinum agree
+   to eight — and those get a numbered code rather than a nine-character one that
+   would not fit beside a dot on the plan.
+
+   The map is built over EVERY planting in the project, never the subset drawn on
+   one sheet. Built per sheet, sheet 2 of a series would label the same species
+   differently from the plant list, which is the one thing a code must never do. */
+function splitBotanical(bot){
+  const parts = String(bot||"").trim().split(/\s+/);
+  return {
+    g: ((parts[0]||"X").replace(/[^A-Za-z]/g,"") || "X").slice(0,1).toUpperCase(),
+    s: (parts[1]||"").replace(/[^A-Za-z]/g,"").toLowerCase()
+  };
+}
+function speciesCodeMap(botanicals){
+  const uniq=[];
+  botanicals.forEach(b=>{ const k=String(b||"").trim(); if(k && uniq.indexOf(k)<0) uniq.push(k); });
+  uniq.sort();
+  const parts = uniq.map(b=>({b, p:splitBotanical(b)}));
+  const out={};
+  /* Both names of a colliding pair are tested at the SAME depth, so they extend
+     together and two codes can never meet coming from different depths. */
+  parts.forEach(({b,p})=>{
+    out[b] = null;
+    for(let n=1; n<=4; n++){
+      const c = p.g + (p.s.slice(0,n) || "x");
+      const clash = parts.some(o=> o.b!==b && (o.p.g + (o.p.s.slice(0,n)||"x")) === c);
+      if(!clash){ out[b]=c; break; }
+    }
+  });
+  const seq={};
+  parts.forEach(({b,p})=>{
+    if(out[b]) return;
+    const base = p.g + (p.s.slice(0,1) || "x");
+    seq[base] = (seq[base]||0) + 1;
+    out[b] = base + seq[base];
+  });
+  return out;
+}
+/* One map for the whole project, so the plan sheet and the plant list agree. */
+function plantCodeMap(project){
+  return speciesCodeMap(featsIn(project).filter(f=>f.kind==="planting")
+                          .map(f=>(taxonFor(f.species)[0] || f.species || "")));
+}
+
 /* The landscaping plant list: what to order, grouped the way a nursery quotes it. */
 function plantListRows(){
   const plants = featsIn().filter(f=>f.kind==="planting");
@@ -6528,18 +6780,15 @@ function plantListRows(){
     by[key].n++;
   });
   const rows = [["Key","Qty","Botanical Name","Common Name","Size","Comments"]];
+  /* The code belongs to the SPECIES, not to the line. The old loop numbered each
+     line in turn, so white pine ordered at two sizes came out Ps on one line and
+     Psx on the other — two codes for one species, and neither matching the plan. */
+  const codes = plantCodeMap();
   const keys = Object.keys(by).sort((a,b)=>by[a].species.localeCompare(by[b].species));
-  const used = {};
   keys.forEach(k=>{
     const r = by[k];
-    const tx = taxonFor(r.species);
-    // Two-letter key from the botanical name, the way the plant list does it.
-    const bot = tx[0] || r.species;
-    let key = (bot.split(/\s+/)[0]||"X").slice(0,1).toUpperCase() +
-              ((bot.split(/\s+/)[1]||"x").slice(0,1).toLowerCase());
-    while(used[key]) key += "x";
-    used[key] = 1;
-    rows.push([key, r.n, bot, r.species, r.stock, ""]);
+    const bot = taxonFor(r.species)[0] || r.species;
+    rows.push([codes[bot] || "", r.n, bot, r.species, r.stock, ""]);
   });
   rows.push(["","Total", plants.length, "trees proposed for planting","",""]);
   return rows;
@@ -6593,6 +6842,93 @@ async function schedulePhotoPages(W,H){
  * ================================================================== */
 // Set from the sheet size so the document and the plan sheets always match.
 let DOC_W_IN = 17, DOC_H_IN = 11;
+
+/* ---------- the boilerplate ----------
+   Everything on a TPP sheet that is the same from job to job: who prepared it, the
+   credits for the base data, the landscaping wording. Typed once, kept on the phone,
+   edited between jobs rather than re-entered. Only PREPARED FOR and the title really
+   change, and those are the two at the top of the form.
+
+   Held in localStorage as plain text, so it survives a reinstall of the app only if
+   the browser data survives — the same terms as the rest of the settings. The logo is
+   an image and goes to IndexedDB with the photos. */
+const TPPKEY = "st_tpptext";
+const TPP_TEXT_DEF = {
+  preparedBy:  "Chris Gynan R.P.F.\nISA Certified Arborist (ON-0614A)\n905-960-1890",
+  preparedFor: "",
+  title:       "",
+  credits:     "",
+  landscape:   "",
+  contentsNote:"This plan is to be read in conjunction to the accompanying Arborist Report"
+};
+let tppText = Object.assign({}, TPP_TEXT_DEF);
+try{ Object.assign(tppText, JSON.parse(STORE&&STORE.getItem(TPPKEY)) || {}); }catch(e){}
+
+const TPP_TEXT_FLDS = ["preparedFor","title","credits","preparedBy","landscape","contentsNote"];
+function openTppText(){
+  closeMenu();
+  TPP_TEXT_FLDS.forEach(k=>{ const el=$("tpp_"+k); if(el) el.value = tppText[k] || ""; });
+  showTppLogo();
+  $("tppTextSheet").classList.add("show");
+}
+function saveTppText(){
+  TPP_TEXT_FLDS.forEach(k=>{ const el=$("tpp_"+k); if(el) tppText[k] = normBlock(el.value); });
+  if(STORE){ try{ STORE.setItem(TPPKEY, JSON.stringify(tppText)); }catch(e){} }
+  $("tppTextSheet").classList.remove("show");
+  toast("Saved for this and future plans");
+}
+function resetTppText(){
+  if(!confirm("Put every box back to the wording the app ships with?")) return;
+  tppText = Object.assign({}, TPP_TEXT_DEF);
+  TPP_TEXT_FLDS.forEach(k=>{ const el=$("tpp_"+k); if(el) el.value = tppText[k] || ""; });
+}
+
+/* The logo, once, at whatever size it was given. It is drawn into a fixed box on the
+   sheet, so an oversized file costs storage but not quality; it is shrunk on the way
+   in to keep the store small. */
+let tppLogo = null;                       // data URL once loaded, "" once known absent
+function addTppLogo(file){
+  if(!file) return;
+  const fr = new FileReader();
+  fr.onload = ()=>{
+    const im = new Image();
+    im.onload = ()=>{
+      const maxW = 640, sc = Math.min(1, maxW/im.width);
+      const cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(im.width*sc));
+      cv.height = Math.max(1, Math.round(im.height*sc));
+      cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
+      const data = cv.toDataURL("image/png");
+      idbPut({filename:"tpp:logo", data:data})
+        .then(()=>{ tppLogo = data; showTppLogo(); toast("Logo saved"); })
+        .catch(()=>toast("Could not store the logo", true));
+    };
+    im.onerror = ()=>toast("That file is not an image the phone can read", true);
+    im.src = fr.result;
+  };
+  fr.onerror = ()=>toast("Could not read that file", true);
+  fr.readAsDataURL(file);
+}
+function loadTppLogo(){
+  if(tppLogo !== null) return Promise.resolve(tppLogo || null);
+  if(!HAS_IDB){ tppLogo = ""; return Promise.resolve(null); }
+  return idbGet("tpp:logo")
+    .then(r=>{ tppLogo = (r && r.data) ? r.data : ""; return tppLogo || null; })
+    .catch(()=>{ tppLogo = ""; return null; });
+}
+function showTppLogo(){
+  const box = $("tppLogoBox"); if(!box) return;
+  loadTppLogo().then(d=>{
+    box.innerHTML = d
+      ? `<img src="${d}" style="max-height:52px;max-width:180px;background:#fff;padding:4px;border-radius:6px">`
+      : `<span class="mini">No logo yet.</span>`;
+    const btn = $("tppLogoClear"); if(btn) btn.style.display = d ? "inline-block" : "none";
+  });
+}
+function clearTppLogo(){
+  if(!confirm("Remove the logo?")) return;
+  idbDelete("tpp:logo").then(()=>{ tppLogo=""; showTppLogo(); toast("Logo removed"); });
+}
 
 /* Uploaded PDFs are rasterised page by page with pdf.js — the same library the
    georeferenced plans use. Merging PDF objects properly would mean a full writer;
@@ -8605,8 +8941,11 @@ async function runSingleExport(opt){
      the tree symbols, so it sits under them exactly as it does on screen and can
      never hide a pin. */
   const sheetF = featsOnSheet(b);
+  const sheetPlants = sheetF.filter(f=>f.kind==="planting");
   sheetFeats = { fences: sheetF.filter(f=>f.kind==="fence").length,
-                 plantings: sheetF.filter(f=>f.kind==="planting").length };
+                 plantings: sheetPlants.length,
+                 caliper: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))!=="sapling").length,
+                 sapling: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))==="sapling").length };
   const fenceW = Math.max(3, Math.round(PDF_DPI*0.035));
   sheetF.filter(f=>f.kind==="fence" && f.pts.length>1).forEach(f=>{
     g.strokeStyle="#FF6D00"; g.lineWidth=fenceW; g.lineJoin="round"; g.lineCap="round";
@@ -8644,9 +8983,19 @@ async function runSingleExport(opt){
     g.strokeStyle="#fff"; g.lineWidth=R*0.34; g.stroke();
   });
   /* Proposed plantings sit with the trees, as they do on screen, but in their own
-     green with a dark ring so a proposal is never read as an existing tree. */
+     green with a dark ring so a proposal is never read as an existing tree. A
+     caliper tree in the open gets a dashed collar for its eventual crown; a potted
+     sapling under canopy does not, because it has no crown worth drawing yet. The
+     two are separate legend entries, as they are on the sample sheet. */
   sheetF.filter(f=>f.kind==="planting" && f.pts.length).forEach(f=>{
     const p=P(+f.pts[0][0], +f.pts[0][1]);
+    if((f.pclass || pclassFromStock(f.stock)) !== "sapling"){
+      g.save();
+      g.setLineDash([R*0.5, R*0.4]);
+      g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
+      g.strokeStyle="#1B5E20"; g.lineWidth=R*0.26; g.stroke();
+      g.restore();
+    }
     g.beginPath(); g.arc(p[0],p[1],R*0.95,0,7);
     g.fillStyle="#66BB6A"; g.fill();
     g.strokeStyle="#1B5E20"; g.lineWidth=R*0.34; g.stroke();
@@ -9146,7 +9495,8 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
   }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
   if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
   if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:"#FF6D00", kind:"line"});
-  if(sheetFeats.plantings) present.push({label:"Proposed planting", color:"#66BB6A", kind:"dot"});
+  if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
+  if(sheetFeats.sapling) present.push({label:"Proposed sapling, within the woodlot", color:"#66BB6A", kind:"dot"});
   refLayers.filter(l=>l.visible).forEach(l=>
     present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
   if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
@@ -9823,7 +10173,7 @@ function showHelp(){
     <p><b>Parcel and road layers — where accurate addresses come from</b><br>Load your parcel fabric and street centrelines the same way, as zipped shapefiles, under <b>Menu → Layers → Add reference layer</b>. When each one loads you are asked what it is for, and which column holds the value:</p>
     <p><b>Any other layer you find useful</b><br>Load as many as you like: aerial-derived boundaries, hydro corridors, sidewalks, ward boundaries, last year's plantings. Points, lines and polygons all draw. A layer left as <i>Backdrop only</i> is never edited and never exported — it is there to help you work. Each gets its own colour, an on/off switch, a zoom-to button, and its own label settings, so you can label parcels with their roll number while trees show species and DBH.</p>
     <div class="stath" style="margin:16px 0 8px">FILLING THE FORM</div>
-    <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. A new tree also starts with sensible values already in place — target occupancy, consequences, potential impact, recommended action and long-term impact — so the risk rating computes from the moment the form opens. They are still red until you touch them, so an untouched rating reads as untouched. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
+    <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. A new tree also starts with sensible values already in place — target occupancy, consequences, potential impact, recommended action and long-term impact, and on a tree protection job the location, proposed action and future prognosis as well. Location is worked out from where the tree actually stands: inside a parcel it takes that parcel's property, and a tree in no parcel is in the road allowance, which has no polygon of its own. The risk rating then resolves as soon as you set the likelihood of failure — that one is never assumed, because it is a structural judgement. All of them are still red until you touch them, so an untouched rating reads as untouched. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
