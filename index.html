@@ -720,6 +720,14 @@
     </div>
 
     <div class="fld">
+      <label>Saving without a photo</label>
+      <select id="setPhotoNag">
+        <option value="1">Ask me first — a missing photo is usually a forgotten one</option>
+        <option value="0">Just save it</option>
+      </select>
+    </div>
+
+    <div class="fld">
       <label>Crown size method</label>
       <select id="setCrownMethod">
         <option value="species">By species — differentiates columnar, dwarf, weeping</option>
@@ -763,10 +771,10 @@
     <div class="idline" id="layerStats">—</div>
     <div id="layerList"></div>
     <div class="btnrow">
-      <button onclick="document.getElementById('refInput').click()">＋ Add reference layer</button>
+      <button onclick="document.getElementById('refInput').click()">＋ Add layer / GPX track</button>
       <button onclick="removeAllRefLayers()">✕ Remove all</button>
     </div>
-    <div class="mini">Reference layers are for context only — parcels, streets, boundaries. They are drawn and labelled but never edited or exported. To bring in trees you will edit, use Menu → Import tree points.</div>
+    <div class="mini">Reference layers are for context — parcels, streets, boundaries, and a GPX track log of where the crew walked. They are drawn and labelled but never edited; ⬇ on any layer sends it back out as a shapefile or GeoJSON. To bring in trees you will edit, use Menu → Import tree points.</div>
     <div class="btnrow"><button onclick="closeLayers()">Close</button></div>
   </div>
 </div>
@@ -1001,6 +1009,22 @@
 </div>
 <input id="layerUpInput" type="file" accept=".pdf,.zip,.geojson,.json,.kml,.gpx" style="display:none">
 
+<!-- ===== a reference layer, back out again ===== -->
+<div class="sheet" id="layerExpSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Export a layer</h2>
+    <div class="idline" id="layerExpName">—</div>
+    <div class="mini" id="layerExpWhat" style="margin:4px 0 12px">—</div>
+    <div class="btnrow">
+      <button class="primary" onclick="doLayerExport('shp')">Shapefile (.zip)</button>
+      <button onclick="doLayerExport('geojson')">GeoJSON</button>
+    </div>
+    <div class="mini">A shapefile holds one geometry type, so a mixed layer — waypoints and tracks in the same GPX — comes out as separate shapefiles inside one zip. Both carry every attribute the layer holds.</div>
+    <div class="btnrow"><button onclick="closeLayerExport()">Close</button></div>
+  </div>
+</div>
+
 <!-- ===== imagery ===== -->
 <div class="sheet" id="imgSheet">
   <div class="sheet-inner">
@@ -1020,13 +1044,8 @@
 
     <div class="fld"><label>Document title</label><input id="docTitle" type="text" placeholder="1 Cynthia Crescent, Richmond Hill"></div>
     <div class="row2">
-      <div class="fld"><label>Page numbers</label>
-        <select id="docNumStyle" onchange="document.getElementById('docPrefixRow').style.display = this.value==='prefix' ? 'block' : 'none'">
-          <option value="prefix">TPP1, TPP2, TPP3…</option>
-          <option value="plain">1, 2, 3…</option>
-        </select>
-      </div>
-      <div class="fld" id="docPrefixRow"><label>Prefix</label><input id="docPrefix" type="text" value="TPP"></div>
+      <div class="fld"><label>Sheet prefix</label><input id="docPrefix" type="text" value="TPP"></div>
+      <div class="fld"></div>
     </div>
     <div class="row2">
       <div class="fld"><label>Sheet size</label>
@@ -1220,15 +1239,35 @@
     <div class="grab"></div>
     <h2>Selected trees</h2>
     <div class="idline" id="selCount">—</div>
+    <div class="btnrow"><button class="alt" onclick="selZoomTo()">Zoom to them</button></div>
+
+    <div class="fld" style="margin-top:14px">
+      <label>Ownership from the map</label>
+      <button type="button" class="primary" onclick="bulkOwnership()" id="btnBulkOwn">🗺 Work it out from the parcels</button>
+      <div class="mini">A tree inside a parcel takes that property; the road allowance has no polygon, so a tree in none is public. Trees with no position, or with no parcel layer to test against, are left alone.</div>
+    </div>
+
+    <div class="fld" style="margin-top:14px">
+      <label>Change a field on all of them</label>
+      <select id="selField" onchange="bulkFieldChanged()"></select>
+    </div>
     <div class="fld">
+      <label id="selValueLabel">Value</label>
+      <select id="selValueSel"></select>
+      <input id="selValueTxt" type="text" style="display:none" placeholder="Leave empty to clear the field">
+    </div>
+    <div class="btnrow"><button class="primary" onclick="applyBulkField()" id="btnBulkField">Apply to the selection</button></div>
+
+    <div class="fld" style="margin-top:14px">
       <label>Assign them to this project</label>
       <select id="selProject"></select>
     </div>
-    <div class="btnrow">
-      <button class="primary" onclick="applySelProject()">Assign project</button>
-      <button onclick="selZoomTo()">Zoom to them</button>
+    <div class="btnrow"><button onclick="applySelProject()">Assign project</button></div>
+
+    <div class="btnrow" id="bulkUndoRow" style="display:none;margin-top:16px">
+      <button class="alt" onclick="bulkUndoLast()" id="bulkUndoBtn">↩ Undo</button>
     </div>
-    <div class="btnrow"><button onclick="closeSelSheet()">Cancel</button></div>
+    <div class="btnrow"><button onclick="closeSelSheet()">Close</button></div>
   </div>
 </div>
 
@@ -1322,7 +1361,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-22 · v108";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-22 · v113";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1507,7 +1546,7 @@ const SYNC_KEYS = KEYS.filter(k=>k!=="PHOTO_LINK");
 /* ---------- persisted state ---------- */
 const TKEY="st_trees", SKEY="st_settings", SPKEY="st_species", USEKEY="st_sppuse";
 let trees = [];  try{ trees = JSON.parse(STORE&&STORE.getItem(TKEY)) || []; }catch(e){ trees=[]; }
-let settings = { cruiser:"", email:"", prefix:"AUR", device:"A", counter:1, project:"" };
+let settings = { cruiser:"", email:"", prefix:"AUR", device:"A", counter:1, project:"", photoNag:true };
 try{ Object.assign(settings, JSON.parse(STORE&&STORE.getItem(SKEY)) || {}); }catch(e){}
 let speciesUse = {}; try{ speciesUse = JSON.parse(STORE&&STORE.getItem(USEKEY)) || {}; }catch(e){}
 let dbhUse = {};     try{ dbhUse = JSON.parse(STORE&&STORE.getItem("st_dbhuse")) || {}; }catch(e){}
@@ -2459,6 +2498,7 @@ function renderLayerList(){
       <button onclick="zoomToRef('${L2.id}')">⤢</button>
       <button onclick="openLabels('${L2.id}')">🏷</button>
       <button onclick="openXfer('${L2.id}')">⇥</button>
+      <button onclick="openLayerExport('${L2.id}')" title="Export">⬇</button>
       <button onclick="openRole('${L2.id}')" title="Role">${L2.role&&L2.role!=="reference"?"★":"☆"}</button>
       <button onclick="removeRef('${L2.id}')">✕</button>
     </div>`).join("");
@@ -4586,15 +4626,25 @@ function wireChangeTracking(){
   });
   // A select is dealt with the moment you touch it, default kept or not.
   ["fDBH","fSTEMS"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("change", ()=>{ confirmField(id); refreshCrown(); refreshTPZ(); }); });
+  /* EVERY box in the form, tracked or not, writes the draft. Bound here rather than
+     inside markChanged so a field that is not part of the red/yellow checklist — the
+     coordinates, the compensation flag — is still kept if the app dies. */
+  draftIds().forEach(id=>{
+    const el=$(id); if(!el) return;
+    el.addEventListener("input",  scheduleDraft);
+    el.addEventListener("change", scheduleDraft);
+  });
 }
 function markSpeciesChanged(){
   pendingFields._species = false;
   setState($("spPicker"), "changed");
+  scheduleDraft();
   updatePendCount();
 }
 function markHealthChanged(){
   pendingFields._health = false;
   setState($("healthChips"), "changed");
+  scheduleDraft();
   updatePendCount();
 }
 
@@ -4700,9 +4750,6 @@ function paintHealth(h){
    stay blank — those are the fields that must be unique to each tree. */
 const CARRY_FIELDS = ["SPECIES","DBH","STEMS","HEALTH","SITELOCA","STRUDEFE","WOUNCANK",
                       "DEADDECAY","FAILPOTE","PESTDISEAS","IMPEDMNT","RECOTREA"];
-let lastTreeAttrs = null;
-try{ lastTreeAttrs = JSON.parse(STORE&&STORE.getItem("st_lasttree")) || null; }catch(e){}
-
 function fillFromLastTree(){
   if(!lastTreeAttrs){ toast("No previous tree yet",true); return; }
   const t = trees[editIndex]; if(!t) return;
@@ -4717,6 +4764,9 @@ function fillFromLastTree(){
   markSpeciesChanged(); markHealthChanged();
   toast("Copied from " + (L.SPECIES || "the last tree"));
 }
+let lastTreeAttrs = null;
+try{ lastTreeAttrs = JSON.parse(STORE&&STORE.getItem("st_lasttree")) || null; }catch(e){}
+
 function rememberLastTree(t){
   const o = {}; CARRY_FIELDS.forEach(k=>o[k]=t[k]);
   lastTreeAttrs = o;
@@ -4826,6 +4876,9 @@ function openTree(i){
 }
 
 function closeSheet(){
+  /* Closing on purpose is a decision, so the draft goes with it. The draft exists
+     for the exits nobody chose. */
+  clearDraft();
   // A brand-new tree that was never saved should not linger as an empty pin.
   if(editIndex!=null && trees[editIndex] && trees[editIndex]._new){
     discardNewTree(editIndex); renderPins();
@@ -4834,11 +4887,105 @@ function closeSheet(){
   editIndex = null;
 }
 
+/* ================================================================== *
+ *  THE OPEN FORM, KEPT ON DISK
+ *
+ *  "The last tree I was editing, but never clicked save, has to be redone."
+ *
+ *  Whatever kills the app — a memory kill, a flat battery, a dropped phone — the
+ *  work in front of someone should not go with it. Every change to the form writes a
+ *  DRAFT to storage, and the next launch offers it back. It is cleared on save and
+ *  on a deliberate cancel, so it only ever survives an unexpected exit.
+ *
+ *  Only the boxes are kept, not the whole record: replaying them into the form on
+ *  restore means the save path is the same one every other tree goes through, with
+ *  no second way for a record to come into being.
+ * ================================================================== */
+const DRAFTKEY = "st_draft";
+let draftTimer = null;
+
+function draftIds(){
+  return trackedIds().concat(["fLAT","fLON","fCOMP_INCL","fYR_EXEMPT","fPROGNOSIS"]);
+}
+function saveDraft(){
+  if(editIndex==null) return;
+  const t = trees[editIndex]; if(!t) return;
+  const f = {};
+  draftIds().forEach(id=>{ const el=$(id); if(el) f[id] = el.value; });
+  const d = { id: t.TREE_ID, isNew: !!t._new, project: projectOf(t),
+              lat: t.LAT, lon: t.LON, source: t.SOURCE || "",
+              species: ($("spVal") && !$("spVal").classList.contains("empty")) ? $("spVal").textContent : "",
+              health: t._draftHealth || "",
+              photos: currentPhotos.slice(),
+              fields: f, at: nowStr() };
+  if(STORE){ try{ STORE.setItem(DRAFTKEY, JSON.stringify(d)); }catch(e){} }
+}
+/* Debounced: a draft per keystroke would write to storage on every character. */
+function scheduleDraft(){
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraft, 400);
+}
+function clearDraft(){
+  clearTimeout(draftTimer);
+  if(STORE){ try{ STORE.removeItem(DRAFTKEY); }catch(e){} }
+}
+function loadDraft(){
+  try{ return JSON.parse(STORE && STORE.getItem(DRAFTKEY)) || null; }catch(e){ return null; }
+}
+
+/* Offered once, at startup. Declining throws the draft away — being asked again on
+   every launch about a tree you have decided against is worse than losing it. */
+function offerDraft(){
+  const d = loadDraft();
+  if(!d) return;
+  const what = [d.species || "no species yet", d.fields && d.fields.fDBH ? d.fields.fDBH + " cm" : null]
+                 .filter(Boolean).join(" · ");
+  if(!confirm(`The app closed with a tree still open and unsaved.\n\n${what}\n${d.at || ""}\n\nPut it back on screen?`)){
+    clearDraft(); return;
+  }
+  restoreDraft(d);
+}
+function restoreDraft(d){
+  let i = trees.findIndex(t=>t.TREE_ID === d.id);
+  if(i < 0){
+    if(!d.isNew){ toast("That tree is no longer on this phone", true); clearDraft(); return; }
+    /* A NEW tree never reached the array before the app died, so it is remade under
+       its own id rather than a fresh one — otherwise a restore after a sync that did
+       get through would create a duplicate. */
+    const t = { TREE_ID: d.id, PROJECT: d.project || settings.project,
+                LAT: d.lat || (d.fields && d.fields.fLAT) || "",
+                LON: d.lon || (d.fields && d.fields.fLON) || "",
+                SOURCE: d.source || "draft", _new: true, _sent: false };
+    i = trees.push(t) - 1;
+  }
+  openTree(i);
+  const t = trees[i];
+  if(d.species) setSpeciesVal(d.species);
+  if(d.health){ t._draftHealth = d.health; paintHealth(d.health); }
+  Object.keys(d.fields || {}).forEach(id=>{
+    const el = $(id); if(!el) return;
+    el.value = d.fields[id];
+    // A select offered a value it does not hold silently becomes blank; say so.
+    if(String(el.tagName).toLowerCase() === "select" && String(el.value) !== String(d.fields[id])) el.value = "";
+  });
+  currentPhotos = (d.photos || []).slice();
+  renderThumbs();
+  refreshCrown(); refreshTPZ(); refreshRisk();
+  if(typeof refreshTPPLine === "function") refreshTPPLine();
+  toast("Put back where you left off — check it, then save");
+}
+
 function saveTree(){
   const t = trees[editIndex]; if(!t) return;
   const lat = num($("fLAT").value), lon = num($("fLON").value);
   if(lat==null||lon==null){ toast("A tree needs a latitude and longitude",true); return; }
   if(!$("spVal").textContent || $("spVal").classList.contains("empty")){ toast("Choose a species",true); return; }
+  /* A tree saved with no photograph is usually a forgotten photograph rather than a
+     decision. Asked ONCE, and answering "save it anyway" goes straight through —
+     it must never become a thing to tap past on every tree. Switchable off in
+     settings for work that does not photograph every tree. */
+  if(settings.photoNag !== false && !currentPhotos.length &&
+     !confirm("No photograph on this tree.\n\nSave it anyway?")) return;
 
   t.EXT_ID  = normText($("fEXT_ID").value);
   t.SPECIES = $("spVal").textContent;
@@ -4915,6 +5062,7 @@ function saveTree(){
   t._sent = false;
   delete t._new; delete t._draftHealth;
   t._reviewed = true;                 // opened, checked and saved by a person
+  clearDraft();                       // it is a record now, not work in progress
 
   Object.keys(DOMAIN_FIELDS).forEach(f=>bumpDomainUse(f, t[f]));
   persistDomainUse();
@@ -5470,6 +5618,60 @@ function idbDelete(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=
   tx.objectStore(PHOTO_STORE).delete(fn); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }).catch(()=>res()); }); }
 function idbAll(){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readonly"); const rq=tx.objectStore(PHOTO_STORE).getAll(); rq.onsuccess=()=>{db.close();res(rq.result||[]);}; rq.onerror=()=>{db.close();rej(rq.error);}; }).catch(rej); }); }
 function idbClear(){ return new Promise((res,rej)=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"); tx.objectStore(PHOTO_STORE).clear(); tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
+
+/* ---------- reading the photo store WITHOUT loading the photos ----------
+
+   idbAll() does getAll() on the photo store, which materialises EVERY image's base64
+   into one array. At the high preset that is 350-600 KB a photo, so a few hundred
+   photos is a hundred megabytes and more, allocated in one go.
+
+   Adding a single photo used to do that twice — updateArchCount and flushPhotos both
+   called it — and opening a tree did it again for the thumbnails. Working quickly,
+   several of those overlap and iOS kills the tab: the app "crashes and completely
+   closes", which is exactly what was reported.
+
+   So nothing counts, lists or scans the archive by loading it any more. idbCount is
+   a count, idbMeta is every record MINUS its image, and idbGetMany fetches only the
+   handful actually wanted. idbAll survives for the one job that genuinely needs every
+   image — building the photo zip — and nothing else may use it. */
+function idbCount(){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(PHOTO_STORE,"readonly"), rq=tx.objectStore(PHOTO_STORE).count();
+  rq.onsuccess=()=>{db.close();res(rq.result||0);}; rq.onerror=()=>{db.close();res(0);}; }).catch(()=>res(0)); }); }
+
+function idbKeys(){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(PHOTO_STORE,"readonly"), rq=tx.objectStore(PHOTO_STORE).getAllKeys();
+  rq.onsuccess=()=>{db.close();res(rq.result||[]);}; rq.onerror=()=>{db.close();res([]);}; }).catch(()=>res([])); }); }
+
+/* Every record minus `data` and `thumb`. Walked with a cursor and copied field by
+   field, so the big strings are never held: reading the record and deleting the key
+   afterwards would still have had the whole image in memory for that tick. */
+function idbMeta(){ return new Promise(res=>{ idbOpen().then(db=>{
+  const out=[]; const tx=db.transaction(PHOTO_STORE,"readonly");
+  const cur=tx.objectStore(PHOTO_STORE).openCursor();
+  cur.onsuccess=e=>{
+    const c=e.target.result;
+    if(!c){ db.close(); res(out); return; }
+    const r=c.value||{};
+    out.push({ filename:r.filename, tree:r.tree, cruiser:r.cruiser, time:r.time,
+               lat:r.lat, lon:r.lon, uploaded:!!r.uploaded,
+               bytes: r.bytes || (r.data ? Math.round(r.data.length*0.75) : 0),
+               w:r.w, h:r.h });
+    c.continue();
+  };
+  cur.onerror=()=>{ db.close(); res(out); };
+ }).catch(()=>res([])); }); }
+
+function idbGetMany(names){ return new Promise(res=>{
+  const want = (names||[]).slice();
+  if(!want.length) return res([]);
+  idbOpen().then(db=>{
+    const tx=db.transaction(PHOTO_STORE,"readonly"), st=tx.objectStore(PHOTO_STORE);
+    const out=[];
+    want.forEach(fn=>{ const g=st.get(fn); g.onsuccess=()=>{ if(g.result) out.push(g.result); }; });
+    tx.oncomplete=()=>{ db.close(); res(out); };
+    tx.onerror   =()=>{ db.close(); res(out); };
+  }).catch(()=>res([]));
+}); }
 function idbSetUploaded(fn){ return new Promise(res=>{ idbOpen().then(db=>{ const tx=db.transaction(PHOTO_STORE,"readwrite"), st=tx.objectStore(PHOTO_STORE), g=st.get(fn);
   g.onsuccess=()=>{ const r=g.result; if(r){ r.uploaded=true; st.put(r); } }; tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }).catch(()=>res()); }); }
 
@@ -5503,12 +5705,32 @@ function loadImage(file){
     img.src=url;
   });
 }
+/* ONE canvas, released the moment it has been read.
+
+   This used to make a new canvas per attempt and leave all of them to the garbage
+   collector. A 2048 px canvas is about 12 MB of backing store, the loop runs up to
+   nine times, and on iOS that memory is not reclaimed until a collection happens —
+   which, while someone is working quickly, is too late. Setting width and height to
+   zero frees it immediately. */
+let _encCanvas = null;
 function renderJpeg(img,maxPx,quality){
   const scale=Math.min(1, maxPx/Math.max(img.width,img.height));
   const w=Math.max(1,Math.round(img.width*scale)), h=Math.max(1,Math.round(img.height*scale));
-  const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
-  cv.getContext("2d").drawImage(img,0,0,w,h);
-  return { url: cv.toDataURL("image/jpeg",quality), w:w, h:h };
+  const cv = _encCanvas || (_encCanvas = document.createElement("canvas"));
+  cv.width=w; cv.height=h;
+  const g = cv.getContext("2d");
+  g.clearRect(0,0,w,h);
+  g.drawImage(img,0,0,w,h);
+  const url = cv.toDataURL("image/jpeg",quality);
+  cv.width = 0; cv.height = 0;                 // hand the backing store back now
+  return { url: url, w:w, h:h };
+}
+/* A small thumbnail, made once. The form used to show the FULL-SIZE image in every
+   thumbnail slot, so a tree with five photos held five full photos in the DOM on top
+   of everything else. */
+const THUMB_PX = 200;
+function renderThumbJpeg(img){
+  try{ return renderJpeg(img, THUMB_PX, 0.6).url; }catch(e){ return ""; }
 }
 const dataUrlSize = u => Math.round((String(u).length - (String(u).indexOf(",")+1)) * 0.75);
 
@@ -5518,6 +5740,9 @@ async function encodeToTarget(file){
   try{
     let px = P.px, q = 0.80, best = null, shrunk = false;
     for(let i=0; i<PHOTO_MAX_TRIES; i++){
+      // Drop the previous attempt's string BEFORE making the next one, so two
+      // full-size base64 photos are never alive at the same moment.
+      best = null;
       const r = renderJpeg(img, px, q);
       const bytes = dataUrlSize(r.url);
       best = { dataUrl:r.url, bytes, w:r.w, h:r.h, q };
@@ -5536,18 +5761,27 @@ async function encodeToTarget(file){
       }
       break;   // inside the band, or nothing further to gain
     }
+    best.thumb = renderThumbJpeg(img);
     return best;
   } finally { URL.revokeObjectURL(url); }
 }
 
 // Filenames are unique by construction: tree id + sequence + cruiser + timestamp + random.
+/* ONE QUEUE for the whole app, not one per tap.
+
+   The reduce below is sequential within a single tap, but a second tap while the
+   first was still encoding started a second chain alongside it — two full-size
+   encodes at once, which is exactly what someone working quickly does. Everything
+   now joins the same chain. */
+let photoChain = Promise.resolve();
 function handlePhoto(input){
   const files = Array.prototype.slice.call(input.files||[]); input.value="";
   if(!files.length) return;
   if(!trees[editIndex]){ toast("Open a tree first",true); return; }
-  // Sequential, not parallel: several full-size encodes at once will stall a phone.
-  files.reduce((p,f)=>p.then(()=>addOnePhoto(f)), Promise.resolve())
-       .then(()=>{ if(files.length>1) toast(`${files.length} photos added`); });
+  photoChain = photoChain
+    .then(()=> files.reduce((p,f)=>p.then(()=>addOnePhoto(f)), Promise.resolve()))
+    .then(()=>{ if(files.length>1) toast(`${files.length} photos added`); })
+    .catch(()=>{});
 }
 
 function addOnePhoto(file){
@@ -5562,10 +5796,10 @@ function addOnePhoto(file){
   $("photoHint").textContent = "Processing photo…";
   return encodeToTarget(file).then(enc=>{
     currentPhotos.push(filename);
-    addThumb(enc.dataUrl, seq);
+    addThumb(enc.thumb || enc.dataUrl, seq);
     const rec = { filename, tree:t.TREE_ID, cruiser:settings.cruiser, time:new Date().toISOString(),
                   lat:num($("fLAT").value), lon:num($("fLON").value), data:enc.dataUrl, uploaded:false,
-                  bytes:enc.bytes, w:enc.w, h:enc.h };
+                  thumb:enc.thumb || "", bytes:enc.bytes, w:enc.w, h:enc.h };
     const done = HAS_IDB ? idbPut(rec).catch(()=>{ pendingMem.push(rec); }) : (pendingMem.push(rec), Promise.resolve());
     return done.then(()=>{
       $("photoHint").textContent = `${currentPhotos.length} photo(s) · last ${Math.round(enc.bytes/1024)} KB · ${enc.w}×${enc.h}`;
@@ -5590,49 +5824,94 @@ function removePhoto(i){
   $("photoHint").textContent = currentPhotos.length ? `${currentPhotos.length} photo(s)` : "No photos on this tree";
   toast("Photo unlinked");
 }
+/* Only THIS TREE's photos, and only their thumbnails. It used to read the entire
+   archive to find five records, and then hang the full-size images in the DOM. */
 function renderThumbs(){
   $("photoThumbs").innerHTML="";
   if(!currentPhotos.length || !HAS_IDB) return;
-  idbAll().then(list=>{
-    currentPhotos.forEach((fn,i)=>{
+  const want = currentPhotos.slice();
+  idbGetMany(want).then(list=>{
+    // the form may have moved on while the read was in flight
+    if(currentPhotos.join(";") !== want.join(";")) return;
+    want.forEach((fn,i)=>{
       const r = list.find(x=>x.filename===fn);
-      if(r && r.data) addThumb(r.data, i+1);
+      // Older records predate thumbnails and fall back to the full image, once.
+      if(r && (r.thumb || r.data)) addThumb(r.thumb || r.data, i+1);
     });
   }).catch(()=>{});
 }
+/* Which photos still need sending is answered from the METADATA, and each one is
+   then fetched, posted and released before the next is touched. It used to load
+   every image in the archive and fire a fetch for each un-uploaded one at the same
+   instant, so the whole backlog sat in memory as request bodies. */
+let flushingPhotos = false;
 function flushPhotos(){
   if(!connected || isOffline()) return;
-  if(HAS_IDB){ idbAll().then(list=>{ list.filter(r=>!r.uploaded).forEach(uploadPhoto); }).catch(()=>{}); }
-  else pendingMem.slice().forEach(uploadPhoto);
+  if(!HAS_IDB){ pendingMem.slice().forEach(uploadPhoto); return; }
+  if(flushingPhotos) return;
+  flushingPhotos = true;
+  idbMeta().then(meta=>{
+    const queue = meta.filter(r=>!r.uploaded).map(r=>r.filename);
+    const step = ()=>{
+      if(!queue.length || isOffline()){ flushingPhotos = false; updateArchCount(); return; }
+      const fn = queue.shift();
+      return idbGet(fn).then(rec=>{
+        if(!rec || !rec.data) return;
+        return uploadPhoto(rec);
+      }).then(step, ()=>{ flushingPhotos = false; });
+    };
+    return step();
+  }).catch(()=>{ flushingPhotos = false; });
 }
 function uploadPhoto(r){
-  fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+  return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
     body:JSON.stringify({_action:"photo",filename:r.filename,data:r.data,tree:r.tree,cruiser:r.cruiser,time:r.time,lat:r.lat,lon:r.lon})})
-    .then(()=>{ if(HAS_IDB) idbSetUploaded(r.filename).then(updateArchCount);
-                else pendingMem = pendingMem.filter(x=>x.filename!==r.filename); })
+    .then(()=>{ if(HAS_IDB) return idbSetUploaded(r.filename);
+                pendingMem = pendingMem.filter(x=>x.filename!==r.filename); })
     .catch(()=>{});
 }
 function updateArchCount(){
   if(!HAS_IDB){ $("archCount").textContent = pendingMem.length; return; }
-  idbAll().then(l=>{ $("archCount").textContent = l.length; }).catch(()=>{});
+  // A count, not every photo in the archive read to find out how many there are.
+  idbCount().then(n=>{ $("archCount").textContent = n; }).catch(()=>{});
 }
 function openArchive(){ closeMenu(); $("archiveSheet").classList.add("show"); renderArchive(); }
 function closeArchive(){ $("archiveSheet").classList.remove("show"); }
+/* Totals from the metadata, and thumbnails for the last sixty only — and those are
+   the small ones. This screen used to read every image on the phone to add up their
+   sizes, then put sixty full-size photos on one page. */
+const ARCH_SHOWN = 60;
 function renderArchive(){
   if(!HAS_IDB){ $("archStats").textContent="No device photo store available"; return; }
-  idbAll().then(list=>{
-    const mb = (list.reduce((b,r)=>b+(r.data?r.data.length*0.75:0),0)/1048576).toFixed(1);
-    const up = list.filter(r=>r.uploaded).length;
-    $("archStats").textContent = `${list.length} photos · ${mb} MB · ${up} backed up`;
-    $("archThumbs").innerHTML = list.slice(-60).map(r=>{
-      const kb = r.bytes ? Math.round(r.bytes/1024) : Math.round((r.data?r.data.length*0.75:0)/1024);
-      return `<div class="thumb"><img src="${r.data}" alt=""><b>${r.uploaded?"✓":"…"} ${kb}k</b></div>`;
-    }).join("");
+  idbMeta().then(meta=>{
+    const mb = (meta.reduce((b,r)=>b+(r.bytes||0),0)/1048576).toFixed(1);
+    const up = meta.filter(r=>r.uploaded).length;
+    $("archStats").textContent = `${meta.length} photos · ${mb} MB · ${up} backed up`;
+    const recent = meta.slice(-ARCH_SHOWN);
+    $("archThumbs").innerHTML = "";
+    return idbGetMany(recent.map(r=>r.filename)).then(recs=>{
+      $("archThumbs").innerHTML = recent.map(m=>{
+        const r = recs.find(x=>x.filename===m.filename) || {};
+        const kb = Math.round((m.bytes||0)/1024);
+        const src = r.thumb || r.data || "";
+        return `<div class="thumb"><img src="${src}" alt=""><b>${m.uploaded?"✓":"…"} ${kb}k</b></div>`;
+      }).join("");
+    });
   }).catch(()=>{});
 }
 function reuploadPhotos(){
   if(!connected || isOffline()){ toast("No connection",true); return; }
-  idbAll().then(list=>{ list.forEach(uploadPhoto); toast(`Re-sending ${list.length} photos`); }).catch(()=>{});
+  /* One at a time. Firing a fetch per photo at the same instant held the entire
+     archive in memory as request bodies, which is the whole backlog at once. */
+  idbKeys().then(keys=>{
+    toast(`Re-sending ${keys.length} photos`);
+    const queue = keys.slice();
+    const step = ()=>{
+      if(!queue.length || isOffline()){ updateArchCount(); return; }
+      return idbGet(queue.shift()).then(r=> r && r.data ? uploadPhoto(r) : null).then(step, ()=>{});
+    };
+    return step();
+  }).catch(()=>{});
 }
 function clearArchive(){
   if(!confirm("Delete every photo stored on this phone? Photos already backed up to Drive are kept there.")) return;
@@ -6003,15 +6282,83 @@ function matchHealth(v){
   return "";
 }
 
+/* GPX holds three different things and the app used to read only one of them.
+
+   <wpt> is a waypoint — a saved point.
+   <trk>/<trkseg>/<trkpt> is a TRACK LOG — where a GPS has actually been, recorded
+   every few seconds, and the thing a crew comes back with after a day walking a site.
+   <rte>/<rtept> is a planned route.
+
+   Reading only <wpt> meant a track log imported as an empty layer, with "nothing to
+   draw in that file" and no hint as to why. Each track segment now becomes a
+   LineString, carrying what makes a track useful back in the office: how long it is,
+   how many fixes, and when it started and finished. */
+function gpxText(el, tag){
+  const n = el ? el.querySelector(tag) : null;
+  return n ? String(n.textContent||"").trim() : "";
+}
+function gpxPts(nodes){
+  const out=[];
+  Array.prototype.forEach.call(nodes, p=>{
+    const lat=+p.getAttribute("lat"), lon=+p.getAttribute("lon");
+    if(isFinite(lat) && isFinite(lon)) out.push([lon, lat, gpxText(p,"ele"), gpxText(p,"time")]);
+  });
+  return out;
+}
+// Metres along a run of [lon,lat] pairs, flat-earth — right to well under a metre
+// over the distances a track log covers.
+function trackLength(co){
+  let m=0;
+  for(let i=1;i<co.length;i++){
+    const la=(co[i-1][1]+co[i][1])/2;
+    const kx=111320*Math.cos(la*Math.PI/180), ky=110540;
+    const dx=(co[i][0]-co[i-1][0])*kx, dy=(co[i][1]-co[i-1][1])*ky;
+    m += Math.sqrt(dx*dx+dy*dy);
+  }
+  return Math.round(m);
+}
 function gpxToGeo(text){
   const xml=new DOMParser().parseFromString(text,"application/xml"); const feats=[];
+
   xml.querySelectorAll("wpt").forEach(w=>{
     const lat=+w.getAttribute("lat"), lon=+w.getAttribute("lon");
-    const nm=w.querySelector("name"), de=w.querySelector("desc");
     if(isFinite(lat)&&isFinite(lon)) feats.push({type:"Feature",
-      properties:{name:nm?nm.textContent:"", desc:de?de.textContent:""},
+      properties:{ KIND:"waypoint", NAME:gpxText(w,"name"), DESC:gpxText(w,"desc"),
+                   ELE_M:gpxText(w,"ele"), TIME:gpxText(w,"time") },
       geometry:{type:"Point",coordinates:[lon,lat]}});
   });
+
+  const line = (kind, name, desc, pts, segNo, segOf)=>{
+    if(pts.length < 2) return;
+    const co = pts.map(p=>[p[0],p[1]]);
+    feats.push({ type:"Feature",
+      properties:{ KIND:kind,
+                   NAME: name + (segOf>1 ? " · segment "+segNo+" of "+segOf : ""),
+                   DESC: desc,
+                   POINTS: co.length,
+                   LENGTH_M: trackLength(co),
+                   START: pts[0][3] || "",
+                   END:   pts[pts.length-1][3] || "" },
+      geometry:{ type:"LineString", coordinates:co } });
+  };
+
+  xml.querySelectorAll("trk").forEach((trk,ti)=>{
+    const name = gpxText(trk,"name") || ("Track "+(ti+1));
+    const desc = gpxText(trk,"desc");
+    const segs = trk.querySelectorAll("trkseg");
+    if(segs.length){
+      Array.prototype.forEach.call(segs, (sg,si)=>
+        line("track", name, desc, gpxPts(sg.querySelectorAll("trkpt")), si+1, segs.length));
+    } else {
+      // Some loggers write trkpt straight under trk with no segment wrapper.
+      line("track", name, desc, gpxPts(trk.querySelectorAll("trkpt")), 1, 1);
+    }
+  });
+
+  xml.querySelectorAll("rte").forEach((rte,ri)=>
+    line("route", gpxText(rte,"name") || ("Route "+(ri+1)), gpxText(rte,"desc"),
+         gpxPts(rte.querySelectorAll("rtept")), 1, 1));
+
   return {type:"FeatureCollection",features:feats};
 }
 
@@ -6561,17 +6908,55 @@ const SHP_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",63
 
 /* One shapefile set. `type` is 1 for a point or 3 for a polyline; `recs` is
    [{pts:[[lat,lon],…], attrs:{}}]. Returns the five files ready for zipStore. */
+/* A record carries either `pts` — one run of [lat,lon] — or `parts`, several of
+   them. A track log broken into segments is one feature with several parts, and a
+   polygon with a hole is an outer ring plus an inner one; writing either as a single
+   part joins things that are not joined. */
+function recParts(r){ return r.parts && r.parts.length ? r.parts : [r.pts || []]; }
+function recPts(r){ return recParts(r).reduce((a,p)=>a.concat(p), []); }
+
+/* Shapefile wants the outer ring CLOCKWISE and any hole counter-clockwise, which is
+   the opposite way round from GeoJSON's own rule, and plenty of files follow neither.
+   Signed area settles it rather than trusting the source. */
+function ringIsCW(ring){
+  let a = 0;
+  for(let i=1;i<ring.length;i++) a += (ring[i][1]-ring[i-1][1]) * (ring[i][0]+ring[i-1][0]);
+  return a > 0;
+}
+function orientRings(parts){
+  return parts.map((ring,i)=>{
+    let r = ring.slice();
+    // A shapefile ring must be closed.
+    if(r.length > 1){
+      const a=r[0], b=r[r.length-1];
+      if(a[0]!==b[0] || a[1]!==b[1]) r.push([a[0],a[1]]);
+    }
+    const wantCW = (i === 0);
+    if(ringIsCW(r) !== wantCW) r.reverse();
+    return r;
+  });
+}
+
 function shapeFiles_(base, type, recs, fields){
   const N = recs.length;
-  // A point record is 20 bytes of content; a polyline is 44 plus 4 per part and 16
-  // per vertex. Lengths are computed per record because they differ.
-  const clen = r => type===1 ? 20 : (44 + 4*1 + 16*r.pts.length);
+  /* Every record's parts, settled once: the lengths, the bounding boxes and the
+     vertex writing all have to agree about them, and polygons are re-oriented on the
+     way in. */
+  recs.forEach(r=>{
+    let ps = recParts(r).filter(p=>p && p.length);
+    if(type === 5) ps = orientRings(ps);
+    r._parts = ps;
+    r._pts = ps.reduce((a,p)=>a.concat(p), []);
+  });
+  // A point record is 20 bytes of content; a polyline or polygon is 44 plus 4 per
+  // part and 16 per vertex.
+  const clen = r => type===1 ? 20 : (44 + 4*r._parts.length + 16*r._pts.length);
   let total = 0; recs.forEach(r=>{ total += 8 + clen(r); });
   const shpBuf = new ArrayBuffer(100 + total), shxBuf = new ArrayBuffer(100 + N*8);
   const shp = new DataView(shpBuf), shx = new DataView(shxBuf);
 
   let xmin=Infinity, ymin=Infinity, xmax=-Infinity, ymax=-Infinity;
-  recs.forEach(r=>r.pts.forEach(p=>{
+  recs.forEach(r=>r._pts.forEach(p=>{
     const y=+p[0], x=+p[1];
     if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; }));
   if(!isFinite(xmin)){ xmin=ymin=xmax=ymax=0; }
@@ -6592,18 +6977,20 @@ function shapeFiles_(base, type, recs, fields){
     let o = off + 8;
     shp.setInt32(o, type, true); o += 4;
     if(type===1){
-      shp.setFloat64(o, +r.pts[0][1], true); o += 8;
-      shp.setFloat64(o, +r.pts[0][0], true); o += 8;
+      shp.setFloat64(o, +r._pts[0][1], true); o += 8;
+      shp.setFloat64(o, +r._pts[0][0], true); o += 8;
     } else {
       let ax=Infinity, ay=Infinity, bx=-Infinity, by=-Infinity;
-      r.pts.forEach(p=>{ const y=+p[0], x=+p[1];
+      r._pts.forEach(p=>{ const y=+p[0], x=+p[1];
         if(x<ax)ax=x; if(y<ay)ay=y; if(x>bx)bx=x; if(y>by)by=y; });
       shp.setFloat64(o,ax,true); shp.setFloat64(o+8,ay,true);
       shp.setFloat64(o+16,bx,true); shp.setFloat64(o+24,by,true); o += 32;
-      shp.setInt32(o,1,true); o += 4;                      // one part
-      shp.setInt32(o,r.pts.length,true); o += 4;
-      shp.setInt32(o,0,true); o += 4;                      // that part starts at 0
-      r.pts.forEach(p=>{ shp.setFloat64(o,+p[1],true); shp.setFloat64(o+8,+p[0],true); o += 16; });
+      shp.setInt32(o,r._parts.length,true); o += 4;
+      shp.setInt32(o,r._pts.length,true);   o += 4;
+      // where each part starts, as an index into the flat vertex list
+      let at = 0;
+      r._parts.forEach(pt=>{ shp.setInt32(o,at,true); o += 4; at += pt.length; });
+      r._pts.forEach(p=>{ shp.setFloat64(o,+p[1],true); shp.setFloat64(o+8,+p[0],true); o += 16; });
     }
     shx.setInt32(100+i*8, off/2, false);
     shx.setInt32(100+i*8+4, cl/2, false);
@@ -6617,6 +7004,127 @@ function shapeFiles_(base, type, recs, fields){
     {name:base+".prj", data:strBytes(SHP_PRJ)},
     {name:base+".cpg", data:strBytes("UTF-8")}
   ];
+}
+
+/* ================================================================== *
+ *  A REFERENCE LAYER BACK OUT AGAIN
+ *
+ *  A crew comes back with a GPX track log of where they walked; the office wants it
+ *  in the GIS alongside everything else. The layer is already normalised on import,
+ *  so this is the same writer the fences use pointed at it.
+ *
+ *  A SHAPEFILE HOLDS ONE GEOMETRY TYPE. A layer can be mixed — waypoints and tracks
+ *  in the same GPX — so it is split by type into up to three shapefiles inside one
+ *  zip, the way the fences and plantings are.
+ * ================================================================== */
+
+/* Every attribute any feature carries, in the order first met, capped at what a DBF
+   can hold. Field names are upper-cased and cut to the ten characters DBF allows,
+   with a numeric suffix if two long names collide once cut. */
+const REF_DBF_MAX = 80;
+function refLayerFields(feats){
+  const seen = {}, out = [];
+  feats.forEach(f=>{
+    Object.keys(f.props||{}).forEach(k=>{
+      if(seen[k] || out.length >= REF_DBF_MAX) return;
+      seen[k] = 1; out.push(k);
+    });
+  });
+  const used = {}, fields = [];
+  out.forEach(k=>{
+    let n = String(k).toUpperCase().replace(/[^A-Z0-9_]/g,"_").slice(0,10) || "F";
+    if(used[n]){ let i=2; let m; do{ m = n.slice(0,9) + i; i++; }while(used[m] && i<10); n = m; }
+    used[n] = 1;
+    // Width from the widest value actually present, within what a DBF column allows.
+    let w = n.length;
+    feats.forEach(f=>{ const v = (f.props||{})[k];
+                       if(v!=null) w = Math.max(w, String(v).length); });
+    fields.push({ k:n, src:k, t:"C", w: Math.max(4, Math.min(200, w)) });
+  });
+  return fields;
+}
+function refRecs(feats, fields){
+  return feats.map(f=>{
+    const attrs = {};
+    fields.forEach(fl=>{ const v=(f.props||{})[fl.src]; attrs[fl.k] = v==null ? "" : String(v); });
+    return attrs;
+  });
+}
+/* geom.c is [lon,lat] and the writer wants [lat,lon] — the one conversion this file
+   gets wrong most easily, so it happens here and nowhere else. */
+function refParts(g){
+  const out = [];
+  if(g.t === "pt"){ out.push([[ +g.c[1], +g.c[0] ]]); return out; }
+  eachRing(g.c, r=> out.push(r.map(c=>[ +c[1], +c[0] ])));
+  return out;
+}
+
+function exportRefLayerShapefile(id){
+  const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
+  const byType = { pt:[], ln:[], pg:[] };
+  (L2.features||[]).forEach(f=>{ if(f.geom && byType[f.geom.t]) byType[f.geom.t].push(f); });
+  const base = String(L2.name||"layer").replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"").slice(0,40) || "layer";
+
+  let files = [], parts = [];
+  [["pt",1,"points"],["ln",3,"lines"],["pg",5,"polygons"]].forEach(([k,type,suffix])=>{
+    const feats = byType[k];
+    if(!feats.length) return;
+    const fields = refLayerFields(feats);
+    const attrs  = refRecs(feats, fields);
+    const recs = feats.map((f,i)=>({ parts: refParts(f.geom), attrs: attrs[i] }));
+    files = files.concat(shapeFiles_(base+"_"+suffix, type,
+                                     recs.filter(r=>r.parts.length && r.parts[0].length),
+                                     fields));
+    parts.push(feats.length + " " + suffix);
+  });
+  if(!files.length){ toast("Nothing in that layer to export", true); return; }
+
+  const blob = new Blob([zipStore(files)],{type:"application/zip"});
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = `${base}_${nowStr().slice(0,10)}.zip`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  toast("Shapefile: " + parts.join(" · "));
+}
+
+function exportRefLayerGeoJSON(id){
+  const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
+  const feats = (L2.features||[]).filter(f=>f.geom).map(f=>({
+    type:"Feature",
+    properties: Object.assign({}, f.props||{}),
+    geometry: f.geom.t === "pt" ? { type:"Point", coordinates: f.geom.c }
+            : f.geom.t === "ln" ? { type: (typeof f.geom.c[0][0] === "number") ? "LineString" : "MultiLineString",
+                                    coordinates: f.geom.c }
+            : { type: (typeof f.geom.c[0][0][0] === "number") ? "Polygon" : "MultiPolygon",
+                coordinates: f.geom.c }
+  }));
+  if(!feats.length){ toast("Nothing in that layer to export", true); return; }
+  const base = String(L2.name||"layer").replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"").slice(0,40) || "layer";
+  downloadText(JSON.stringify({type:"FeatureCollection", features:feats}, null, 1),
+    `${base}_${nowStr().slice(0,10)}.geojson`, "application/geo+json");
+  toast(`${feats.length} feature(s) exported`);
+}
+
+let exportLayerId = null;
+function openLayerExport(id){
+  const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
+  exportLayerId = id;
+  const n = { pt:0, ln:0, pg:0 };
+  (L2.features||[]).forEach(f=>{ if(f.geom && n[f.geom.t]!=null) n[f.geom.t]++; });
+  const bits = [];
+  if(n.pt) bits.push(n.pt + " point(s)");
+  if(n.ln) bits.push(n.ln + " line(s)");
+  if(n.pg) bits.push(n.pg + " polygon(s)");
+  $("layerExpName").textContent = L2.name;
+  $("layerExpWhat").textContent = bits.join(" · ") || "nothing to export";
+  $("layerExpSheet").classList.add("show");
+}
+function closeLayerExport(){ $("layerExpSheet").classList.remove("show"); }
+function doLayerExport(kind){
+  const id = exportLayerId; if(!id) return;
+  closeLayerExport();
+  if(kind === "shp") exportRefLayerShapefile(id);
+  else exportRefLayerGeoJSON(id);
 }
 
 function exportFeatsShapefile(){
@@ -6769,6 +7277,42 @@ function plantCodeMap(project){
                           .map(f=>(taxonFor(f.species)[0] || f.species || "")));
 }
 
+/* The plant list as the landscaping sheet sets it out: caliper stock for the open
+   ground first, then potted saplings for under the canopy, each split deciduous from
+   coniferous and sorted by code. Two bands and two sub-bands, which is how a nursery
+   reads a quote and how the sample sheet prints it.
+
+   The flat plantListRows below is built from THIS, so the CSV you paste into a quote
+   and the table printed on the sheet can never be different lists. */
+const PLANT_BANDS = [
+  { key:"caliper", band:"CALIPER TREES TO BE PLANTED OUTSIDE OF THE WOODLOT" },
+  { key:"sapling", band:"SAPLING TREES TO BE PLANTED IN THE WOODLOT" }
+];
+function plantListGroups(){
+  const plants = featsIn().filter(f=>f.kind==="planting");
+  const codes  = plantCodeMap();
+  const by = {};
+  plants.forEach(p=>{
+    const bot   = taxonFor(p.species)[0] || p.species || "(unspecified)";
+    const cls   = p.pclass || pclassFromStock(p.stock);
+    const conif = yrIsConifer({ SPECIES:p.species, BOTANICAL:bot, ITREE:itreeType(p.species) });
+    const k = [cls, conif?"C":"D", bot, p.stock||""].join("|");
+    if(!by[k]) by[k] = { cls:cls, conif:conif, bot:bot, common:p.species||"", stock:p.stock||"", n:0,
+                         code: codes[bot] || "" };
+    by[k].n++;
+  });
+  const lines = Object.keys(by).map(k=>by[k]);
+  return PLANT_BANDS.map(b=>({
+    band: b.band,
+    groups: [["D","DECIDUOUS TREES"],["C","CONIFEROUS TREES"]].map(([f,name])=>({
+      band: name,
+      rows: lines.filter(r=>r.cls===b.key && (r.conif?"C":"D")===f)
+                 .sort((a,z)=> (a.code||"").localeCompare(z.code||"") || a.bot.localeCompare(z.bot))
+                 .map(r=>[r.code, r.n, r.bot, r.common, r.stock, ""])
+    })).filter(gp=>gp.rows.length)
+  })).filter(b=>b.groups.length);
+}
+
 /* The landscaping plant list: what to order, grouped the way a nursery quotes it. */
 function plantListRows(){
   const plants = featsIn().filter(f=>f.kind==="planting");
@@ -6802,28 +7346,10 @@ function exportPlantList(){
   toast(`${rows[rows.length-1][2]} planting(s) · ${rows.length-2} line(s)`);
 }
 
-/* The plan sheets, as pages rather than a download — the assembler needs the images,
-   not a file. Reuses the series builder so the document and a standalone export are
-   the same sheets. */
-async function documentMapPages(W,H){
-  const scale = parseInt(($("mapScale")&&$("mapScale").value) || "1000", 10);
-  const cells = sheetGrid(scale);
-  if(!cells.length) return [];
-  const title = normText($("docTitle").value) || settings.project || "Tree Protection Plan";
-  const b = seriesBounds();
-  const padLat = Math.max((b.n-b.s)*0.12, 0.00065), padLon = Math.max((b.e-b.w)*0.12, 0.00090);
-  const all = L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]);
-  const pages=[];
-  pages.push(await runSingleExport({ bounds:all, title:title+" | Index — "+cells.length+" sheets at 1:"+scale.toLocaleString(),
-                                     grid:cells, sheetNote:"INDEX", photoPages:false, returnPage:true }));
-  for(const c of cells){
-    setStatus(`Document: plan sheet ${c.no} of ${cells.length}`);
-    pages.push(await runSingleExport({ bounds:L.latLngBounds([c.s,c.w],[c.n,c.e]),
-      title:title+" | Sheet "+c.no+" of "+cells.length+" — 1:"+scale.toLocaleString(),
-      sheetNote:"SHEET "+c.no, photoPages:false, returnPage:true }));
-  }
-  return pages;
-}
+/* documentMapPages was REMOVED in v109. The assembler now drives runSingleExport
+   itself, because a TPP map sheet has to carry its own sheet number in the title
+   block and that number is not known until every block has been counted. */
+
 async function schedulePhotoPages(W,H){
   const list = reportTrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
   if(!list.length || !HAS_IDB) return [];
@@ -6966,7 +7492,7 @@ function defaultSections(){
     {id:"mapseries", name:"Tree protection site plan",      kind:"maps",   on:true},
     {id:"schedA",    name:"Schedule A — Tree Inventory Table", kind:"table", on:true},
     {id:"table1",    name:"Table 1 — List of trees by species and location", kind:"table", on:true},
-    {id:"plantlist", name:"Landscaping plan — plant list",  kind:"table",  on:true},
+    {id:"landscape", name:"Landscaping plan",              kind:"landscape", on:true},
     {id:"details",   name:"Standard details",               kind:"details",on:true},
     {id:"schedB",    name:"Schedule B — Tree Photographs",   kind:"photos", on:true}
   ];
@@ -6986,6 +7512,7 @@ function renderDoc(){
          <span>${esc(d.name)}${d.pages?` <span class="ct">${d.pages} pp</span>`:""}</span></label>
        <button class="alt" style="padding:3px 9px" onclick="docMove(${i},-1)">↑</button>
        <button class="alt" style="padding:3px 9px" onclick="docMove(${i},1)">↓</button>
+       ${d.fixed?"":`<button class="alt" style="padding:3px 9px" onclick="docRename(${i})" title="Rename">✎</button>`}
        ${d.kind==="upload"?`<button class="alt" style="padding:3px 9px" onclick="docRemove(${i})">✕</button>`:""}
      </div>`).join("");
 }
@@ -7002,18 +7529,31 @@ function docRemove(i){
   idbDelete("doc:"+l[i].id);
   l.splice(i,1); docSave(l); renderDoc();
 }
+/* Each upload is NAMED as it goes in, because the name is what the contents page
+   prints. Taking the filename meant a reviewer's contents read "Scan_20260918_0003"
+   where it should read "TREE PROTECTION FENCE AND SIGN DETAIL" — and with five to ten
+   drawings on a job that makes the contents useless. The filename is offered as the
+   starting point, tidied of underscores. */
+function docSuggestName(fn){
+  return String(fn||"").replace(/\.[^.]+$/,"").replace(/[_-]+/g," ")
+                       .replace(/\s+/g," ").trim().slice(0,70);
+}
 function addDocPdfs(files){
   const l = docSections();
   let i = 0;
   const next = ()=>{
     if(i>=files.length){ docSave(l); renderDoc(); toast("Added"); return; }
     const f = files[i++];
+    const suggested = docSuggestName(f.name);
+    const given = prompt("What is this? It is printed in the contents.\n\n" + f.name, suggested);
+    if(given === null){ next(); return; }            // skipped this one
+    const label = normText(given) || suggested || "Untitled";
     $("docStatus").textContent = "Reading " + f.name + "…";
-    pdfToPages(f, (p,n)=>{ $("docStatus").textContent = `${f.name} — page ${p} of ${n}`; })
+    pdfToPages(f, (p,n)=>{ $("docStatus").textContent = `${label} — page ${p} of ${n}`; })
       .then(pages=>{
         const id = "u"+Date.now().toString(36)+Math.floor(Math.random()*1000);
         return idbPut({filename:"doc:"+id, data:JSON.stringify(pages)}).then(()=>{
-          l.push({id:id, name:f.name.replace(/\.pdf$/i,""), kind:"upload", on:true, pages:pages.length});
+          l.push({id:id, name:label, kind:"upload", on:true, pages:pages.length});
           docSave(l); renderDoc(); next();
         });
       })
@@ -7021,189 +7561,297 @@ function addDocPdfs(files){
   };
   next();
 }
+/* Renaming afterwards, because the right wording for the contents is usually only
+   obvious once the whole document is laid out. */
+function docRename(i){
+  const l = docSections();
+  if(!l[i] || l[i].fixed) return;
+  const given = prompt("Name for the contents page:", l[i].name || "");
+  if(given === null) return;
+  const v = normText(given);
+  if(!v) return;
+  l[i].name = v; docSave(l); renderDoc();
+}
 
 /* A table rendered to pages, with the header repeated on every one. Column widths
    come from the widest cell, capped, then scaled to fit the sheet. */
+/* A table rendered to pages, with the header repeated on every one.
+
+   CELLS WRAP. They used to be cut at the column width with an ellipsis, which on
+   Schedule A meant the Notes column — the condition notes, the whole reason the
+   column exists — came out as "The crown displays co-dominant leaders and previ…".
+   Row heights now follow the tallest cell in the row, exactly as the sample's own
+   Schedule A does, and pagination follows the heights rather than a fixed count.
+
+   No zebra striping: the sample is ruled, not banded, and banding a table whose rows
+   are different heights reads as a fault. */
 function tablePages(rows, title, W, H, M){
   if(!rows || rows.length<2) return [];
   const head = rows[0], body = rows.slice(1);
-  const pad = Math.round(PDF_DPI*0.06);
+  const pad  = Math.round(PDF_DPI*0.055);
   const probe = document.createElement("canvas").getContext("2d");
-  const fs = Math.round(PDF_DPI*0.085);
-  probe.font = `${fs}px sans-serif`;
-  const widths = head.map((h,c)=>{
-    let w = probe.measureText(String(h)).width;
-    body.forEach(r=>{ const t=String(r[c]==null?"":r[c]);
-      w = Math.max(w, probe.measureText(t.length>44?t.slice(0,44):t).width); });
-    return Math.min(w + pad*2, Math.round(PDF_DPI*2.6));
-  });
-  const totalW = widths.reduce((a,b)=>a+b,0);
+  const fs = Math.round(PDF_DPI*0.075);
   const avail = W - M*2;
-  const sc = Math.min(1, avail/totalW);
-  const colW = widths.map(w=>w*sc);
-  const rowH = Math.round(PDF_DPI*0.20);
-  const topY = M + Math.round(PDF_DPI*0.55);
-  const perPage = Math.floor((H - topY - M) / rowH) - 1;
 
-  const pages=[];
-  for(let start=0; start<body.length; start+=perPage){
-    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-    const g=cv.getContext("2d");
+  /* Column widths from the natural width of the content, capped, then scaled to the
+     sheet. A wide free-text column is capped hardest — it is the one that wraps. */
+  probe.font = `${fs}px sans-serif`;
+  const want = head.map((h,c)=>{
+    let w = probe.measureText(String(h)).width;
+    body.forEach(r=>{
+      const t = String(r[c]==null?"":r[c]);
+      w = Math.max(w, probe.measureText(t.length>26 ? t.slice(0,26) : t).width);
+    });
+    return Math.min(w + pad*2, Math.round(PDF_DPI*1.9));
+  });
+  /* Scaled DOWN to fit and never up: a two-column table stretched across seventeen
+     inches has its two words at opposite ends of the sheet. Schedule A's thirteen
+     columns overrun and are scaled back; a narrow table simply stays narrow. */
+  const total = want.reduce((a,b)=>a+b,0) || 1;
+  const colW  = want.map(w => w*Math.min(1, avail/total));
+
+  const lh    = Math.round(fs*1.24);
+  const topY  = M + Math.round(PDF_DPI*0.50);
+  const hdrH  = Math.round(lh*2 + pad*2);
+
+  // Wrap every cell once; the heights fall out of it.
+  probe.font = `${fs}px sans-serif`;
+  const laid = body.map(r => {
+    const cells = r.map((v,c) => wrapLines(probe, String(v==null?"":v), colW[c]-pad*2));
+    const lines = Math.max(1, ...cells.map(c => c.length));
+    return { cells: cells, h: lines*lh + pad*2 };
+  });
+
+  const pages = [];
+  let i = 0;
+  while(i < laid.length){
+    const cv = document.createElement("canvas"); cv.width=W; cv.height=H;
+    const g  = cv.getContext("2d");
     g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
-    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.16)}px sans-serif`;
-    g.fillText(title, M, M+Math.round(PDF_DPI*0.22));
+    g.textAlign="left"; g.textBaseline="alphabetic";
+    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.13)}px sans-serif`;
+    g.fillText(title, M, M+Math.round(PDF_DPI*0.20));
 
+    // header band
     let y = topY;
-    // header
-    g.fillStyle="#12201a"; g.fillRect(M, y-rowH+Math.round(rowH*0.28), avail*1, rowH);
-    g.fillStyle="#ffffff"; g.font=`bold ${Math.round(fs*sc)}px sans-serif`;
+    g.fillStyle="#12201a"; g.fillRect(M, y, colW.reduce((a,b)=>a+b,0), hdrH);
+    g.fillStyle="#ffffff"; g.font=`bold ${fs}px sans-serif`;
     let x = M;
-    head.forEach((h,c)=>{ g.fillText(String(h).slice(0,40), x+pad, y); x += colW[c]; });
-    y += rowH;
+    head.forEach((h,c)=>{
+      wrapLines(g, String(h), colW[c]-pad*2).slice(0,2)
+        .forEach((ln,k)=> g.fillText(ln, x+pad, y + pad + fs + k*lh));
+      x += colW[c];
+    });
+    y += hdrH;
 
-    g.font=`${Math.round(fs*sc)}px sans-serif`;
-    const slice = body.slice(start, start+perPage);
-    slice.forEach((r,ri)=>{
-      if(ri%2===1){ g.fillStyle="#f2f5f2"; g.fillRect(M, y-rowH+Math.round(rowH*0.28), avail, rowH); }
+    const firstRow = y;
+    g.font = `${fs}px sans-serif`;
+    while(i < laid.length && y + laid[i].h <= H - M){
+      const row = laid[i];
       g.fillStyle="#1d2b23";
       let cx = M;
-      r.forEach((v,c)=>{
-        const t = String(v==null?"":v);
-        const maxCh = Math.max(4, Math.floor(colW[c]/(fs*sc*0.52)));
-        g.fillText(t.length>maxCh ? t.slice(0,maxCh-1)+"…" : t, cx+pad, y);
+      row.cells.forEach((lines,c)=>{
+        lines.forEach((ln,k)=> g.fillText(ln, cx+pad, y + pad + fs + k*lh));
         cx += colW[c];
       });
-      y += rowH;
-    });
-    // rules
+      g.strokeStyle="#c8d2c9"; g.lineWidth=1;
+      g.beginPath(); g.moveTo(M, y + row.h); g.lineTo(M + colW.reduce((a,b)=>a+b,0), y + row.h); g.stroke();
+      y += row.h;
+      i++;
+    }
+    /* A row taller than a whole page would loop for ever. It is clipped to the page
+       rather than dropped, because a missing tree in Schedule A is a missing tree. */
+    if(y === firstRow && i < laid.length){
+      const row = laid[i];
+      g.fillStyle="#1d2b23";
+      let cx = M;
+      const room = Math.floor((H - M - y - pad*2)/lh);
+      row.cells.forEach((lines,c)=>{
+        lines.slice(0, Math.max(1, room)).forEach((ln,k)=> g.fillText(ln, cx+pad, y + pad + fs + k*lh));
+        cx += colW[c];
+      });
+      y = H - M; i++;
+    }
+
+    // column rules, drawn once the page's height is known
+    const tableW = colW.reduce((a,b)=>a+b,0);
     g.strokeStyle="#c8d2c9"; g.lineWidth=1;
     let gx = M;
-    colW.forEach(w=>{ gx += w; g.beginPath(); g.moveTo(gx, topY-rowH+Math.round(rowH*0.28)); g.lineTo(gx, y-rowH+Math.round(rowH*0.28)); g.stroke(); });
+    colW.forEach(w=>{ gx += w; g.beginPath(); g.moveTo(gx, topY); g.lineTo(gx, y); g.stroke(); });
+    g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(M, topY, tableW, y-topY);
+
     pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
   }
   return pages;
 }
 
-// Page label: TPP1, TPP2… or plain numbers.
-function pageLabel(n, style, prefix){
-  return (style==="prefix") ? (prefix||"TPP")+n : String(n);
+/* pageLabel, stampPageNumber and tocPages were REMOVED in v109.
+
+   stampPageNumber was the stretch bug: it redrew every assembled page with
+   drawImage(im, 0, 0, W, H), so an 8.5x11 portrait page was squashed to fill a 17x11
+   landscape sheet — text at half height and double width on every arborist report
+   page of every document ever built. The page number now lives in the Sheet cell of
+   the title block and nothing is ever redrawn full-bleed.
+
+   tocPages drew the contents as a whole sheet of its own; it is now one slot of
+   sheet 1, beside the report's title page. See tppContentsImage. */
+
+/* ---------- assembling the document ----------
+
+   Built in two passes, and it has to be. The contents can only be written once every
+   sheet number is known, and a sheet number can only be known once every block's page
+   count is known — but the MAP sheets have to carry their own number in the title
+   block, so they cannot be drawn until the count is in. So: count first, draw second.
+
+   Uploads and detail drawings are PORTRAIT and go two up. Tables, photo sheets and
+   map sheets take a sheet each. A block never shares a sheet with another block, so a
+   section always starts on a fresh sheet, exactly as the sample does it.
+
+   The arborist report's FIRST page is its title page, and it is pulled out to sit in
+   the left slot of sheet 1 with the contents beside it. */
+async function docBlocks(W, H){
+  const slots = tppSlots(W, H);
+  const rect  = tppContentRect(W, H);
+  const M     = Math.round(PDF_DPI*0.30);
+  const list  = docSections().filter(d => d.on && d.kind !== "toc");
+  const out   = [];
+
+  for(const dsec of list){
+    setStatus("Assembling: " + dsec.name);
+    try {
+      if(dsec.kind === "upload"){
+        const rec  = await idbGet("doc:" + dsec.id);
+        const arr  = rec && rec.data ? JSON.parse(rec.data) : [];
+        if(arr.length) out.push({ name:dsec.name, lay:"2up", pages:arr, upload:true });
+
+      } else if(dsec.kind === "details"){
+        /* ONE BLOCK PER DRAWING, so the contents can name each detail the way the
+           sample names them rather than lumping them as "standard details". */
+        const chosen = detailList().filter(x => x.on);
+        for(const det of chosen){
+          const pg = await detailPagesReady(slots[0].w, slots[0].h, M, [det]);
+          if(pg.length) out.push({ name: det.name || "Standard detail", lay:"2up",
+                                   pages: pg.map(p => p.data) });
+        }
+
+      } else if(dsec.kind === "photos"){
+        const pg = await schedulePhotoPages(rect.w, rect.h);
+        if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg.map(p => p.data) });
+
+      } else if(dsec.kind === "landscape"){
+        const pg = landscapingPages(rect.w, rect.h);
+        if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg.map(p => p.data) });
+
+      } else if(dsec.kind === "table"){
+        const rows = docTableRows(dsec.id);
+        const pg = tablePages(rows, dsec.name, rect.w, rect.h, M);
+        if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg.map(p => p.data) });
+
+      } else if(dsec.kind === "maps"){
+        /* Counted now, drawn later — a map sheet prints its own number. */
+        const scale = parseInt(($("mapScale") && $("mapScale").value) || "1000", 10);
+        const cells = sheetGrid(scale, true);
+        if(cells.length) out.push({ name:dsec.name, lay:"maps", scale:scale,
+                                    cells:cells, count: cells.length + 1 });
+      }
+    } catch(e){ /* a section that will not build is left out rather than aborting */ }
+  }
+  return out;
 }
-function stampPageNumber(dataUrl, W, H, label){
-  return new Promise(res=>{
-    const im=new Image();
-    im.onload=()=>{
-      const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-      const g=cv.getContext("2d");
-      g.drawImage(im,0,0,W,H);
-      const bw=Math.round(PDF_DPI*0.9), bh=Math.round(PDF_DPI*0.26);
-      const bx=W-bw-Math.round(PDF_DPI*0.22), by=H-bh-Math.round(PDF_DPI*0.18);
-      g.fillStyle="rgba(18,32,26,.88)"; g.fillRect(bx,by,bw,bh);
-      g.fillStyle="#ffffff"; g.font=`bold ${Math.round(PDF_DPI*0.14)}px sans-serif`;
-      g.textAlign="center"; g.textBaseline="middle";
-      g.fillText(label, bx+bw/2, by+bh/2);
-      g.textAlign="left"; g.textBaseline="alphabetic";
-      res(cv.toDataURL("image/jpeg",0.9));
-    };
-    im.onerror=()=>res(dataUrl);
-    im.src=dataUrl;
-  });
-}
 
-function tocPages(entries, title, W, H, M, style, prefix){
-  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-  const g=cv.getContext("2d");
-  g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
-  g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.26)}px sans-serif`;
-  g.fillText("Contents", M, M+Math.round(PDF_DPI*0.34));
-  g.font=`${Math.round(PDF_DPI*0.12)}px sans-serif`; g.fillStyle="#4a5b50";
-  g.fillText(title, M, M+Math.round(PDF_DPI*0.58));
-
-  const head = M+Math.round(PDF_DPI*0.95);
-  g.fillStyle="#12201a"; g.fillRect(M, head-Math.round(PDF_DPI*0.16), W-M*2, Math.round(PDF_DPI*0.24));
-  g.fillStyle="#ffffff"; g.font=`bold ${Math.round(PDF_DPI*0.10)}px sans-serif`;
-  g.fillText("PAGE", M+Math.round(PDF_DPI*0.08), head+Math.round(PDF_DPI*0.03));
-  g.fillText("DESCRIPTION", M+Math.round(PDF_DPI*1.3), head+Math.round(PDF_DPI*0.03));
-
-  let y = head + Math.round(PDF_DPI*0.44);
-  const rowH = Math.round(PDF_DPI*0.30);
-  entries.forEach(e=>{
-    const lab = (e.pages>1)
-      ? pageLabel(e.start,style,prefix) + " – " + pageLabel(e.start+e.pages-1,style,prefix)
-      : pageLabel(e.start,style,prefix);
-    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.11)}px sans-serif`;
-    g.fillText(lab, M+Math.round(PDF_DPI*0.08), y);
-    g.font=`${Math.round(PDF_DPI*0.11)}px sans-serif`; g.fillStyle="#1d2b23";
-    g.fillText(e.name.slice(0,72), M+Math.round(PDF_DPI*1.3), y);
-    g.strokeStyle="#d7dedb"; g.lineWidth=1;
-    g.beginPath(); g.moveTo(M, y+Math.round(rowH*0.28)); g.lineTo(W-M, y+Math.round(rowH*0.28)); g.stroke();
-    y += rowH;
-  });
-  return [{data:cv.toDataURL("image/jpeg",0.92), w:W, h:H}];
+function docBlockSheets(b){
+  if(b.lay === "maps") return b.count;
+  return b.lay === "2up" ? Math.ceil(b.pages.length/2) : b.pages.length;
 }
 
 async function buildDocument(){
   closeDoc();
-  const W=Math.round(DOC_W_IN*PDF_DPI), H=Math.round(DOC_H_IN*PDF_DPI), M=Math.round(PDF_DPI*0.45);
-  const style = $("docNumStyle").value;
+  const W = Math.round(DOC_W_IN*PDF_DPI), H = Math.round(DOC_H_IN*PDF_DPI);
+  const rect   = tppContentRect(W, H);
+  const slots  = tppSlots(W, H);
   const prefix = normText($("docPrefix").value) || "TPP";
-  const title = normText($("docTitle").value) || lastMapTitle || settings.project || "Tree Preservation Plan";
-
-  const list = docSections().filter(d=>d.on && d.kind!=="toc");
-  if(!list.length){ toast("Nothing selected",true); return; }
+  const title  = normText($("docTitle").value) || lastMapTitle || settings.project || "Tree Preservation Plan";
+  const date   = tppDateStamp();
 
   setStatus("Assembling the document…");
-  const built = [];                    // {name, pages:[dataUrl…]}
+  const blocks = await docBlocks(W, H);
+  if(!blocks.length){ setStatus(""); toast("Nothing to assemble", true); return; }
 
-  for(const d of list){
-    setStatus("Assembling: " + d.name);
-    try{
-      if(d.kind==="upload"){
-        const rec = await idbGet("doc:"+d.id);
-        const arr = rec && rec.data ? JSON.parse(rec.data) : [];
-        built.push({name:d.name, pages:arr});
-      } else if(d.kind==="maps"){
-        const pages = await documentMapPages(W,H);
-        built.push({name:d.name, pages:pages.map(p=>p.data)});
-      } else if(d.kind==="details"){
-        const pages = await detailPagesReady(W,H,Math.round(PDF_DPI*0.35));
-        built.push({name:d.name, pages:pages.map(p=>p.data)});
-      } else if(d.kind==="photos"){
-        const pages = await schedulePhotoPages(W,H);
-        built.push({name:d.name, pages:pages.map(p=>p.data)});
-      } else if(d.kind==="table"){
-        const rows = docTableRows(d.id);
-        built.push({name:d.name, pages:tablePages(rows, d.name, W, H, M).map(p=>p.data)});
+  /* The report's title page comes out to sit beside the contents on sheet 1. */
+  const report = blocks.find(b => b.upload);
+  let titlePage = null;
+  if(report && report.pages.length > 1){ titlePage = report.pages.shift(); }
+
+  // ---- pass one: where everything lands ----
+  let at = 2;                                  // sheet 1 is the contents
+  const entries = [{ label: prefix + "1", name: "Contents" }];
+  blocks.forEach(b => {
+    const n = docBlockSheets(b);
+    if(!n) return;
+    b.start = at;
+    entries.push({ label: tppPageRange(at, n, prefix), name: b.name });
+    at += n;
+  });
+
+  const frame = (label) => ({
+    sheetLabel: prefix + label,
+    date: date,
+    title: title,
+    legend: sheetLegendRows(reportTrees())
+  });
+
+  // ---- pass two: draw ----
+  const sheets = [];
+  setStatus("Assembling: contents");
+  const toc = tppContentsImage(entries, slots[1].w, slots[1].h,
+                               (typeof tppText === "object" && tppText.contentsNote) || "");
+  sheets.push(await composeTppSheet(W, H, [titlePage, toc], frame(1)));
+
+  for(const b of blocks){
+    if(!b.start) continue;
+    if(b.lay === "maps"){
+      const bnds = seriesBounds();
+      const padLat = Math.max((bnds.n-bnds.s)*0.12, 0.00065);
+      const padLon = Math.max((bnds.e-bnds.w)*0.12, 0.00090);
+      const all = L.latLngBounds([bnds.s-padLat, bnds.w-padLon],[bnds.n+padLat, bnds.e+padLon]);
+      setStatus("Assembling: plan index sheet");
+      sheets.push(await runSingleExport({
+        bounds: all, title: title, grid: b.cells, tppFrame: true,
+        sheetLabel: prefix + b.start, scaleText: "1:" + b.scale.toLocaleString(),
+        photoPages: false, returnPage: true }));
+      for(let i = 0; i < b.cells.length; i++){
+        const c = b.cells[i];
+        setStatus(`Assembling: plan sheet ${c.no} of ${b.cells.length}`);
+        sheets.push(await runSingleExport({
+          bounds: L.latLngBounds([c.s, c.w],[c.n, c.e]), title: title, tppFrame: true,
+          sheetLabel: prefix + (b.start + 1 + i), scaleText: "1:" + b.scale.toLocaleString(),
+          photoPages: false, returnPage: true }));
       }
-    }catch(e){ built.push({name:d.name, pages:[]}); }
+      continue;
+    }
+    if(b.lay === "2up"){
+      for(let i = 0; i < b.pages.length; i += 2){
+        setStatus("Assembling: " + b.name);
+        sheets.push(await composeTppSheet(W, H, [b.pages[i], b.pages[i+1]],
+                                          frame(b.start + i/2)));
+      }
+    } else {
+      for(let i = 0; i < b.pages.length; i++){
+        setStatus("Assembling: " + b.name);
+        sheets.push(await composeTppFull(W, H, b.pages[i], frame(b.start + i)));
+      }
+    }
   }
 
-  const used = built.filter(b=>b.pages.length);
-  if(!used.length){ setStatus(""); toast("Nothing to assemble",true); return; }
-
-  /* The contents can only be written once the page counts are known, and the
-     contents itself occupies pages — so count first, reserve, then number. */
-  const tocCount = 1;
-  let at = tocCount + 1;
-  const entries = used.map(b=>{ const e={name:b.name, start:at, pages:b.pages.length}; at += b.pages.length; return e; });
-
-  const toc = tocPages(entries, title, W, H, M, style, prefix);
-  const all = toc.concat(used.reduce((acc,b)=>acc.concat(b.pages.map(p=>({data:p,w:W,h:H}))), []));
-
-  setStatus("Numbering pages…");
-  const stamped = [];
-  for(let i=0;i<all.length;i++){
-    stamped.push({ data: await stampPageNumber(all[i].data, W, H, pageLabel(i+1, style, prefix)), w:W, h:H });
-  }
-
-  const bytes = jpegPdfPages(stamped, DOC_W_IN*72, DOC_H_IN*72);
-  const blob = new Blob([bytes],{type:"application/pdf"});
-  const url = URL.createObjectURL(blob), a=document.createElement("a");
+  const bytes = jpegPdfPages(sheets, DOC_W_IN*72, DOC_H_IN*72);
+  const blob = new Blob([bytes], {type:"application/pdf"});
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
   const slug = title.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
-  a.href=url; a.download=`${slug||"TreeProtectionPlan"}_${nowStr().slice(0,10)}.pdf`;
+  a.href = url; a.download = `${slug||"TreeProtectionPlan"}_${nowStr().slice(0,10)}.pdf`;
   document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),4000);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
   setStatus(`${visibleTrees().length} trees on device`);
-  toast(`${stamped.length} page document assembled`);
+  toast(`${sheets.length} sheet document assembled`);
 }
 function closeDoc(){ $("docSheet").classList.remove("show"); }
 
@@ -7687,8 +8335,8 @@ function detailPages(W,H,M){
   });
 }
 // Images must be decoded before they can be drawn, so warm them first.
-function detailPagesReady(W,H,M){
-  const chosen = detailList().filter(d=>d.on);
+function detailPagesReady(W,H,M,only){
+  const chosen = only || detailList().filter(d=>d.on);
   if(!chosen.length) return Promise.resolve([]);
   return Promise.all(chosen.map(d=>new Promise(res=>{
     const im=new Image(); im.onload=()=>res({d,im}); im.onerror=()=>res(null); im.src=d.data;
@@ -8122,15 +8770,20 @@ function selUndo(){
     ? `${selPts.length} point(s) — at least 3 needed`
     : `${selPts.length} points · ${treesInPolygon(selPts).length} tree(s) inside`;
 }
-// Same ray casting the parcel lookup uses, on a ring of [lat,lon].
+/* Same ray casting the parcel lookup uses, on a ring of [lat,lon].
+
+   ONLY WHAT IS ON THE MAP. It used to run over the whole `trees` array with a
+   half-written intention-comment where the filter should have been, so a lasso drawn
+   while showing one job also caught trees of another job lying underneath — invisible
+   on screen, and then bulk-edited along with the rest. You can only select what you
+   can see. */
 function treesInPolygon(pts){
   if(!pts || pts.length<3) return [];
   const ring = pts.map(p=>[p[1],p[0]]);              // ring wants [lon,lat]
   ring.push(ring[0]);
-  return trees.filter(t=>{
+  return visibleTrees().filter(t=>{
     const la=num(t.LAT), lo=num(t.LON);
     if(la==null||lo==null) return false;
-    if(!inCurrentProject(t) && !showAllProjects) { /* still selectable when filtered out? no */ }
     return ringContains(ring, la, lo);
   });
 }
@@ -8138,11 +8791,181 @@ function selFinish(){
   selected = treesInPolygon(selPts);
   if(!selected.length){ toast("No trees inside that shape",true); return; }
   $("selCount").textContent = `${selected.length} tree(s) selected`;
-  const names = ["— choose —"].concat(projects.map(p=>p.name));
   $("selProject").innerHTML = projects.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")
     + `<option value="__new__">＋ A project not on the list…</option>`;
   if(settings.project) $("selProject").value = settings.project;
+  $("selField").innerHTML = `<option value="">— choose a field —</option>` +
+    BULK_FIELDS.map(f=>`<option value="${f[0]}">${esc(f[1])}</option>`).join("");
+  bulkFieldChanged();
+  refreshBulkUndo();
   $("selSheet").classList.add("show");
+}
+
+/* ================================================================== *
+ *  BULK EDIT
+ *
+ *  Everything here writes to MANY trees at once, which is the whole point and also
+ *  the whole risk: a wrong tap is a wrong tap on fifty records, and out on site there
+ *  is no Sheet to go and fix it in. So every change goes through ONE function that
+ *  records exactly what it overwrote, and the undo stack is persisted — a mis-tap
+ *  followed by the app being killed must still be undoable.
+ * ================================================================== */
+
+/* Fields offered. DBH and SPECIES are deliberately NOT here: both drive stored
+   derived values (crown, height, TPZ, replacement count, i-Tree code, botanical
+   name), so setting them in bulk would leave those stale unless everything were
+   re-derived — and in any case they are per-tree measurements that should never be
+   the same for fifty trees. */
+const BULK_FIELDS = [
+  ["LOCATION",  "Location / ownership"],
+  ["PROP_ACT",  "Proposed action"],
+  ["LT_IMPACT", "Potential long term impact"],
+  ["PROGNOSIS", "Future prognosis"],
+  ["HEALTH",    "Condition rating"],
+  ["ACTIVITY",  "Activity"],
+  ["RECOTREA",  "Recommended treatment"],
+  ["COMP_INCL", "Count in compensation"],
+  ["YR_EXEMPT", "York Region exempt species"],
+  ["SITELOCA",  "Site location"],
+  ["ADDRESS",   "Address"],
+  ["STREET",    "Street"],
+  ["PARK",      "Park"],
+  ["COMMENTS",  "Comments"]
+];
+const COMP_INCL_D = [["","Follow the proposed action"],["Y","Yes — include this tree"],["N","No — exclude this tree"]];
+const YR_EXEMPT_D = [["","Work it out from the species"],["Y","Exempt"],["N","Not exempt"]];
+
+// The pick list for a field, or null when it is free text.
+function bulkValues(field){
+  if(field === "HEALTH")    return HEALTH_D;
+  if(field === "COMP_INCL") return COMP_INCL_D;
+  if(field === "YR_EXEMPT") return YR_EXEMPT_D;
+  return DOMAIN_FIELDS[field] || null;
+}
+function bulkFieldLabel(field){
+  const hit = BULK_FIELDS.find(f=>f[0]===field);
+  return hit ? hit[1] : field;
+}
+function bulkValueLabel(field, v){
+  const d = bulkValues(field);
+  if(!d) return String(v||"");
+  const hit = d.find(p=>p[0]===v);
+  return hit ? hit[1] : String(v||"");
+}
+function bulkFieldChanged(){
+  const f = $("selField").value;
+  const d = f ? bulkValues(f) : null;
+  const sel = $("selValueSel"), txt = $("selValueTxt");
+  $("selValueLabel").textContent = f ? bulkFieldLabel(f) : "Value";
+  if(!f){ sel.style.display="none"; txt.style.display="none"; return; }
+  if(d){
+    sel.style.display = "block"; txt.style.display = "none";
+    sel.innerHTML = `<option value="">— clear the field —</option>` +
+      d.filter(p=>p[0]!=="").map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+    // A domain whose own blank entry means something keeps it as a real choice.
+    const blank = d.find(p=>p[0]==="");
+    if(blank) sel.innerHTML = d.map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+  } else {
+    sel.style.display = "none"; txt.style.display = "block"; txt.value = "";
+  }
+}
+
+/* ---------- the one path every bulk change takes ---------- */
+const BULK_UNDO_MAX = 10;
+let bulkUndo = [];
+try{ bulkUndo = JSON.parse(STORE&&STORE.getItem("st_bulkundo")) || []; }catch(e){ bulkUndo = []; }
+function persistBulkUndo(){
+  while(bulkUndo.length > BULK_UNDO_MAX) bulkUndo.shift();
+  if(STORE){ try{ STORE.setItem("st_bulkundo", JSON.stringify(bulkUndo)); }catch(e){} }
+}
+
+/* `want(t)` returns the fields to write on that tree, or null to leave it alone.
+   Only fields that ACTUALLY change are recorded, so an undo puts back exactly what
+   was there and nothing else. */
+function bulkApply(label, list, want){
+  const rows = [];
+  list.forEach(t=>{
+    const w = want(t);
+    if(!w) return;
+    const before = {};
+    let changed = false;
+    Object.keys(w).forEach(k=>{
+      const now = t[k]==null ? "" : t[k];
+      const next = w[k]==null ? "" : w[k];
+      if(String(now) === String(next)) return;
+      before[k] = now;
+      t[k] = w[k];
+      changed = true;
+    });
+    if(!changed) return;
+    rows.push({ id:t.TREE_ID, before:before });
+    t._sent = false;
+  });
+  if(!rows.length) return 0;
+  bulkUndo.push({ label:label, at:nowStr(), rows:rows });
+  persistBulkUndo();
+  persistTrees(); renderPins(); renderLabels(); updateSubLine(); refreshBulkUndo();
+  setTimeout(syncNow, 600);
+  return rows.length;
+}
+
+function bulkUndoLast(){
+  const u = bulkUndo[bulkUndo.length-1];
+  if(!u){ toast("Nothing to undo", true); return; }
+  if(!confirm(`Undo "${u.label}"?\n\n${u.rows.length} tree(s) go back to what they were.`)) return;
+  let n = 0, gone = 0;
+  u.rows.forEach(r=>{
+    const t = trees.find(x=>x.TREE_ID === r.id);
+    if(!t){ gone++; return; }
+    Object.keys(r.before).forEach(k=>{ t[k] = r.before[k]; });
+    /* Marked unsent WHATEVER it was before: the Sheet is holding the changed value
+       now, and putting the record back on the phone without re-sending would leave
+       the two disagreeing for good. */
+    t._sent = false;
+    n++;
+  });
+  bulkUndo.pop(); persistBulkUndo();
+  persistTrees(); renderPins(); renderLabels(); updateSubLine(); refreshBulkUndo();
+  toast(`${n} tree(s) put back` + (gone ? ` · ${gone} no longer on this phone` : ""));
+  if(n) setTimeout(syncNow, 600);
+}
+function refreshBulkUndo(){
+  const row = $("bulkUndoRow"); if(!row) return;
+  const u = bulkUndo[bulkUndo.length-1];
+  row.style.display = u ? "flex" : "none";
+  if(u) $("bulkUndoBtn").textContent =
+    `↩ Undo · ${u.label} · ${u.rows.length} tree(s)`;
+}
+
+/* ---------- ownership from where the trees stand ---------- */
+function bulkOwnership(){
+  if(!selected.length) return;
+  if(!layersWithRole("parcel").length){
+    toast("No parcel layer loaded — nothing to test against", true); return;
+  }
+  let noPos = 0;
+  const n = bulkApply("Ownership from the map", selected, t=>{
+    const v = locationFromPlacement(t.LAT, t.LON);
+    if(!v){ noPos++; return null; }
+    return { LOCATION: v };
+  });
+  toast(n ? `${n} tree(s) reassigned` + (noPos ? ` · ${noPos} skipped, no position` : "")
+          : "Every tree already had the right ownership");
+}
+
+/* ---------- any one field, on all of them ---------- */
+function applyBulkField(){
+  if(!selected.length) return;
+  const f = $("selField").value;
+  if(!f){ toast("Choose a field first", true); return; }
+  const isText = $("selValueTxt").style.display !== "none";
+  const v = isText ? normText($("selValueTxt").value) : $("selValueSel").value;
+  const shown = bulkValueLabel(f, v) || "(blank)";
+  const label = bulkFieldLabel(f) + " → " + shown;
+  if(!confirm(`Set ${bulkFieldLabel(f)} to "${shown}" on ${selected.length} tree(s)?`)) return;
+  const w = {}; w[f] = v;
+  const n = bulkApply(label, selected, ()=>w);
+  toast(n ? `${n} tree(s) changed` : "They all held that value already");
 }
 function applySelProject(){
   let name = $("selProject").value;
@@ -8155,12 +8978,12 @@ function applySelProject(){
   }
   if(!name){ toast("Choose a project",true); return; }
   if(!confirm(`Assign ${selected.length} tree(s) to "${name}"?\n\nThey will re-sync with the new project.`)) return;
-  let n=0;
-  selected.forEach(t=>{ if(t.PROJECT!==name){ t.PROJECT=name; t._sent=false; n++; } });
-  persistTrees(); renderPins(); updateProjBtn();
-  closeSelSheet(); toggleSelect();
-  toast(`${n} tree(s) moved to ${name}`);
-  if(n) setTimeout(syncNow, 600);
+  /* Through bulkApply like every other bulk change, so moving a block of trees to
+     the wrong job is as undoable as anything else. It used to write PROJECT straight
+     onto the records with nothing recorded. */
+  const n = bulkApply("Project \u2192 " + name, selected, ()=>({ PROJECT: name }));
+  updateProjBtn();
+  toast(n ? `${n} tree(s) moved to ${name}` : `They were all in ${name} already`);
 }
 function closeSelSheet(){ $("selSheet").classList.remove("show"); }
 function selZoomTo(){
@@ -8829,11 +9652,19 @@ async function runSingleExport(opt){
 
   const W = Math.round(PDF_W_IN*PDF_DPI), H = Math.round(PDF_H_IN*PDF_DPI);
   const M = Math.round(PDF_DPI*0.35);            // page margin
-  const panelH = Math.round(PDF_DPI*1.32);       // title block
+  /* An official TPP sheet carries the title block down the RIGHT EDGE and the map
+     fills what is left; a field export keeps the green banner across the bottom.
+     Same map code either way — only the frame it is drawn into differs. */
+  const tpp = !!opt.tppFrame;
+  const panelH = tpp ? 0 : Math.round(PDF_DPI*1.32);   // title block
   // The map frame. Previously the imagery was fitted inside and left white bars down
   // both sides; it now FILLS the frame and is clipped to it, which is what a map sheet
   // should look like.
-  const fx = M, fy = M, fw = W - M*2, fh = H - M*2 - panelH;
+  const rect = tpp ? tppContentRect(W, H) : null;
+  const fx = tpp ? rect.x : M,
+        fy = tpp ? rect.y : M,
+        fw = tpp ? rect.w : W - M*2,
+        fh = tpp ? rect.h : H - M*2 - panelH;
 
   const cv = document.createElement("canvas");
   cv.width=W; cv.height=H;
@@ -9000,6 +9831,52 @@ async function runSingleExport(opt){
     g.fillStyle="#66BB6A"; g.fill();
     g.strokeStyle="#1B5E20"; g.lineWidth=R*0.34; g.stroke();
   });
+  /* Boxes already spoken for on this sheet. Hoisted out of the tree-label block so
+     the PLANTING CODES can claim their space first and the tree labels then place
+     themselves around them — the two used to know nothing about each other, which
+     on a front yard with a dozen proposed trees is a pile of overprinted text. */
+  const taken=[];
+  const overlaps=(r)=> taken.some(o=> !(r.x2<o.x1 || r.x1>o.x2 || r.y2<o.y1 || r.y1>o.y2));
+
+  /* THE SPECIES CODE AT EACH PLANTING SPOT — Qr, Ta, Ps — in a small white box, the
+     way the sample plan labels them. The code is the only thing tying a dot on the
+     plan to a line in the plant list, so it is drawn before the tree labels and takes
+     precedence over them: a tree whose name is missing can be looked up in Schedule A
+     by its number, a planting with no code cannot be looked up at all.
+
+     Codes come from the WHOLE PROJECT, never this sheet's plantings, so sheet 2 of a
+     series cannot label a species differently from sheet 1 or from the plant list. */
+  {
+    const codes = plantCodeMap();
+    const CFS = Math.max(9, Math.round(R*1.5));
+    g.font = `bold ${CFS}px sans-serif`; g.textAlign="center"; g.textBaseline="middle";
+    const boxH = Math.round(CFS*1.5);
+    sheetF.filter(f=>f.kind==="planting" && f.pts.length).forEach(f=>{
+      const code = codes[taxonFor(f.species)[0] || f.species || ""] || "";
+      if(!code) return;
+      const p = P(+f.pts[0][0], +f.pts[0][1]);
+      const boxW = Math.round(g.measureText(code).width + CFS*0.9);
+      let best = null;
+      for(const [dx,dy] of [[1,-1],[1,0],[-1,-1],[-1,0],[0,-1],[1,1],[-1,1],[0,1]]){
+        const cx = p[0] + dx*(R*1.9 + boxW/2) - (dx===0 ? 0 : 0);
+        const cy = p[1] + dy*(R*1.9 + boxH/2);
+        const r = { x1:cx-boxW/2, x2:cx+boxW/2, y1:cy-boxH/2, y2:cy+boxH/2 };
+        if(r.x1 < fx || r.x2 > fx+fw || r.y1 < fy || r.y2 > fy+fh) continue;
+        if(overlaps(r)) continue;
+        best = { cx, cy, r }; break;
+      }
+      if(!best) return;                      // better an unlabelled dot than a pile
+      taken.push(best.r);
+      g.fillStyle = "#ffffff";
+      g.fillRect(best.r.x1, best.r.y1, boxW, boxH);
+      g.strokeStyle = "#1B5E20"; g.lineWidth = Math.max(1.5, CFS*0.10);
+      g.strokeRect(best.r.x1, best.r.y1, boxW, boxH);
+      g.fillStyle = "#12201a";
+      g.fillText(code, best.cx, best.cy);
+    });
+    g.textAlign="left"; g.textBaseline="alphabetic";
+  }
+
   if(tc.on!==false && tc.fields.length){
     g.font=`600 ${FS}px sans-serif`; g.textAlign="left"; g.textBaseline="middle";
     /* Labels are placed one at a time against the boxes already taken. Eight candidate
@@ -9007,8 +9884,6 @@ async function runSingleExport(opt){
        is pushed further out and joined to its tree with a leader line. Trees close
        together used to print their names straight over one another, which is what made
        a planting cluster unreadable. */
-    const taken=[];
-    const overlaps=(r)=> taken.some(o=> !(r.x2<o.x1 || r.x1>o.x2 || r.y2<o.y1 || r.y1>o.y2));
     const CAND=[[1,0],[1,-1],[1,1],[-1,0],[-1,-1],[-1,1],[0,-1],[0,1]];
     /* TREE_NO prints as T1, T2 — the number on the tag and in the table. The long
        TREE_ID (CG-00742-A) is the record key across every project in the Sheet and
@@ -9058,16 +9933,31 @@ async function runSingleExport(opt){
   g.restore();
 
   if(opt.grid) drawSheetGrid(g, opt.grid, P);
-  if(!opt.noKeyMap)
-    await drawKeyMap(g, fx+fw-Math.round(PDF_DPI*1.5)-24, fy+24, Math.round(PDF_DPI*1.5), b, z);
-  drawNorthArrow(g, fx+fw-Math.round(PDF_DPI*0.42), fy+fh-Math.round(PDF_DPI*1.0));
-  drawScaleBar(g, fx+24, fy+fh-24, sc, z, b.getCenter().lat);
 
-  // neat line
-  g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(fx,fy,fw,fh);
-  g.strokeStyle="#ffffff"; g.lineWidth=1.5; g.strokeRect(fx+3,fy+3,fw-6,fh-6);
+  /* On a TPP sheet the key map, the north arrow and the scale bar all live in the
+     title block column, so they must NOT also be stamped over the map. */
+  if(tpp){
+    g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(fx,fy,fw,fh);
+    await drawTppFrame(g, W, H, {
+      bounds: b, z: z,
+      legend: sheetLegendRows(shown),
+      sheetLabel: opt.sheetLabel || "",
+      scaleText: opt.scaleText || "",
+      scaleBar: { sc: sc, z: z, lat: b.getCenter().lat },
+      title: title
+    });
+  } else {
+    if(!opt.noKeyMap)
+      await drawKeyMap(g, fx+fw-Math.round(PDF_DPI*1.5)-24, fy+24, Math.round(PDF_DPI*1.5), b, z);
+    drawNorthArrow(g, fx+fw-Math.round(PDF_DPI*0.42), fy+fh-Math.round(PDF_DPI*1.0));
+    drawScaleBar(g, fx+24, fy+fh-24, sc, z, b.getCenter().lat);
 
-  drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M, opt.sheetNote);
+    // neat line
+    g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(fx,fy,fw,fh);
+    g.strokeStyle="#ffffff"; g.lineWidth=1.5; g.strokeRect(fx+3,fy+3,fw-6,fh-6);
+
+    drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M, opt.sheetNote);
+  }
 
   if(opt.returnPage) return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
 
@@ -9152,9 +10042,18 @@ function mapSheetsChanged(){
   $("mapScaleRow").style.display = series ? "block" : "none";
   if(series) refreshSheetEstimate();
 }
-// Ground covered by one sheet at a given scale, from the printed frame size.
-function sheetGround(scale){
-  const fwIn = PDF_W_IN - 0.70, fhIn = PDF_H_IN - 0.70 - 1.32;
+/* Ground covered by one sheet at a given scale, from the printed frame size — which
+   is a DIFFERENT size on a TPP sheet, where the title block takes a column down the
+   right rather than a band across the bottom. Derived from the same rect the frame
+   itself uses, so a grid laid out at 1:250 really is 1:250 on the printed sheet. */
+function sheetGround(scale, tpp){
+  let fwIn, fhIn;
+  if(tpp){
+    const r = tppContentRect(PDF_W_IN*PDF_DPI, PDF_H_IN*PDF_DPI);
+    fwIn = r.w/PDF_DPI; fhIn = r.h/PDF_DPI;
+  } else {
+    fwIn = PDF_W_IN - 0.70; fhIn = PDF_H_IN - 0.70 - 1.32;
+  }
   return { w: fwIn*0.0254*scale, h: fhIn*0.0254*scale };
 }
 function seriesTrees(){
@@ -9171,10 +10070,10 @@ function seriesBounds(){
 /* The grid of sheets. Sized in metres so the scale is exact, then converted back to
    degrees; the longitude step uses the latitude of the block so sheets stay square
    on the ground rather than on the page. */
-function sheetGrid(scale){
+function sheetGrid(scale, tpp){
   const b = seriesBounds();
   if(!b) return [];
-  const g = sheetGround(scale);
+  const g = sheetGround(scale, tpp);
   const midLat = (b.n+b.s)/2;
   const mPerDegLat = 110540, mPerDegLon = 111320*Math.cos(midLat*Math.PI/180);
   const padM = g.w*0.04;
@@ -9424,6 +10323,569 @@ function drawScaleBar(g,x,y,sc,z,lat){
   g.restore();
 }
 
+/* Legend of EVERY layer on the sheet — the tree classes actually present, the
+   protection zones, each reference layer and the site plan. A legend that names only
+   the trees leaves a reader guessing what the other lines and shading are.
+
+   ONE source for both title blocks. The green field banner and the TPP title block
+   column draw the same rows differently; built twice they would drift, and a legend
+   that disagrees with the sheet beside it is worse than no legend. */
+/* ================================================================== *
+ *  THE TPP SHEET TEMPLATE
+ *
+ *  An official tree protection plan is not a run of assembled pages — it is ONE
+ *  sheet template repeated. Every sheet carries the same title block down its right
+ *  edge, and everything else, map or table or rasterised report page, lives in the
+ *  area to its left.
+ *
+ *  Two things follow from that and are easy to get wrong. The LOGO is not a corner
+ *  stamp: it belongs in the Prepared by box. The PAGE NUMBER is not a badge: it is
+ *  the Sheet cell. Anything that draws either of them anywhere else is drawing a
+ *  different document.
+ *
+ *  The green banner block below is left exactly as it was. It is the right thing for
+ *  a quick field export, which is not a submission and should not pretend to be.
+ * ================================================================== */
+const TPP_COL_IN    = 1.95;     // the title block column
+const TPP_EDGE_IN   = 0.14;     // paper edge to the neat line
+const TPP_GUTTER_IN = 0.10;     // neat line to the column
+
+/* Text that has to fit a box it was not written for. Returns the lines rather than
+   drawing, because the landscaping page needs to MEASURE a block before it commits
+   to a layout. The font must already be set on g. */
+function wrapLines(g, text, maxW){
+  const out = [];
+  String(text==null?"":text).split("\n").forEach(para=>{
+    const words = para.split(/\s+/).filter(Boolean);
+    if(!words.length){ out.push(""); return; }      // a blank line is a paragraph break
+    let line = "";
+    words.forEach(w=>{
+      const test = line ? line+" "+w : w;
+      if(g.measureText(test).width <= maxW || !line){ line = test; return; }
+      out.push(line); line = w;
+    });
+    if(line) out.push(line);
+  });
+  return out;
+}
+function drawWrapped(g, text, x, y, maxW, lineH){
+  wrapLines(g, text, maxW).forEach((ln,i)=>{ if(ln) g.fillText(ln, x, y + i*lineH); });
+  return y + wrapLines(g, text, maxW).length * lineH;
+}
+
+// A bordered cell with a small caps label in its top-left, as the sample has them.
+function tppCell(g, x, y, w, h, label){
+  g.strokeStyle="#12201a"; g.lineWidth=2;
+  g.strokeRect(x, y, w, h);
+  if(label){
+    g.fillStyle="#12201a";
+    g.font = `bold ${Math.round(PDF_DPI*0.070)}px sans-serif`;
+    g.textAlign="left"; g.textBaseline="alphabetic";
+    g.fillText(String(label).toUpperCase(), x + Math.round(PDF_DPI*0.05), y + Math.round(PDF_DPI*0.105));
+  }
+}
+
+/* Where the content goes on a TPP sheet: everything left of the title block column.
+   Worked out on its own so the frame, the 2-up composer and the series grid all agree
+   about how much room there is — the grid used to derive it from the page size and a
+   hard-coded panel height, which is a different number on a sheet with a column. */
+function tppContentRect(W, H){
+  const e = Math.round(PDF_DPI*TPP_EDGE_IN);
+  const col = Math.round(PDF_DPI*TPP_COL_IN);
+  const gut = Math.round(PDF_DPI*TPP_GUTTER_IN);
+  return { x:e, y:e, w: W - e*2 - col - gut, h: H - e*2 };
+}
+
+/* The logo, decoded once per run rather than per sheet — a 23-sheet document would
+   otherwise decode the same PNG 23 times. */
+let _tppLogoImg = null;
+function tppLogoImage(){
+  if(_tppLogoImg !== null) return Promise.resolve(_tppLogoImg || null);
+  return loadTppLogo().then(d=>{
+    if(!d){ _tppLogoImg = false; return null; }
+    return new Promise(res=>{
+      const im = new Image();
+      im.onload  = ()=>{ _tppLogoImg = im; res(im); };
+      im.onerror = ()=>{ _tppLogoImg = false; res(null); };
+      im.src = d;
+    });
+  }).catch(()=>{ _tppLogoImg = false; return null; });
+}
+
+/* Draws the title block column and returns the content rect. Everything it prints
+   comes from the saved boilerplate except the sheet label, the scale and the legend,
+   which belong to this sheet. */
+async function drawTppFrame(g, W, H, opt){
+  opt = opt || {};
+  const e   = Math.round(PDF_DPI*TPP_EDGE_IN);
+  const col = Math.round(PDF_DPI*TPP_COL_IN);
+  const x   = W - e - col;
+  const pad = Math.round(PDF_DPI*0.05);
+  const inW = col - pad*2;
+
+  // the neat line round the whole sheet
+  g.strokeStyle="#12201a"; g.lineWidth=3;
+  g.strokeRect(e, e, W - e*2, H - e*2);
+
+  /* Laid out from the BOTTOM up in fixed heights, with the legend taking whatever is
+     left over. Sized proportionally instead, a long client block or a five-line title
+     would squeeze the date off the sheet. */
+  const hDate  = Math.round(PDF_DPI*0.40);
+  const hScale = Math.round(PDF_DPI*0.68);
+  const hTitle = Math.round(PDF_DPI*1.40);
+  const hFor   = Math.round(PDF_DPI*1.05);
+  const hBy    = Math.round(PDF_DPI*0.95);
+  const hKey   = Math.round(PDF_DPI*1.95);
+
+  let bottom = H - e;
+  const yDate  = bottom - hDate;
+  const yScale = yDate  - hScale;
+  const yTitle = yScale - hTitle;
+  const yFor   = yTitle - hFor;
+  const yBy    = yFor   - hBy;
+  const yKey   = e;
+  const yLeg   = yKey + hKey;
+  const hLeg   = Math.max(Math.round(PDF_DPI*1.0), yBy - yLeg);
+
+  /* ---- key map ---- */
+  tppCell(g, x, yKey, col, hKey, "Key map");
+  if(opt.bounds && typeof drawKeyMap === "function"){
+    const s = Math.min(inW, hKey - Math.round(PDF_DPI*0.16));
+    try{
+      await drawKeyMap(g, x + (col-s)/2, yKey + Math.round(PDF_DPI*0.14), s, opt.bounds, opt.z || 18);
+    }catch(err){}
+  }
+
+  /* ---- legend ---- */
+  tppCell(g, x, yLeg, col, hLeg, "");
+  {
+    g.fillStyle="#12201a";
+    g.font = `bold ${Math.round(PDF_DPI*0.085)}px sans-serif`;
+    g.textAlign="left"; g.textBaseline="alphabetic";
+    g.fillText("Legend", x+pad, yLeg + Math.round(PDF_DPI*0.13));
+    // the north arrow rides in the legend header, as it does on the sample
+    if(typeof drawNorthArrow === "function"){
+      try{ drawNorthArrow(g, x + col - Math.round(PDF_DPI*0.16), yLeg + Math.round(PDF_DPI*0.20)); }catch(err){}
+    }
+    const rows = opt.legend || [];
+    const fs   = Math.round(PDF_DPI*0.062);
+    const lh   = Math.round(fs*1.32);
+    const swX  = x + pad + Math.round(PDF_DPI*0.05);
+    const txX  = x + pad + Math.round(PDF_DPI*0.22);
+    const txW  = col - (txX - x) - pad;
+    let y = yLeg + Math.round(PDF_DPI*0.26);
+    const floor = yLeg + hLeg - Math.round(PDF_DPI*0.06);
+    g.font = `${fs}px sans-serif`;
+    for(const r of rows){
+      const lines = wrapLines(g, r.label, txW);
+      if(y + lines.length*lh > floor) break;        // better a short legend than one overflowing its box
+      const cy = y - fs*0.32;
+      g.lineWidth = Math.max(1.5, fs*0.16);
+      if(r.kind === "line"){
+        g.strokeStyle = r.color;
+        g.beginPath(); g.moveTo(swX - fs*0.45, cy); g.lineTo(swX + fs*0.45, cy); g.stroke();
+      } else if(r.kind === "square"){
+        g.fillStyle = r.color; g.fillRect(swX - fs*0.40, cy - fs*0.40, fs*0.8, fs*0.8);
+        g.strokeStyle = "#12201a"; g.lineWidth = 1; g.strokeRect(swX - fs*0.40, cy - fs*0.40, fs*0.8, fs*0.8);
+      } else if(r.kind === "circle"){
+        g.save(); g.setLineDash([fs*0.22, fs*0.18]);
+        g.strokeStyle = r.color;
+        g.beginPath(); g.arc(swX, cy, fs*0.42, 0, 7); g.stroke();
+        g.restore();
+      } else {
+        g.fillStyle = r.color;
+        g.beginPath(); g.arc(swX, cy, fs*0.36, 0, 7); g.fill();
+        g.strokeStyle = "#12201a"; g.lineWidth = 1; g.stroke();
+      }
+      g.fillStyle = "#1d2b23";
+      lines.forEach((ln,i)=> g.fillText(ln, txX, y + i*lh));
+      y += lines.length*lh + Math.round(fs*0.22);
+    }
+    // the base-data credits sit at the foot of the legend box
+    const credits = (typeof tppText === "object" && tppText.credits) || "";
+    if(credits){
+      const cfs = Math.round(PDF_DPI*0.052);
+      g.font = `${cfs}px sans-serif`;
+      const lines = wrapLines(g, credits, inW);
+      const need = lines.length * Math.round(cfs*1.30);
+      let cy = yLeg + hLeg - need - Math.round(PDF_DPI*0.07);
+      if(cy > y){
+        g.fillStyle = "#4a5b50";
+        lines.forEach((ln,i)=> g.fillText(ln, x+pad, cy + i*Math.round(cfs*1.30)));
+      }
+    }
+  }
+
+  /* ---- prepared by, with the logo ---- */
+  tppCell(g, x, yBy, col, hBy, "Prepared by");
+  {
+    const fs = Math.round(PDF_DPI*0.062), lh = Math.round(fs*1.34);
+    g.font = `${fs}px sans-serif`; g.fillStyle="#1d2b23"; g.textAlign="center";
+    const lines = wrapLines(g, (typeof tppText==="object" && tppText.preparedBy) || "", inW);
+    let y = yBy + Math.round(PDF_DPI*0.22);
+    lines.forEach(ln=>{ if(ln) g.fillText(ln, x+col/2, y); y += lh; });
+    const im = await tppLogoImage();
+    if(im && im.width){
+      const maxW = inW, maxH = Math.max(0, yBy + hBy - y - Math.round(PDF_DPI*0.05));
+      const s = Math.min(maxW/im.width, maxH/im.height);
+      if(s > 0) g.drawImage(im, x + (col - im.width*s)/2, y, im.width*s, im.height*s);
+    }
+    g.textAlign="left";
+  }
+
+  /* ---- prepared for ---- */
+  tppCell(g, x, yFor, col, hFor, "Prepared for");
+  {
+    const fs = Math.round(PDF_DPI*0.058), lh = Math.round(fs*1.34);
+    g.font = `${fs}px sans-serif`; g.fillStyle="#1d2b23"; g.textAlign="center";
+    let y = yFor + Math.round(PDF_DPI*0.21);
+    wrapLines(g, (typeof tppText==="object" && tppText.preparedFor) || "", inW)
+      .forEach(ln=>{ if(ln) g.fillText(ln, x+col/2, y); y += lh; });
+    g.textAlign="left";
+  }
+
+  /* ---- title ---- */
+  tppCell(g, x, yTitle, col, hTitle, "Title");
+  {
+    const fs = Math.round(PDF_DPI*0.068), lh = Math.round(fs*1.36);
+    g.font = `bold ${fs}px sans-serif`; g.fillStyle="#12201a"; g.textAlign="center";
+    const lines = wrapLines(g, (typeof tppText==="object" && tppText.title) || opt.title || "", inW);
+    // centred in the box rather than hung from the top, which is how it reads
+    let y = yTitle + (hTitle - lines.length*lh)/2 + fs;
+    if(y < yTitle + Math.round(PDF_DPI*0.24)) y = yTitle + Math.round(PDF_DPI*0.24);
+    lines.forEach(ln=>{ if(ln) g.fillText(ln, x+col/2, y); y += lh; });
+    g.textAlign="left";
+  }
+
+  /* ---- scale | sheet ---- */
+  {
+    const half = Math.round(col*0.46);
+    tppCell(g, x, yScale, half, hScale, "Scale");
+    tppCell(g, x+half, yScale, col-half, hScale, "Sheet");
+    g.fillStyle="#12201a"; g.textAlign="center";
+    g.font = `${Math.round(PDF_DPI*0.095)}px sans-serif`;
+    g.fillText(opt.scaleText || "N.T.S.", x + half/2, yScale + Math.round(PDF_DPI*0.28));
+    if(opt.scaleBar && typeof drawScaleBar === "function"){
+      try{ drawScaleBar(g, x + Math.round(PDF_DPI*0.06), yScale + hScale - Math.round(PDF_DPI*0.07),
+                        opt.scaleBar.sc, opt.scaleBar.z, opt.scaleBar.lat); }catch(err){}
+    }
+    g.fillStyle="#12201a"; g.textAlign="center";
+    g.font = `bold ${Math.round(PDF_DPI*0.17)}px sans-serif`;
+    g.fillText(String(opt.sheetLabel||""), x + half + (col-half)/2, yScale + Math.round(PDF_DPI*0.46));
+    g.textAlign="left";
+  }
+
+  /* ---- date ---- */
+  tppCell(g, x, yDate, col, hDate, "Date");
+  g.fillStyle="#12201a"; g.textAlign="left";
+  g.font = `${Math.round(PDF_DPI*0.075)}px sans-serif`;
+  g.fillText(String(opt.date || tppDateStamp()), x+pad, yDate + Math.round(PDF_DPI*0.31));
+
+  g.textAlign="left"; g.textBaseline="alphabetic";
+  return tppContentRect(W, H);
+}
+
+/* ---------- putting content into the frame ----------
+   The arborist report is an 8.5x11 portrait document and the sheet is 11x17
+   landscape, so its pages go TWO UP in the content area — which is also what makes
+   the first sheet work, title page left and contents right.
+
+   This replaces a drawImage(im, 0, 0, W, H) that stretched every portrait page to
+   fill a landscape sheet: text at half its height and double its width, on every
+   report page of every document ever assembled. It was never seen because the menu
+   group that reaches the assembler could not open until v106. */
+const TPP_SLOT_GAP_IN = 0.10;
+function tppSlots(W, H){
+  const r = tppContentRect(W, H);
+  const gap = Math.round(PDF_DPI*TPP_SLOT_GAP_IN);
+  const w = Math.floor((r.w - gap)/2);
+  return [ {x:r.x, y:r.y, w:w, h:r.h},
+           {x:r.x+w+gap, y:r.y, w:r.w-w-gap, h:r.h} ];
+}
+function loadImageData(src){
+  return new Promise(res=>{
+    if(!src) return res(null);
+    const im = new Image();
+    im.onload  = ()=>res(im);
+    im.onerror = ()=>res(null);
+    im.src = src;
+  });
+}
+// Fitted, never filled: the aspect ratio of the page is the page.
+function drawFitted(g, im, box){
+  const iw = im.width || box.w, ih = im.height || box.h;
+  const s = Math.min(box.w/iw, box.h/ih);
+  const w = iw*s, h = ih*s;
+  const x = box.x + (box.w-w)/2, y = box.y + (box.h-h)/2;
+  g.drawImage(im, x, y, w, h);
+  return {x:x, y:y, w:w, h:h};
+}
+/* One assembled sheet: up to two portrait pages side by side, then the frame. The
+   frame goes LAST so nothing can be drawn over the title block. */
+async function composeTppSheet(W, H, pages, frameOpt){
+  const cv = document.createElement("canvas"); cv.width=W; cv.height=H;
+  const g = cv.getContext("2d");
+  g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+  const slots = tppSlots(W, H);
+  for(let i=0; i<Math.min(2, pages.length); i++){
+    const im = await loadImageData(pages[i]);
+    if(im) drawFitted(g, im, slots[i]);
+  }
+  await drawTppFrame(g, W, H, frameOpt || {});
+  return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
+}
+/* One assembled sheet holding a single landscape page — a table or a photo sheet,
+   already drawn at the content rect's size. */
+async function composeTppFull(W, H, page, frameOpt){
+  const cv = document.createElement("canvas"); cv.width=W; cv.height=H;
+  const g = cv.getContext("2d");
+  g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+  const im = await loadImageData(page);
+  if(im) drawFitted(g, im, tppContentRect(W, H));
+  await drawTppFrame(g, W, H, frameOpt || {});
+  return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
+}
+
+/* ---------- the contents page ----------
+   A bordered PAGE / DESCRIPTION table filling ONE SLOT of the first sheet, with the
+   arborist report's title page beside it. Three things the old version got wrong and
+   the sample settles: the contents LISTS ITSELF as the first entry, each standard
+   detail is named individually rather than lumped as "standard details", and the
+   last row is a Notes row. */
+function tppContentsImage(entries, slotW, slotH, note){
+  const cv = document.createElement("canvas"); cv.width=slotW; cv.height=slotH;
+  const g = cv.getContext("2d");
+  g.fillStyle="#ffffff"; g.fillRect(0,0,slotW,slotH);
+
+  const M   = Math.round(PDF_DPI*0.30);
+  const x   = M, w = slotW - M*2;
+  const pad = Math.round(PDF_DPI*0.07);
+  const fs  = Math.round(PDF_DPI*0.105);
+  const hdrH = Math.round(PDF_DPI*0.34);
+  const pageW = Math.round(w*0.24);
+
+  g.textAlign="left"; g.textBaseline="alphabetic";
+  g.strokeStyle="#12201a"; g.lineWidth=2;
+
+  let y = M;
+  // banner
+  g.strokeRect(x, y, w, hdrH);
+  g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.15)}px sans-serif`;
+  g.textAlign="center";
+  g.fillText("CONTENTS", x + w/2, y + hdrH*0.70);
+  g.textAlign="left";
+  y += hdrH;
+
+  // column heads
+  g.strokeRect(x, y, pageW, hdrH);
+  g.strokeRect(x + pageW, y, w - pageW, hdrH);
+  g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+  g.fillText("PAGE", x + pad, y + hdrH*0.68);
+  g.fillText("DESCRIPTION", x + pageW + pad, y + hdrH*0.68);
+  y += hdrH;
+
+  /* Rows are as tall as they need to be — a long detail name wraps rather than being
+     cut, because the contents is the one page a reviewer reads first. */
+  const rowMin = Math.round(PDF_DPI*0.38);
+  const lh = Math.round(fs*1.28);
+  entries.forEach(e=>{
+    g.font = `${fs}px sans-serif`;
+    const lines = wrapLines(g, String(e.name||"").toUpperCase(), w - pageW - pad*2);
+    const h = Math.max(rowMin, lines.length*lh + Math.round(PDF_DPI*0.16));
+    if(y + h > slotH - M) return;                 // ran out of sheet; the caller warns
+    g.strokeStyle="#12201a"; g.lineWidth=2;
+    g.strokeRect(x, y, pageW, h);
+    g.strokeRect(x + pageW, y, w - pageW, h);
+    g.fillStyle="#12201a"; g.font=`${fs}px sans-serif`;
+    g.fillText(e.label || "", x + pad, y + h/2 + fs*0.36);
+    const ty = y + (h - lines.length*lh)/2 + fs*0.9;
+    lines.forEach((ln,i)=> g.fillText(ln, x + pageW + pad, ty + i*lh));
+    y += h;
+  });
+
+  if(note){
+    g.font = `bold ${fs}px sans-serif`;
+    const lines = wrapLines(g, note, w - pageW - pad*2);
+    const h = Math.max(rowMin, lines.length*lh + Math.round(PDF_DPI*0.16));
+    if(y + h <= slotH - M){
+      g.strokeStyle="#12201a"; g.lineWidth=2;
+      g.strokeRect(x, y, pageW, h);
+      g.strokeRect(x + pageW, y, w - pageW, h);
+      g.fillStyle="#12201a";
+      g.fillText("Notes:", x + pad, y + h/2 + fs*0.36);
+      const ty = y + (h - lines.length*lh)/2 + fs*0.9;
+      lines.forEach((ln,i)=> g.fillText(ln, x + pageW + pad, ty + i*lh));
+    }
+  }
+  return cv.toDataURL("image/jpeg", 0.92);
+}
+
+/* ---------- the landscaping sheet ----------
+   A heading, a boxed block of wording, and the plant list in its bands. The wording
+   is whatever was typed into the boilerplate, so it is the arborist's text and not
+   the app's; the section simply does not appear when that box is empty, which is what
+   "optional" means here.
+
+   A line that opens "Timing:" or "Watering:" prints its lead word in bold, as the
+   sample does — the only formatting the block understands, and enough. */
+function landscapingPages(W, H){
+  const rows = plantListGroups();
+  const note = (typeof tppText === "object" && tppText.landscape) || "";
+  if(!rows.length && !note) return [];
+
+  const M   = Math.round(PDF_DPI*0.30);
+  const pad = Math.round(PDF_DPI*0.07);
+  const colTitles = ["Key","Qty","Botanical Name","Common Name","Size","Comments"];
+  const fs  = Math.round(PDF_DPI*0.078);
+  const lh  = Math.round(fs*1.30);
+  const rowH = Math.round(fs*1.75);
+  const bandH = Math.round(fs*1.9);
+
+  /* The block is a single column of about a page's width, set to the left of the
+     content area — the sample does not run it across the whole sheet, because a
+     six-column plant list stretched to seventeen inches is unreadable. */
+  const boxW = Math.min(W - M*2, Math.round(PDF_DPI*8.4));
+  const boxX = M + Math.round(PDF_DPI*0.9);
+
+  const probe = document.createElement("canvas").getContext("2d");
+  const cw = [0.09, 0.07, 0.30, 0.26, 0.15, 0.13].map(f=>Math.round((boxW-pad*2)*f));
+
+  const pages = [];
+  let cv, g, y;
+  const newPage = ()=>{
+    cv = document.createElement("canvas"); cv.width=W; cv.height=H;
+    g = cv.getContext("2d");
+    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
+    g.textAlign="left"; g.textBaseline="alphabetic";
+    y = M;
+  };
+  const flush = ()=>{ if(cv) pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H}); };
+  const room = (need)=>{ if(y + need > H - M){ flush(); newPage(); } };
+
+  newPage();
+
+  // heading
+  g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.26)}px sans-serif`;
+  g.fillText("LANDSCAPING PLAN", boxX, y + Math.round(PDF_DPI*0.30));
+  y += Math.round(PDF_DPI*0.48);
+
+  if(note){
+    probe.font = `${fs}px sans-serif`;
+    const lines = [];
+    note.split("\n").forEach(para=>{
+      if(!para.trim()){ lines.push(null); return; }      // paragraph break
+      const lead = /^(Timing|Watering|Note|Notes)\s*:/i.exec(para);
+      wrapLines(probe, para, boxW - pad*2).forEach((ln,i)=>
+        lines.push({ text:ln, bold: !!lead && i===0, leadLen: lead ? lead[0].length : 0 }));
+    });
+    const bodyH = lines.length*lh + pad*2 + Math.round(PDF_DPI*0.30);
+    room(bodyH);
+    const top = y;
+    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.12)}px sans-serif`;
+    g.fillText("NOTES / INSTRUCTIONS", boxX+pad, y + Math.round(PDF_DPI*0.20));
+    let ty = y + Math.round(PDF_DPI*0.40);
+    lines.forEach(ln=>{
+      if(ln === null){ ty += lh*0.5; return; }
+      if(ln.bold){
+        const head = ln.text.slice(0, ln.leadLen), rest = ln.text.slice(ln.leadLen);
+        g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+        g.fillText(head, boxX+pad, ty);
+        const off = g.measureText(head).width;
+        g.font=`${fs}px sans-serif`; g.fillStyle="#1d2b23";
+        g.fillText(rest, boxX+pad+off, ty);
+      } else {
+        g.font=`${fs}px sans-serif`; g.fillStyle="#1d2b23";
+        g.fillText(ln.text, boxX+pad, ty);
+      }
+      ty += lh;
+    });
+    g.strokeStyle="#12201a"; g.lineWidth=2;
+    g.strokeRect(boxX, top, boxW, ty - top + pad);
+    y = ty + pad + Math.round(PDF_DPI*0.20);
+  }
+
+  if(rows.length){
+    room(Math.round(PDF_DPI*1.2));
+    const top = y;
+    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.12)}px sans-serif`;
+    g.fillText("PLANT LIST", boxX+pad, y + Math.round(PDF_DPI*0.20));
+    y += Math.round(PDF_DPI*0.32);
+
+    const header = ()=>{
+      g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+      let x = boxX + pad;
+      colTitles.forEach((h,c)=>{ g.fillText(h, x, y + fs); x += cw[c]; });
+      g.strokeStyle="#12201a"; g.lineWidth=1.5;
+      g.beginPath(); g.moveTo(boxX, y+rowH-2); g.lineTo(boxX+boxW, y+rowH-2); g.stroke();
+      y += rowH;
+    };
+
+    rows.forEach(band=>{
+      room(bandH + rowH*2);
+      g.fillStyle="#12201a"; g.font=`bold ${Math.round(fs*1.05)}px sans-serif`;
+      g.fillText(band.band, boxX+pad, y + fs);
+      y += bandH;
+      header();
+      band.groups.forEach(gp=>{
+        room(bandH + rowH);
+        g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+        g.fillText(gp.band, boxX+pad, y + fs);
+        y += bandH;
+        gp.rows.forEach(r=>{
+          room(rowH);
+          g.fillStyle="#1d2b23"; g.font=`${fs}px sans-serif`;
+          let x = boxX + pad;
+          r.forEach((v,c)=>{
+            const t = String(v==null?"":v);
+            const fit = wrapLines(g, t, cw[c]-pad/2)[0] || "";
+            g.fillText(fit, x, y + fs);
+            x += cw[c];
+          });
+          g.strokeStyle="#d7dedb"; g.lineWidth=1;
+          g.beginPath(); g.moveTo(boxX, y+rowH-2); g.lineTo(boxX+boxW, y+rowH-2); g.stroke();
+          y += rowH;
+        });
+      });
+      y += Math.round(PDF_DPI*0.12);
+    });
+    g.strokeStyle="#12201a"; g.lineWidth=2;
+    g.strokeRect(boxX, top, boxW, Math.min(y, H-M) - top);
+  }
+  flush();
+  return pages;
+}
+
+/* TPP7 – TPP15, or TPP18 on its own. */
+function tppPageRange(start, count, prefix){
+  const p = prefix || "TPP";
+  return count > 1 ? p+start + " - " + p+(start+count-1) : p+start;
+}
+
+/* SEPT16/2026 — the sample's own stamp, and short enough for the cell. */
+const TPP_MONTHS = ["JAN","FEB","MAR","APR","MAY","JUNE","JULY","AUG","SEPT","OCT","NOV","DEC"];
+function tppDateStamp(d){
+  const t = d ? new Date(d) : new Date();
+  if(isNaN(t.getTime())) return "";
+  return TPP_MONTHS[t.getMonth()] + String(t.getDate()).padStart(2,"0") + "/" + t.getFullYear();
+}
+
+function sheetLegendRows(shown){
+  const present = legendRows().filter(r=>{
+    if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
+    if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
+                                      (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
+    return true;
+  }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
+  if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
+  if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:"#FF6D00", kind:"line"});
+  if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
+  if(sheetFeats.sapling) present.push({label:"Proposed sapling, within the woodlot", color:"#66BB6A", kind:"dot"});
+  refLayers.filter(l=>l.visible).forEach(l=>
+    present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
+  if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
+  return present;
+}
+
 function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
   const top = H - M - panelH, x = M, w = W - M*2;
   g.fillStyle="#12201a"; g.fillRect(x,top,w,panelH);
@@ -9484,22 +10946,7 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     mx += Math.max(g.measureText(v).width, Math.round(PDF_DPI*0.9)) + Math.round(PDF_DPI*0.28);
   });
 
-  /* Legend of EVERY layer on the sheet — the tree classes actually present, the
-     protection zones, each reference layer and the site plan. A legend that names
-     only the trees leaves a reader guessing what the other lines and shading are. */
-  const present = legendRows().filter(r=>{
-    if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
-    if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
-                                      (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
-    return true;
-  }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
-  if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
-  if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:"#FF6D00", kind:"line"});
-  if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
-  if(sheetFeats.sapling) present.push({label:"Proposed sapling, within the woodlot", color:"#66BB6A", kind:"dot"});
-  refLayers.filter(l=>l.visible).forEach(l=>
-    present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
-  if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
+  const present = sheetLegendRows(shown);
 
   /* The legend is laid out INSIDE the space left by the badge, not across a fixed
      fraction of the panel. It used to run to 99% of the width in two fixed columns
@@ -9990,6 +11437,7 @@ function openSettings(){
   $("setPhotoQ").innerHTML = Object.keys(PHOTO_PRESETS)
     .map(k=>`<option value="${k}">${esc(PHOTO_PRESETS[k].label)}</option>`).join("");
   $("setPhotoQ").value = photoQuality;
+  $("setPhotoNag").value = (settings.photoNag === false) ? "0" : "1";
   $("setTPP").value = isTPP(currentProject()) ? "1" : "0";
   $("setYrDec").value = yrRateDec; $("setYrCon").value = yrRateCon; $("setYrYear").value = yrRateYear;
   $("setPhotoQ").onchange = paintPhotoQNote;
@@ -10037,6 +11485,7 @@ function saveSettings(){
   settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
   setCrownMethod($("setCrownMethod").value);
   setPhotoQuality($("setPhotoQ").value);
+  settings.photoNag = $("setPhotoNag").value !== "0";
   setYrRates($("setYrDec").value, $("setYrCon").value, $("setYrYear").value);
   setTPP(currentProject(), $("setTPP").value === "1");
   applyTPPMode(); refreshMenuMode();
@@ -10127,9 +11576,10 @@ function clearProjectLocal(){
 
   // Only drop photos already backed up; anything still waiting to upload stays put.
   if(HAS_IDB){
-    idbAll().then(list=>{
-      const drop = list.filter(r=>photoNames[r.filename] && r.uploaded);
-      const kept = list.filter(r=>photoNames[r.filename] && !r.uploaded).length;
+    idbMeta().then(meta=>{
+      const mine = meta.filter(r=>photoNames[r.filename]);
+      const drop = mine.filter(r=>r.uploaded);
+      const kept = mine.length - drop.length;
       drop.forEach(r=>idbDelete(r.filename));
       updateArchCount();
       if(kept) toast(`${kept} photo(s) kept — not yet backed up`);
@@ -10148,6 +11598,9 @@ function clearAllData(){
   // plantings with nothing under them.
   feats=[]; persistFeats();
   featDeletes=[]; persistFeatDeletes();
+  /* An undo stack pointing at trees that no longer exist is not an undo, and an
+     "Undo · 40 tree(s)" button that would restore nothing is worse than no button. */
+  bulkUndo=[]; persistBulkUndo();
   idbClear().catch(()=>{});
   renderPins(); renderFeats(); closeMenu();
   toast("Device data cleared");
@@ -10169,6 +11622,8 @@ function showHelp(){
     <p>Their original ID is kept in <b>EXT_ID</b> and travels through to the export, so the old numbering survives even though each tree also gets a new ID. Imported trees start red in the form and gain a halo once you have visited them, so a street shows you how much is left. Re-importing the same file will not duplicate anything, and <b>Menu → Layers</b> can take a whole import back out again if it was the wrong file.</p>
     <p><b>Matching fields on import</b><br>When you match an incoming layer's columns to the tree fields, each option shows two real sample values beside the column name — so <i>NAME1 · sugar maple / norway maple</i> tells you what it holds without opening the file. Columns that are entirely empty are marked as such.</p>
     <p><b>Building from an existing layer</b><br>Tap any feature on a reference layer to see its attributes, then <b>＋ Tree here</b> to create a tree at that spot. Use <b>Set fields</b> (or the ⇥ button in Layers) to choose once which of the layer's attributes fill species, DBH, stems, health, address, notes and the existing ID — after that every tap carries them across. Species and health text is matched to the app's own lists, and a live preview shows exactly what will be copied before you commit.</p>
+    <p><b>GPX track logs</b><br><b>Menu → Layers → Add layer / GPX track</b> takes a .gpx straight off a handheld GPS or a phone logger. Waypoints come in as points, and a <b>track log</b> — where you actually walked — comes in as a line, one per segment, so a break where the GPS lost its fix is not drawn as a straight line across the site. Each track carries its <b>length in metres</b>, the number of fixes, and the start and end times. Planned routes come in too.</p>
+    <p><b>Sending a layer back out</b><br>The <b>⬇</b> button on any layer row in <i>Menu → Layers</i> exports it as a <b>shapefile</b> (a .zip with the .shp, .shx, .dbf, .prj and .cpg) or as <b>GeoJSON</b>, both carrying every attribute the layer holds. A shapefile can only hold one geometry type, so a mixed layer — waypoints and tracks in the same GPX — comes out as separate shapefiles inside the one zip. This works on any reference layer, not only GPX, so a parcel fabric or a plan you brought in can go back to the office in either format.</p>
     <p><b>Removing an import</b><br>Menu → Layers lists both reference layers and every batch of tree points you have imported, with the file name, count and date. Removing a batch deletes exactly those trees from the phone and the Sheet — useful when a file goes in by mistake. It warns if any of them have been edited since.</p>
     <p><b>Parcel and road layers — where accurate addresses come from</b><br>Load your parcel fabric and street centrelines the same way, as zipped shapefiles, under <b>Menu → Layers → Add reference layer</b>. When each one loads you are asked what it is for, and which column holds the value:</p>
     <p><b>Any other layer you find useful</b><br>Load as many as you like: aerial-derived boundaries, hydro corridors, sidewalks, ward boundaries, last year's plantings. Points, lines and polygons all draw. A layer left as <i>Backdrop only</i> is never edited and never exported — it is there to help you work. Each gets its own colour, an on/off switch, a zoom-to button, and its own label settings, so you can label parcels with their roll number while trees show species and DBH.</p>
@@ -10193,11 +11648,16 @@ function showHelp(){
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
     <p><b>Where photos go</b><br>On the phone until they upload, then into <b>My Drive → Street Tree Photos</b> on the Google account that authorised the script. Archived projects move to <i>Street Tree Photos - Archive</i>, zipped export packages go to <i>Street Tree Exports</i>, and workbook backups to <i>Street Tree Backups</i>.</p>
-    <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp.</p>
+    <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal, one at a time rather than all at once. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp. A small thumbnail is kept alongside each photo, so opening a tree shows its photos without loading the full-size images.</p>
+    <p><b>Saving without a photo</b><br>If a tree is saved with no photograph the app asks once, because a missing photo is usually a forgotten one rather than a decision. Answering <i>save it anyway</i> goes straight through, and the whole reminder can be switched off in <i>Menu → Settings</i> for work that does not photograph every tree.</p>
+    <p><b>If the app closes with a tree open</b><br>Every change you make to a tree form is written to the phone as you make it. If the app is killed — a flat battery, a dropped phone, the operating system reclaiming memory — the next launch offers the tree back exactly as you left it, photographs included, for you to check and save. Saving or cancelling clears it, so you are only ever offered a tree after an exit you did not choose. Declining throws it away rather than asking again next time.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, recorder, species, DBH class, day, treatment, risk and position source. Pick a <b>project</b> and a <b>recorder</b> at the top, and a date range — comparing one recorder against another, or last year against this year, without changing what the map shows. It starts on whatever the map is showing, and the figures export to CSV with the scope recorded in them.</p>
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
-    <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, <b>Undo</b> drops the last point, and once selected you can assign the whole group to a project in one go — the quickest way to sort a mixed import onto the right job. They re-sync automatically.</p>
+    <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, and <b>Undo</b> drops the last point. Only trees you can actually see are caught — the <i>Showing</i> filter decides, so a lasso drawn on one job never picks up another job's trees lying underneath.</p>
+    <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
+    <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
+    <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
     <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
     <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
@@ -10205,7 +11665,9 @@ function showHelp(){
     <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
     <p><b>The menu follows the job</b><br>At the top of the menu a line reads <b>This project: tree inventory</b> or <b>tree protection plan</b> — tap it to change. On a tree protection plan the form gains potential impact, prognosis and recommended action, and a <b>🛡 Tree protection &amp; reporting</b> group appears with everything for that work in the order you do it: on site, then the report tables, then the document. On a plain inventory all of that stays hidden, so a crew recording street trees is not scrolling past schedules to reach Sync. It follows the project, so the same phone can do both, and nothing already recorded is lost by switching.</p>
-    <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one paginated PDF. Tick the sections, order them with the arrows, and add your own PDFs — the arborist report, custom tables, figures — which are read page by page and merged. Page numbering is your choice: <b>TPP1, TPP2…</b> with an editable prefix, or plain numbers. The <b>contents page is built last, from the real page counts</b>, so it always matches. Tables are rendered from the same rows as the CSV exports, with the header repeated on every page.</p>
+    <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one submission PDF in the <b>tree protection plan format</b>: every sheet is 11×17 with the title block down its right edge — key map, legend, base data credits, prepared by with your logo, prepared for, title, scale and sheet number — and the content laid out to its left. An 8.5×11 arborist report goes <b>two pages up</b> on each sheet, at its own proportions.</p>
+    <p>Tick the sections and order them with the arrows. <b>Add PDFs</b> asks what each one is as it goes in, because that wording is what the contents page prints — the ✎ button renames a section later. The <b>first sheet is the report’s title page on the left and the contents on the right</b>; the contents lists itself as TPP1, names every standard detail separately, and ends with your note. It is written last, from where the sheets actually landed, so it cannot disagree with the document.</p>
+    <p>Fill in <i>TPP wording &amp; branding</i> first — prepared for, the title block, the base data credits, the landscaping wording and your logo. It is kept on the phone and carried to the next plan, so only the top two boxes normally change between jobs. The <b>landscaping sheet</b> prints your wording above the plant list, banded caliper-outside-the-woodlot then saplings-in-the-woodlot, each split deciduous and coniferous; leave the wording blank and the whole section is left out. Schedule A wraps its cells rather than cutting them, so the condition notes print in full.</p>
     <p><b>Fences and plantings</b><br>Both live under <i>🛡 Tree protection &amp; reporting → On site</i>, which appears once the project is set to a tree protection plan. <i>Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap. Both then open a form: a planting takes <b>species</b> (the same picker the inventory uses), <b>stock size</b>, <b>address</b> and <b>notes</b>; a fence takes its <b>type</b>, with the length measured for you, plus address and notes. The address fills itself in from the parcel layer or the geocoder, exactly as a tree's does. Tap either on the map to edit or delete it. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
     <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
@@ -10279,6 +11741,9 @@ window.addEventListener("offline", netDot);
   buildPickers();
   $("btnGo").classList.add("nofix");
   wireChangeTracking();
+  /* Read BEFORE the purge: the half-finished tree the draft belongs to is exactly
+     what purgeAbandoned throws away, and the draft is what puts it back. */
+  const hadDraft = !!loadDraft();
   const abandoned = purgeAbandoned();   // left over from a crash or a force-close
   syncLabelBtn();
   netDot();
@@ -10299,9 +11764,16 @@ window.addEventListener("offline", netDot);
   syncFeats();
   flushFeatDeletes();
   updateProjBtn();
-  if(abandoned) setTimeout(()=>toast(`${abandoned} unfinished tree(s) discarded`), 900);
+  /* Not announced when there is a draft to offer: "1 unfinished tree discarded"
+     followed by "put it back?" reads as two contradictory messages about the same
+     tree. */
+  if(abandoned && !hadDraft) setTimeout(()=>toast(`${abandoned} unfinished tree(s) discarded`), 900);
   if(!settings.cruiser) setTimeout(openSettings, 700);
-  else setTimeout(()=>verifySync(true), 6000);   // catch anything a previous session only thought it sent
+  else {
+    // After the map is up, so the restored tree has something to sit on.
+    setTimeout(offerDraft, 1200);
+    setTimeout(()=>verifySync(true), 6000);   // catch anything a previous session only thought it sent
+  }
   if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
 })();
 </script>
