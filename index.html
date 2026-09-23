@@ -695,13 +695,34 @@
       <div class="mini">Shared with the whole crew once you save.</div>
     </div>
     <div class="fld">
-      <label>York Region replacement costs</label>
+      <label>York Region replacement cost</label>
       <div class="row2">
-        <div><input id="setYrDec" type="text" inputmode="decimal" placeholder="deciduous"></div>
-        <div><input id="setYrCon" type="text" inputmode="decimal" placeholder="coniferous"></div>
+        <div><input id="setYrDec" type="text" inputmode="decimal" placeholder="1290"></div>
+        <div><input id="setYrYear" type="text" placeholder="rate year, e.g. 2025"></div>
       </div>
-      <input id="setYrYear" type="text" placeholder="rate year, e.g. 2022" style="margin-top:6px">
-      <div class="mini">Per replacement tree. The Guidelines publish 2022 rates and say to confirm the current ones with the Region.</div>
+      <input id="setYrCon" type="hidden">
+      <div class="mini">Per replacement tree, from the Region's Tree Removal Offsetting table. One rate for every tree since May 2025 — the deciduous and coniferous split was dropped. The Region reviews this figure, so confirm it for the job.</div>
+    </div>
+
+    <div class="fld">
+      <label>Tree value — trunk formula</label>
+      <div class="row2">
+        <div><input id="setApprHard" type="text" inputmode="decimal" placeholder="hardwood $"></div>
+        <div><input id="setApprCon" type="text" inputmode="decimal" placeholder="conifer $"></div>
+      </div>
+      <div class="row2" style="margin-top:6px">
+        <div><input id="setApprCal" type="text" inputmode="decimal" placeholder="caliper cm (5)"></div>
+        <div class="row2">
+          <div><input id="setApprSp" type="text" inputmode="decimal" placeholder="species .75"></div>
+          <div><input id="setApprLoc" type="text" inputmode="decimal" placeholder="location .75"></div>
+        </div>
+      </div>
+      <div class="mini" id="apprWhy"></div>
+    </div>
+    <div class="fld">
+      <label>Condition factors for the appraisal</label>
+      <div id="apprFactorRows"></div>
+      <div class="mini">A condition left <b>blank</b> produces no tree value at all, rather than a guessed one — a wrong factor is a wrong dollar figure in a submitted report. Good and Satisfactory are set from a real report table; fill the rest in when you have them.</div>
     </div>
 
     <div class="fld">
@@ -1047,7 +1068,14 @@
     <div class="fld"><label>Document title</label><input id="docTitle" type="text" placeholder="1 Cynthia Crescent, Richmond Hill"></div>
     <div class="row2">
       <div class="fld"><label>Sheet prefix</label><input id="docPrefix" type="text" value="TPP"></div>
-      <div class="fld"></div>
+      <div class="fld"><label>Value column</label>
+        <select id="docValue">
+          <option value="offset">Offsetting value — York Region</option>
+          <option value="appraisal">Tree value — appraisal</option>
+          <option value="both">Both columns</option>
+          <option value="none">No value column</option>
+        </select>
+      </div>
     </div>
     <div class="row2">
       <div class="fld"><label>Sheet size</label>
@@ -1378,7 +1406,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-23 · v117";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-23 · v121";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2745,14 +2773,27 @@ function isFraxinus(t){
   const sp = String(t.SPECIES||"");
   return /\bash\b/i.test(sp) && !NOT_REALLY_ASH.test(sp);
 }
-let yrRateDec = 909.11, yrRateCon = 834.36, yrRateYear = "2022";
+/* ONE replacement cost now, for every tree. The May 2025 table dropped the split
+   between deciduous and coniferous, so the two old rates are kept only so an older
+   saved setting still loads and the deciduous one seeds the new single rate. The
+   Region reviews this figure, so it is a setting rather than a constant. */
+let yrRateRepl = 1290, yrRateYear = "2025";
+let yrRateDec = 1290, yrRateCon = 1290;      // legacy, kept in step with the above
 try{
   const r = JSON.parse(STORE&&STORE.getItem("st_yrrates")) || null;
-  if(r){ yrRateDec = r.d ?? yrRateDec; yrRateCon = r.c ?? yrRateCon; yrRateYear = r.y || yrRateYear; }
+  if(r){
+    yrRateRepl = (r.r ?? r.d) || yrRateRepl;
+    yrRateYear = r.y || yrRateYear;
+  }
+  yrRateDec = yrRateCon = yrRateRepl;
 }catch(e){}
-function setYrRates(d,c,y){
-  yrRateDec = parseFloat(d)||0; yrRateCon = parseFloat(c)||0; yrRateYear = String(y||"").trim();
-  if(STORE){ try{ STORE.setItem("st_yrrates", JSON.stringify({d:yrRateDec,c:yrRateCon,y:yrRateYear})); }catch(e){} }
+function setYrRates(r,c,y){
+  /* Called with (replacementCost, ignored, year). The middle argument is the old
+     coniferous rate and is accepted so an existing settings screen cannot throw. */
+  yrRateRepl = parseFloat(r)||0;
+  yrRateDec = yrRateCon = yrRateRepl;
+  yrRateYear = String(y||"").trim();
+  if(STORE){ try{ STORE.setItem("st_yrrates", JSON.stringify({r:yrRateRepl,y:yrRateYear})); }catch(e){} }
 }
 
 function yrConditionPct(health){
@@ -2783,21 +2824,114 @@ function yrExempt(t){
   if(v==="N") return false;               // e.g. an ash under EAB treatment
   return !!yrExemptReason(t);
 }
-/* Replacement trees, unrounded then rounded to the nearest whole tree — which is
-   what the Guidelines' own table does (2.4 -> 2, 5.76 -> 6, 6.4 -> 6). */
+/* ------------------------------------------------------------------ *
+ *  YORK REGION TREE REMOVAL OFFSETTING — the May 2025 table
+ * ------------------------------------------------------------------ *
+
+   THIS REPLACED AN OLDER METHOD, and the old one was still being used to put
+   figures in reports. It worked replacement trees out as DBH ÷ 5 × a condition
+   percentage, at 2022 rates of $909.11 deciduous and $834.36 coniferous.
+
+   The current method is a LOOKUP, not a formula. Three things decide it — a size
+   class from the DBH, whether the species is desirable, and a condition class —
+   and the answer is read from the Region's own table. One replacement cost now
+   applies to every tree, $1,290 as at May 2025, with no split between deciduous
+   and coniferous.
+
+   The numbers below are transcribed from the Region's own workbook, the Data Sets
+   and Drop Down Menus tabs of the May 2025 template. */
+
+// DBH to size class. 0 has no class at all; the bands are inclusive upper bounds.
+function yrSizeClass(dbhCm){
+  const d = parseFloat(dbhCm);
+  if(!isFinite(d) || d <= 0) return "";
+  if(d <= 10) return "A";
+  if(d <= 25) return "B";
+  if(d <= 50) return "C";
+  if(d <= 75) return "D";
+  return "E";
+}
+
+/* The Region names four Less Desirable species and five Exempt ones; everything
+   else is Desirable, which is what their own lookup falls back to.
+
+   Fraxinus is EXEMPT OUTRIGHT here — no emerald ash borer question, unlike the
+   older rule the app carried. Ailanthus is spelt "Aianthus" in the Region's file;
+   both spellings are matched so a correctly spelt tree is not charged for. */
+const YR_LESS_DESIRABLE = [
+  [/acer\s+negundo|manitoba\s*maple|box\s*elder/i,       "Manitoba maple"],
+  [/pinus\s+sylvestris|scots\s*pine|scotch\s*pine/i,     "Scots pine"],
+  [/robinia\s+pseudoacacia|black\s*locust/i,             "Black locust"]
+];
+function yrSpeciesClass(t){
+  /* THE COMMON NAME COUNTS, not only the botanical one. A tree recorded as "White
+     Ash" with no botanical name must still come out exempt — the suite caught this
+     charging for one. isFraxinus and YR_EXEMPT_RULES already do that carefully,
+     including keeping Mountain Ash, Wafer Ash and Prickly Ash out of it, so they
+     are reused rather than written again against the botanical name alone.
+
+     The Region's exempt list and YR_EXEMPT_RULES are the same five species:
+     Ailanthus, European alder, Russian olive, buckthorn, and Fraxinus — which
+     under this method is exempt outright, with no emerald ash borer question. */
+  if(isFraxinus(t)) return "Exempt";
+  const hay = [t && t.SPECIES, t && t.BOTANICAL, t && t.GENUS].filter(Boolean).join(" ");
+  for(const r of YR_EXEMPT_RULES)   if(r[0].test(hay)) return "Exempt";
+  for(const r of YR_LESS_DESIRABLE) if(r[0].test(hay)) return "Less Desirable";
+  return "Desirable";
+}
+function yrSpeciesClassWhy(t){
+  if(isFraxinus(t)) return "Ash — exempt species";
+  const hay = [t && t.SPECIES, t && t.BOTANICAL, t && t.GENUS].filter(Boolean).join(" ");
+  for(const r of YR_EXEMPT_RULES)   if(r[0].test(hay)) return r[1] + " — exempt species";
+  for(const r of YR_LESS_DESIRABLE) if(r[0].test(hay)) return r[1] + " — less desirable";
+  return "";
+}
+
+// Condition rating to condition class, from the Region's drop-down sheet.
+const YR_CONDITION_CLASS = {
+  "good":"Healthy", "satisfactory":"Healthy",
+  "potential trouble":"Poor", "declining":"Poor",
+  "death imminent":"Exempt", "dead":"Exempt",
+  // the app also records these, and a tree already gone is not offset
+  "removed":"Exempt", "stump":"Exempt", "stump carving":"Exempt"
+};
+function yrConditionClass(health){
+  return YR_CONDITION_CLASS[String(health||"").trim().toLowerCase()] || "";
+}
+
+/* Replacement trees required, read from the Region's table. Rows are the species
+   classification and condition class; columns are the size class A to E. */
+const YR_OFFSET_TABLE = {
+  "Desirable|Healthy":      { A:1, B:2, C:4, D:6, E:8 },
+  "Desirable|Poor":         { A:0, B:1, C:2, D:3, E:4 },
+  "Desirable|Exempt":       { A:0, B:0, C:0, D:0, E:0 },
+  "Less Desirable|Healthy": { A:0, B:0, C:3, D:4, E:5 },
+  "Less Desirable|Poor":    { A:0, B:0, C:1, D:1, E:1 },
+  "Less Desirable|Exempt":  { A:0, B:0, C:0, D:0, E:0 },
+  "Exempt|Healthy":         { A:0, B:0, C:0, D:0, E:0 },
+  "Exempt|Poor":            { A:0, B:0, C:0, D:0, E:0 },
+  "Exempt|Exempt":          { A:0, B:0, C:0, D:0, E:0 }
+};
+
 function yrReplacement(t){
-  const d = parseFloat(t.DBH);
-  const pct = yrConditionPct(t.HEALTH);
-  if(!isFinite(d) || d<=0 || pct===null) return null;
-  if(yrExempt(t)) return { raw:0, rounded:0, pct:pct, exempt:true };
-  const raw = (d / YR_CALIPER_CM) * pct;
-  return { raw: Math.round(raw*100)/100, rounded: Math.round(raw), pct: pct, exempt:false };
+  const size = yrSizeClass(t.DBH);
+  const cond = yrConditionClass(t.HEALTH);
+  if(!size || !cond) return null;
+  /* An explicit YR_EXEMPT of Y still overrides — a tree the Region has agreed to
+     exempt for a reason outside the species list. N no longer forces a tree back
+     in, because under this method the species list is not a judgement call. */
+  let cls = yrSpeciesClass(t);
+  if(String(t.YR_EXEMPT||"").toUpperCase() === "Y") cls = "Exempt";
+  const row = YR_OFFSET_TABLE[cls + "|" + cond];
+  const n = row ? row[size] : 0;
+  return { raw:n, rounded:n, size:size, cls:cls, cond:cond,
+           pct: yrConditionPct(t.HEALTH),
+           exempt: (cls === "Exempt" || cond === "Exempt") };
 }
 function yrValue(t){
   const r = yrReplacement(t);
   if(!r) return null;
-  const rate = yrIsConifer(t) ? yrRateCon : yrRateDec;
-  return Math.round(r.rounded * rate * 100) / 100;
+  return Math.round(r.rounded * yrRateRepl * 100) / 100;
 }
 // Only trees actually coming down attract compensation, on the same inclusion rule
 // the Richmond Hill figure uses, so the two totals cannot disagree about which trees.
@@ -3534,10 +3668,12 @@ function refreshTPZ(){
   const yrEl = $("yrWhy");
   if(yrEl){
     if(!yrR) yrEl.textContent = "York Region: needs a DBH and a condition rating.";
-    else if(yrR.exempt) yrEl.textContent = "York Region: exempt — " + (yrExemptReason(yrT)||"set by hand");
-    else yrEl.textContent = `York Region: ${yrR.raw} → ${yrR.rounded} tree${yrR.rounded===1?"":"s"} ` +
-         `(${dbh}÷5 × ${(yrR.pct*100).toFixed(0)}%) · ${money(yrV)} at the ` +
-         (yrIsConifer(yrT)?"coniferous":"deciduous") + ` rate`;
+    else if(yrR.exempt) yrEl.textContent = "York Region: exempt — " +
+         (yrSpeciesClassWhy(yrT) || (yrR.cond==="Exempt" ? yrT.HEALTH : "set by hand"));
+    /* Shows the three things the Region's table is read by, so the figure can be
+       checked against their own workbook without doing any arithmetic. */
+    else yrEl.textContent = `York Region: ${yrR.rounded} tree${yrR.rounded===1?"":"s"} ` +
+         `· size ${yrR.size} · ${yrR.cls} · ${yrR.cond} · ${money(yrV)}`;
   }
   $("tpzWhy").textContent = `${rep} replacement tree${rep===1?"":"s"} at ${dbh} cm · ` +
     (counted ? "counted in the compensation total"
@@ -6319,14 +6455,23 @@ $("refInput").addEventListener("change", e=>{
 });
 
 // Shared by both importers: read any supported file into WGS84 GeoJSON.
+/* The .prj of the last file read, so the project can remember what frame its data
+   arrived in. shpjs reprojects to WGS84 and throws the .prj away, so it is lifted
+   out of the zip separately rather than asked of shpjs. */
+let lastReadPrj = null;
 async function readGeoFile(file){
   const lower = file.name.toLowerCase();
   let gj;
+  lastReadPrj = null;
   if(lower.endsWith(".geojson")||lower.endsWith(".json")) gj = JSON.parse(await file.text());
   else if(lower.endsWith(".gpx")) gj = gpxToGeo(await file.text());
   else if(lower.endsWith(".zip")||lower.endsWith(".shp")){
+    const buf = await file.arrayBuffer();
+    if(lower.endsWith(".zip")){
+      try{ lastReadPrj = await zipTextEntry(buf, /\.prj$/i); }catch(e){ lastReadPrj = null; }
+    }
     if(!window.shp) await loadScript("https://unpkg.com/shpjs@4.0.4/dist/shp.min.js");
-    gj = await shp(await file.arrayBuffer());
+    gj = await shp(buf);
   } else throw new Error("unsupported file type");
   return await ensureWGS84(gj);
 }
@@ -6356,7 +6501,13 @@ async function importPoints(file){
     ["EXT","SPECIES","DBH","HEALTH","ADDRESS","COMMENTS"].forEach(id=>{
       const sel=$("map"+id);
       sel.innerHTML = `<option value="">— none —</option>` + fieldOptionsWithSamples(recs, keys);
-      const guess = { EXT:/^(id|tree_?id|asset|objectid|fid|ext)/i, SPECIES:/spec|comm|name|tree_?type/i,
+      /* THE EXISTING ID GUESS USED TO MISS THE OBVIOUS ONE. It required a column
+         NAMED like an id — id, tree_id, objectid, fid — and the file that started
+         all this calls it TreeNUM, so nothing was selected, EXT_ID came out blank
+         on all 735 trees, and there was no link back to the source numbering at
+         all. Number-ish names count as ids too. */
+      const guess = { EXT:/^(id|tree_?id|tree_?n(o|um|umber)?|objectid|fid|ext|num|no)\b|^asset|id$|(num|no)$/i,
+                      SPECIES:/spec|comm|name|tree_?type/i,
                       DBH:/dbh|diam/i, HEALTH:/health|cond/i, ADDRESS:/addr|street|location/i,
                       COMMENTS:/note|comment|remark|desc/i }[id];
       const hit = keys.find(k=>guess.test(k));
@@ -6374,6 +6525,9 @@ function confirmImport(){
   const pick = id => $("map"+id).value;
   const fEXT=pick("EXT"), fSP=pick("SPECIES"), fDBH=pick("DBH"), fH=pick("HEALTH"), fA=pick("ADDRESS"), fN=pick("COMMENTS");
   const batchId = "imp"+Date.now().toString(36);
+  /* The frame this data arrived in becomes the project's frame, so everything
+     exported afterwards goes back out in it. */
+  if(lastReadPrj) rememberCRS(settings.project, lastReadPrj);
   let added=0, skipped=0;
   importFeatures.forEach(f=>{
     const ext = fEXT ? String(f.props[fEXT]==null?"":f.props[fEXT]).trim() : "";
@@ -6549,6 +6703,220 @@ function utmToLatLon(x,y,zone){
   return { lat: lat*180/Math.PI, lon: (zone*6-183) + lon*180/Math.PI };
 }
 
+
+/* ================================================================== *
+ *  THE PROJECT'S OWN COORDINATE SYSTEM
+ * ================================================================== *
+
+   What this is for, in one sentence: a shapefile that goes INTO the app in NAD83
+   UTM 17N comes back OUT in NAD83 UTM 17N, so it drops onto the air photo with
+   nothing to define and no transformation dialog.
+
+   THE METRE THAT STARTED THIS. The app used to export geographic coordinates with
+   a .prj saying WGS84, whatever had been imported. Drop that beside a NAD83 base
+   and the GIS applies a NAD83-to-WGS84 transformation, which at Richmond Hill is
+   0.51 m west and 1.01 m north. Nothing was being computed wrongly — the two
+   frames genuinely disagree by 1.13 m — but a plan that lands a metre off the
+   survey is a plan nobody can use, and "define the projection as 4269 first" is
+   not an answer to give somebody every time they export.
+
+   So the incoming .prj is kept, verbatim, against the project, and written back
+   out unchanged. Verbatim matters: re-deriving a WKT from parsed parameters is how
+   a datum quietly turns into a different one.
+
+   WHAT IS SUPPORTED: Transverse Mercator — every UTM zone and every Ontario MTM
+   zone, NAD83 or WGS84 — and plain geographic. Those cover the municipal and
+   survey data this app is given. Anything else (Lambert, Albers, Web Mercator) is
+   not projected: the export stays geographic, says so once, and is still correct
+   rather than quietly wrong.
+
+   THE DATUM IS NOT SHIFTED, deliberately. Coordinates come back out in the frame
+   they went in on. A tree taken by phone GPS is WGS84 and will sit about a metre
+   from where NAD83 would put it — but phone GPS is good to three to five metres,
+   so that difference is well inside the noise of the only points it affects, and
+   pretending otherwise by applying a shift would move the surveyed trees too. */
+
+const CRSKEY = "st_projcrs";
+let projCRS = {};
+try{ projCRS = JSON.parse((STORE && STORE.getItem(CRSKEY)) || "{}") || {}; }catch(e){ projCRS = {}; }
+function persistCRS(){ if(STORE){ try{ STORE.setItem(CRSKEY, JSON.stringify(projCRS)); }catch(e){} } }
+
+/* ---- reading one file out of a zip ------------------------------------------
+
+   Only the .prj is wanted, and it is a few hundred bytes. The CENTRAL DIRECTORY is
+   read rather than the local headers, because a zip written as a stream carries
+   zero for the compressed size in the local header and the real size only in the
+   central directory — walking local headers works until it silently does not. */
+async function zipTextEntry(buf, rx){
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= 0 && i > u8.length - 65558; i--){
+    if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) return null;
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  for(let k = 0; k < count && p + 46 <= u8.length; k++){
+    if(dv.getUint32(p, true) !== 0x02014b50) return null;
+    const method = dv.getUint16(p + 10, true);
+    const csize  = dv.getUint32(p + 20, true);
+    const nlen   = dv.getUint16(p + 28, true);
+    const elen   = dv.getUint16(p + 30, true);
+    const clen   = dv.getUint16(p + 32, true);
+    const lho    = dv.getUint32(p + 42, true);
+    const name   = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + elen + clen;
+    if(!rx.test(name)) continue;
+    // the local header repeats the name and extra field, at its own lengths
+    const lnl = dv.getUint16(lho + 26, true), lel = dv.getUint16(lho + 28, true);
+    const start = lho + 30 + lnl + lel;
+    const raw = u8.subarray(start, start + csize);
+    if(method === 0) return new TextDecoder().decode(raw);
+    if(method === 8 && typeof DecompressionStream === "function"){
+      try{
+        const ds = new DecompressionStream("deflate-raw");
+        const out = new Response(new Blob([raw]).stream().pipeThrough(ds));
+        return await out.text();
+      }catch(e){ return null; }
+    }
+    return null;
+  }
+  return null;
+}
+
+/* ---- what a .prj says -------------------------------------------------------
+
+   Enough of the WKT to do the arithmetic, and no more. The text itself is kept
+   whole and written back unchanged; this only reads the numbers needed to project
+   a point. GRS80 and WGS84 differ in flattening at the twelfth decimal place —
+   under a millimetre on the ground — so either ellipsoid is read as given and
+   neither is corrected to the other. */
+function parsePrj(wkt){
+  if(!wkt) return null;
+  const txt = String(wkt);
+  const numOf = (name) => {
+    const m = new RegExp('PARAMETER\\s*\\[\\s*"' + name + '"\\s*,\\s*(-?[\\d.eE+]+)', "i").exec(txt);
+    return m ? parseFloat(m[1]) : null;
+  };
+  const sph = /SPHEROID\s*\[\s*"[^"]*"\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(txt);
+  const a    = sph ? parseFloat(sph[1]) : 6378137.0;
+  const invf = sph ? parseFloat(sph[2]) : 298.257222101;
+  const nameM = /^\s*(?:PROJCS|GEOGCS)\s*\[\s*"([^"]*)"/i.exec(txt);
+  const name = nameM ? nameM[1] : "";
+
+  if(!/PROJCS/i.test(txt)) return { kind:"geo", wkt:txt, name:name };
+  if(!/PROJECTION\s*\[\s*"Transverse_Mercator"/i.test(txt))
+    return { kind:"other", wkt:txt, name:name };
+
+  const lon0 = numOf("Central_Meridian"), k0 = numOf("Scale_Factor");
+  if(lon0 === null || k0 === null) return { kind:"other", wkt:txt, name:name };
+  return {
+    kind:"tm", wkt:txt, name:name, a:a, invf:invf, k0:k0,
+    lon0:lon0,
+    lat0:(numOf("Latitude_Of_Origin") || 0),
+    fe:(numOf("False_Easting") || 0),
+    fn:(numOf("False_Northing") || 0)
+  };
+}
+
+/* ---- Transverse Mercator, both ways -----------------------------------------
+   The standard series to sixth order, which is accurate to a millimetre well
+   beyond the width of any UTM or MTM zone. Written as one pair so the forward and
+   the inverse cannot drift apart. */
+function tmForward(lat, lon, P){
+  const a = P.a, f = 1 / P.invf, e2 = f * (2 - f), ep2 = e2 / (1 - e2), k0 = P.k0;
+  const rad = Math.PI / 180;
+  const phi = lat * rad, lam = lon * rad, lam0 = P.lon0 * rad, phi0 = (P.lat0 || 0) * rad;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2);
+  const T = Math.tan(phi) ** 2, C = ep2 * Math.cos(phi) ** 2;
+  let A = (lam - lam0);
+  while(A >  Math.PI) A -= 2 * Math.PI;
+  while(A < -Math.PI) A += 2 * Math.PI;
+  A *= Math.cos(phi);
+  const mOf = p => a * ((1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256) * p
+      - (3*e2/8 + 3*e2*e2/32 + 45*e2*e2*e2/1024) * Math.sin(2*p)
+      + (15*e2*e2/256 + 45*e2*e2*e2/1024) * Math.sin(4*p)
+      - (35*e2*e2*e2/3072) * Math.sin(6*p));
+  const M = mOf(phi), M0 = mOf(phi0);
+  const x = k0 * N * (A + (1 - T + C) * A**3 / 6
+            + (5 - 18*T + T*T + 72*C - 58*ep2) * A**5 / 120) + P.fe;
+  const y = k0 * (M - M0 + N * Math.tan(phi) * (A*A/2 + (5 - T + 9*C + 4*C*C) * A**4 / 24
+            + (61 - 58*T + T*T + 600*C - 330*ep2) * A**6 / 720)) + P.fn;
+  return { x:x, y:y };
+}
+function tmInverse(x, y, P){
+  const a = P.a, f = 1 / P.invf, e2 = f * (2 - f), ep2 = e2 / (1 - e2), k0 = P.k0;
+  const rad = Math.PI / 180;
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const phi0 = (P.lat0 || 0) * rad;
+  const mOf = p => a * ((1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256) * p
+      - (3*e2/8 + 3*e2*e2/32 + 45*e2*e2*e2/1024) * Math.sin(2*p)
+      + (15*e2*e2/256 + 45*e2*e2*e2/1024) * Math.sin(4*p)
+      - (35*e2*e2*e2/3072) * Math.sin(6*p));
+  const M = mOf(phi0) + (y - P.fn) / k0;
+  const mu = M / (a * (1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256));
+  const p1 = mu + (3*e1/2 - 27*e1**3/32) * Math.sin(2*mu)
+                + (21*e1*e1/16 - 55*e1**4/32) * Math.sin(4*mu)
+                + (151*e1**3/96) * Math.sin(6*mu)
+                + (1097*e1**4/512) * Math.sin(8*mu);
+  const C1 = ep2 * Math.cos(p1) ** 2, T1 = Math.tan(p1) ** 2;
+  const N1 = a / Math.sqrt(1 - e2 * Math.sin(p1) ** 2);
+  const R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(p1) ** 2, 1.5);
+  const D = (x - P.fe) / (N1 * k0);
+  const lat = p1 - (N1 * Math.tan(p1) / R1) * (D*D/2
+      - (5 + 3*T1 + 10*C1 - 4*C1*C1 - 9*ep2) * D**4 / 24
+      + (61 + 90*T1 + 298*C1 + 45*T1*T1 - 252*ep2 - 3*C1*C1) * D**6 / 720);
+  const lon = (D - (1 + 2*T1 + C1) * D**3 / 6
+      + (5 - 2*C1 + 28*T1 - 3*C1*C1 + 8*ep2 + 24*T1*T1) * D**5 / 120) / Math.cos(p1);
+  return { lat: lat / rad, lon: P.lon0 + lon / rad };
+}
+
+/* ---- the project's CRS, remembered ---------------------------------------- */
+function rememberCRS(project, wkt){
+  const p = String(project || "").trim();
+  if(!p || !wkt) return;
+  const parsed = parsePrj(wkt);
+  if(!parsed) return;
+  projCRS[p] = { wkt: parsed.wkt, name: parsed.name, kind: parsed.kind };
+  persistCRS();
+}
+function crsFor(project){
+  const p = String(project || "").trim();
+  const rec = p ? projCRS[p] : null;
+  if(!rec || !rec.wkt) return null;
+  return parsePrj(rec.wkt);
+}
+/* The CRS an export should be written in. With the Showing filter on one project
+   it is that project's; across several it is only used when they all agree, since
+   one file cannot carry two projections. */
+function exportCRS(rows){
+  const seen = {};
+  (rows || []).forEach(t => { const p = projectOf(t); if(p) seen[p] = 1; });
+  const names = Object.keys(seen);
+  if(!names.length) return crsFor(currentProject());
+  const first = crsFor(names[0]);
+  if(!first) return null;
+  for(let i = 1; i < names.length; i++){
+    const c = crsFor(names[i]);
+    if(!c || c.wkt !== first.wkt) return null;     // mixed projects, no common frame
+  }
+  return first;
+}
+const WGS84_PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+
+/* One place that answers "where does this tree go in the output file". Everything
+   that writes coordinates goes through it, so the shapefile, the GeoJSON and the
+   X/Y columns can never disagree about a tree's position. */
+function outXY(t, crs){
+  const lat = num(t.LAT), lon = num(t.LON);
+  if(lat === null || lon === null) return null;
+  if(crs && crs.kind === "tm"){
+    const p = tmForward(lat, lon, crs);
+    return { x: Math.round(p.x * 1000) / 1000, y: Math.round(p.y * 1000) / 1000, projected: true };
+  }
+  return { x: lon, y: lat, projected: false };
+}
+
 /* ================================================================== *
  *  EXPORT — shapefile (typed DBF) and CSV
  * ================================================================== */
@@ -6574,11 +6942,198 @@ function exportShapefile(){
   toast(`Shapefile: ${rows.length} trees${skipped?` · ${skipped} without coordinates skipped`:""}`);
 }
 
-function fieldValue(t,f){
+/* X and Y ARE NOT SHEET COLUMNS, deliberately. They are LAT and LON expressed in
+   whatever frame the project works in, so they change if the project's frame does
+   and there is nothing to keep in step. FIELDS drives the Sheet schema; these are
+   added to the exported file only. */
+const EXPORT_EXTRA = [
+  {k:"X",        t:"N", w:14, d:3},
+  {k:"Y",        t:"N", w:14, d:3},
+  {k:"TREE_VAL", t:"N", w:12, d:2}
+];
+function exportFields(){ return FIELDS.concat(EXPORT_EXTRA); }
+
+/* ------------------------------------------------------------------ *
+ *  TREE VALUE — the appraisal, which is NOT the Region's offsetting
+ * ------------------------------------------------------------------ *
+
+   TWO FIGURES, TWO QUESTIONS, and they are deliberately kept apart.
+
+     TREE_VAL  what the tree is WORTH. Trunk cross-section times a unit rate
+               times a condition factor — continuous in DBH, so a 29 cm and a
+               34 cm hackberry differ.
+     YR_VALUE  what it COSTS TO OFFSET removing it. Replacement plantings read
+               from the Region's table, times one cost — stepped, so that same
+               29 cm and 34 cm hackberry both come out at four trees.
+
+   On a real sample the appraisal ran three to seven times the offsetting on
+   large trees and LOWER on small ones (a 5 cm pear is worth $442 and costs
+   $1,290 to offset). Reconciling them would be inventing a third number.
+
+   Which one a report prints is chosen when the document is assembled.
+
+   THE RATE AND THE CONDITION FACTORS ARE SETTINGS. Good (1.0) and Satisfactory
+   (exactly 5/6) are the two confirmed against a real report table — to the cent
+   over six rows — and the rest are left BLANK until somebody fills them in, so a
+   tree whose condition has no factor gets NO VALUE rather than a guessed one.
+
+   Five sixths is a strong hint the scale runs in sixths, which would put Potential
+   trouble at 4/6 and Declining at 3/6. It is a HINT, not a fact, and nothing is
+   assumed from it. A wrong factor is a wrong
+   dollar figure in a submitted report, and a blank cell is a question whereas a
+   plausible number is not. */
+/* THE TRUNK FORMULA, as Chris specified it.
+
+     unit cost ($/cm2) = replacement cost / (3.14 x (caliper diameter / 2)^2)
+     value = unit cost x trunk area of this tree x condition x species x location
+
+   with species and location both 0.75.
+
+   ONE ASSUMPTION, stated because it is a dollar figure in a submitted report: the
+   spec as written gives a rate per square centimetre, and the SUBJECT TREE'S TRUNK
+   AREA has to be multiplied in for it to become a value. That is what the trunk
+   formula method does, and it is what his own report table did — its figures scale
+   with the square of DBH. If that is wrong the fix is one line.
+
+   3.14 OR pi MAKES NO DIFFERENCE, and that is worth knowing rather than worrying
+   about. The same constant appears in the caliper area on the bottom and the trunk
+   area on the top, so it cancels:
+
+     value = RC / (k x (c/2)^2) x k x (D/2)^2 x factors  =  RC x (D/c)^2 x factors
+
+   The code is written that way, so no one has to wonder which constant was used.
+
+   CONDITION comes from the TFM table, which is NOT the same scale as the Region's
+   condition percentages and not the same as the one this app first carried. Good is
+   0.9, not 1.0, so every value is nine tenths of what a Good-is-1 scale would give.
+
+   Replacement cost is per REPLACEMENT TREE, which is why there are two: hardwood
+   and conifer. Both default to the Region's current single figure, and both are
+   settings because the Region reviews them. */
+let apprRCHard = 1290, apprRCCon = 1290, apprCaliper = 5;
+let apprSpecies = 0.75, apprLocation = 0.75;
+let apprFactors = {
+  "Good": 0.9, "Satisfactory": 0.75, "Potential trouble": 0.6,
+  "Declining": 0.35, "Death imminent": 0.1, "Dead": 0
+};
+try{
+  const a2 = JSON.parse((STORE && STORE.getItem("st_apprval")) || "null");
+  if(a2){
+    if(isFinite(parseFloat(a2.hard))) apprRCHard  = parseFloat(a2.hard);
+    if(isFinite(parseFloat(a2.con)))  apprRCCon   = parseFloat(a2.con);
+    if(isFinite(parseFloat(a2.cal)))  apprCaliper = parseFloat(a2.cal);
+    if(isFinite(parseFloat(a2.sp)))   apprSpecies = parseFloat(a2.sp);
+    if(isFinite(parseFloat(a2.loc)))  apprLocation= parseFloat(a2.loc);
+    if(a2.f && typeof a2.f === "object") apprFactors = a2.f;
+  }
+}catch(e){}
+function setApprValue(o){
+  o = o || {};
+  if(isFinite(parseFloat(o.hard))) apprRCHard  = parseFloat(o.hard);
+  if(isFinite(parseFloat(o.con)))  apprRCCon   = parseFloat(o.con);
+  if(isFinite(parseFloat(o.cal)))  apprCaliper = parseFloat(o.cal);
+  if(isFinite(parseFloat(o.sp)))   apprSpecies = parseFloat(o.sp);
+  if(isFinite(parseFloat(o.loc)))  apprLocation= parseFloat(o.loc);
+  if(o.f) apprFactors = o.f;
+  if(STORE){ try{ STORE.setItem("st_apprval", JSON.stringify({
+    hard:apprRCHard, con:apprRCCon, cal:apprCaliper,
+    sp:apprSpecies, loc:apprLocation, f:apprFactors })); }catch(e){} }
+}
+function apprFactor(health){
+  const k = String(health || "").trim();
+  if(!k) return null;
+  const hit = Object.keys(apprFactors).find(n => n.toLowerCase() === k.toLowerCase());
+  if(hit === undefined) return null;
+  const v = parseFloat(apprFactors[hit]);
+  return isFinite(v) ? v : null;
+}
+// The rate per square centimetre, shown in settings so it can be checked by hand.
+function apprUnitCost(conifer){
+  const rc = conifer ? apprRCCon : apprRCHard;
+  const area = 3.14 * Math.pow(apprCaliper/2, 2);
+  return (area > 0) ? rc / area : 0;
+}
+function apprValue(t){
+  if(isShrubTree(t)) return 0;              // a shrub is not appraised, as the table shows
+  const d = parseFloat(t && t.DBH);
+  if(!isFinite(d) || d <= 0) return null;
+  if(!(apprCaliper > 0)) return null;
+  const f = apprFactor(t && t.HEALTH);
+  if(f === null) return null;               // no factor for that condition: no figure
+  const rc = yrIsConifer(t) ? apprRCCon : apprRCHard;
+  const v = rc * Math.pow(d / apprCaliper, 2) * f * apprSpecies * apprLocation;
+  return Math.round(v * 100) / 100;
+}
+
+/* Which of the two a report prints. Per project, because one job may be a Region
+   submission and the next an appraisal for an owner. */
+const VALKEY = "st_valmode";
+let valueMode = {};
+try{ valueMode = JSON.parse((STORE && STORE.getItem(VALKEY)) || "{}") || {}; }catch(e){ valueMode = {}; }
+function valueModeFor(project){
+  const v = valueMode[String(project||"").trim()];
+  return (v === "appraisal" || v === "offset" || v === "both" || v === "none") ? v : "offset";
+}
+function setValueMode(project, mode){
+  valueMode[String(project||"").trim()] = mode;
+  if(STORE){ try{ STORE.setItem(VALKEY, JSON.stringify(valueMode)); }catch(e){} }
+}
+const VALUE_COLS = {
+  offset:    [["Offsetting Value ($)", t => { const v = yrValue(t); return v === null ? "" : v.toFixed(2); }]],
+  appraisal: [["Tree Value ($)",       t => { const v = apprValue(t); return v === null ? "" : v.toFixed(2); }]],
+  none:      []
+};
+VALUE_COLS.both = VALUE_COLS.appraisal.concat(VALUE_COLS.offset);
+function valueColumns(project){ return VALUE_COLS[valueModeFor(project)] || []; }
+
+/* Derived figures are worked out HERE when the stored value is blank.
+
+   TPZ, crown and height are written when a tree is saved in the form, so a tree
+   that was imported and never opened carries a DBH and nothing else — 231 of 735
+   on the job this came from. A protection plan whose TPZ column is two-thirds
+   empty is not a protection plan, and the figure is not a judgement call: it
+   follows from the DBH by the City's own rule. So the export fills it rather than
+   shipping a blank, and nothing is written back to the tree — an export never
+   edits the data it is exporting. */
+function derivedFor(t, key){
+  const dbh = num(t.DBH);
+  if(dbh === null || dbh <= 0) return "";
+  if(key === "TPZ_M"){
+    if(isShrubTree(t)) return "";          // a shrub has no protection zone
+    const v = tpzFor(dbh);
+    return v === null ? "" : v;
+  }
+  if(key === "HEIGHT"){
+    const h = auroraHeight(dbh);
+    return (h === null || h === undefined) ? "" : h;
+  }
+  if(key === "CROWN_RAD" || key === "CROWN_DIA"){
+    const est = estimateCrown(t.SPECIES, dbh, t.STEMS);
+    if(!est) return "";
+    return key === "CROWN_RAD" ? est.r : est.d;
+  }
+  return "";
+}
+const DERIVED_ON_EXPORT = ["TPZ_M", "CROWN_RAD", "CROWN_DIA", "HEIGHT"];
+
+/* A shrub is named as one. That is how the report table tells them apart — every
+   SHRUB row carries a dash where the protection zone would be — and it is the
+   recorder's own judgement rather than a DBH threshold, which cannot separate a
+   1 cm juniper from a 5 cm pear that does get a zone. */
+function isShrubTree(t){
+  return /^\s*shrub\b/i.test(String(t.SPECIES || ""));
+}
+
+function fieldValue(t,f,xy){
   if(f.k==="HLTH_CODE") return healthCode(t.HEALTH);
   if(f.k==="LAT") return num(t.LAT);
   if(f.k==="LON") return num(t.LON);
-  return t[f.k]==null ? "" : t[f.k];
+  if(f.k==="X") return xy ? xy.x : "";
+  if(f.k==="Y") return xy ? xy.y : "";
+  if(f.k==="TREE_VAL"){ const v = apprValue(t); return v === null ? "" : v; }
+  const v = t[f.k]==null ? "" : t[f.k];
+  if(String(v).trim()==="" && DERIVED_ON_EXPORT.indexOf(f.k)>=0) return derivedFor(t, f.k);
+  return v;
 }
 // DBF: character fields are left-aligned and space padded, numeric fields are
 // right-aligned with fixed decimals. A blank numeric stays blank, not zero.
@@ -6599,11 +7154,20 @@ function dbfCell(f,v){
   return s + " ".repeat(f.w-s.length);
 }
 function buildShapefileZip(rows){
+  /* WRITTEN IN THE PROJECT'S OWN FRAME. If a shapefile was imported for this job,
+     its .prj is what goes back out, and the coordinates are projected to match —
+     so the file drops onto the air photo with nothing to define. Falls back to
+     geographic WGS84 when the project has never been given one. */
+  const crs = exportCRS(rows);
+  const useTM = !!(crs && crs.kind === "tm");
+  const prj = (crs && crs.wkt) ? crs.wkt : WGS84_PRJ;
+
   const N=rows.length, REC=28;
   const shpBuf=new ArrayBuffer(100+N*REC), shxBuf=new ArrayBuffer(100+N*8);
   const shp=new DataView(shpBuf), shx=new DataView(shxBuf);
+  const xy = rows.map(r=>outXY(r, useTM ? crs : null) || {x:0,y:0});
   let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
-  rows.forEach(r=>{ const x=num(r.LON), y=num(r.LAT);
+  xy.forEach(p=>{ const x=p.x, y=p.y;
     if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; });
   const hdr=(dv,words)=>{ dv.setInt32(0,9994,false); dv.setInt32(24,words,false);
     dv.setInt32(28,1000,true); dv.setInt32(32,1,true);
@@ -6612,22 +7176,23 @@ function buildShapefileZip(rows){
   hdr(shp,(100+N*REC)/2); hdr(shx,(100+N*8)/2);
   let off=100;
   rows.forEach((r,i)=>{
-    const x=num(r.LON), y=num(r.LAT);
+    const x=xy[i].x, y=xy[i].y;
     shp.setInt32(off,i+1,false); shp.setInt32(off+4,10,false);
     shp.setInt32(off+8,1,true); shp.setFloat64(off+12,x,true); shp.setFloat64(off+20,y,true);
     shx.setInt32(100+i*8,off/2,false); shx.setInt32(100+i*8+4,10,false);
     off+=REC;
   });
 
-  const hLen = 32 + 32*FIELDS.length + 1;
-  const rLen = 1 + FIELDS.reduce((s,f)=>s+f.w,0);
+  const EF = exportFields();
+  const hLen = 32 + 32*EF.length + 1;
+  const rLen = 1 + EF.reduce((s,f)=>s+f.w,0);
   const dbf = new Uint8Array(hLen + N*rLen + 1);
   const dv = new DataView(dbf.buffer);
   dbf[0]=0x03; const d=new Date();
   dbf[1]=d.getFullYear()-1900; dbf[2]=d.getMonth()+1; dbf[3]=d.getDate();
   dv.setUint32(4,N,true); dv.setUint16(8,hLen,true); dv.setUint16(10,rLen,true);
   let p=32;
-  FIELDS.forEach(f=>{
+  EF.forEach(f=>{
     const nm=f.k.slice(0,10);
     for(let k=0;k<nm.length;k++) dbf[p+k]=nm.charCodeAt(k);
     dbf[p+11]=f.t.charCodeAt(0);      // 'C' or 'N'
@@ -6636,17 +7201,16 @@ function buildShapefileZip(rows){
     p+=32;
   });
   dbf[p++]=0x0D;
-  rows.forEach(r=>{
+  rows.forEach((r,ri)=>{
     dbf[p++]=0x20;                    // not-deleted flag
-    FIELDS.forEach(f=>{
-      const cell=dbfCell(f, fieldValue(r,f));
+    EF.forEach(f=>{
+      const cell=dbfCell(f, fieldValue(r,f,xy[ri]));
       for(let k=0;k<f.w;k++){ let c=cell.charCodeAt(k); if(!isFinite(c)||c>255) c=0x3F; dbf[p+k]=c; }
       p+=f.w;
     });
   });
   dbf[p]=0x1A;
 
-  const prj='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
   const cpg='UTF-8';
   return zipStore([
     {name:"StreetTrees.shp", data:new Uint8Array(shpBuf)},
@@ -7652,6 +8216,7 @@ function defaultSections(){
 function openDoc(){
   closeMenu();
   $("docSheetSize").value = sheetSize;
+  $("docValue").value = valueModeFor(currentProject());
   renderDoc();
   $("docSheet").classList.add("show");
 }
@@ -7922,6 +8487,10 @@ async function buildDocument(){
   const rect   = tppContentRect(W, H);
   const slots  = tppSlots(W, H);
   const prefix = normText($("docPrefix").value) || "TPP";
+  /* Remembered against the project BEFORE the tables are built, because
+     schedAColumns reads it — a document must not be assembled with one set of
+     headings and another set of cells. */
+  if($("docValue")) setValueMode(currentProject(), $("docValue").value);
   const title  = normText($("docTitle").value) || lastMapTitle || settings.project || "Tree Preservation Plan";
   const date   = tppDateStamp();
 
@@ -8010,7 +8579,7 @@ function closeDoc(){ $("docSheet").classList.remove("show"); }
 function docTableRows(which){
   const list = reportTrees();
   if(which==="schedA"){
-    const cols = SCHED_A_COLS;
+    const cols = schedAColumns(currentProject());
     const rows=[cols.map(c=>c[0])];
     list.forEach((t,i)=>rows.push(cols.map(c=>c[1](t,i))));
     return rows;
@@ -8515,12 +9084,30 @@ const SCHED_A_COLS = [
   ["DBH (cm)",                   t=>t.DBH || ""],
   ["Crown Radius (m)",           t=>t.CROWN_RAD || ""],
   ["Condition Rating",           t=>t.HEALTH || ""],
+  /* The value column sits here, between condition and the protection zone, which
+     is where the report table puts it. WHICH value — the appraisal, the Region's
+     offsetting, both or neither — is chosen per project and applied when the
+     document is assembled, so the same data serves a Region submission and an
+     owner's appraisal without being recorded twice. */
+  ["__VALUE__",                  t=>""],
   ["Tree Preservation Zone (m)", t=>t.TPZ_M || ""],
   ["Location",                   t=>t.LOCATION || ""],
   ["Proposed Action",            t=>t.PROP_ACT || ""],
   ["Potential long term impact", t=>t.LT_IMPACT || (tppRemoval(t) ? "-" : "")],
   ["Notes",                      t=>t.COMMENTS || ""]
 ];
+/* The value placeholder is swapped for nothing, one column or two, depending on
+   what the project is set to report. Everything that builds the report table goes
+   through here so the heading row and the cells cannot disagree about how many
+   columns there are — which is exactly how a table ends up one cell out. */
+function schedAColumns(project){
+  const out = [];
+  SCHED_A_COLS.forEach(c=>{
+    if(c[0] === "__VALUE__"){ valueColumns(project).forEach(v=>out.push(v)); return; }
+    out.push(c);
+  });
+  return out;
+}
 // Appended to the report table only when a series has actually been produced.
 const SCHED_A_SHEET = ["Map sheet", t=>t.SHEET_NO || ""];
 /* The number used on every report output. A tree recorded before TREE_NO existed has
@@ -8621,7 +9208,8 @@ function exportScheduleA(){
     "Schedule A — which columns?\n\n" +
     "OK — the report table only: the thirteen columns in the Arborist Report.\n" +
     "Cancel — those thirteen plus every other attribute, appended after Notes.");
-  let cols = full ? SCHED_A_COLS : SCHED_A_COLS.concat(SCHED_A_EXTRA);
+  const base = schedAColumns(currentProject());
+  let cols = full ? base : base.concat(SCHED_A_EXTRA);
   // Only worth a column once the sheets exist.
   if(list.some(t=>t.SHEET_NO)) cols = cols.concat([SCHED_A_SHEET]);
   const rows = [cols.map(c=>c[0])];
@@ -8639,14 +9227,15 @@ function exportYRCompensation(){
   const list = reportTrees().filter(compIncluded);
   if(!list.length){ toast("No trees are counted for compensation in this view",true); return; }
 
-  const propDec = parseInt(prompt("Replacement trees proposed on the landscape plan — DECIDUOUS:", "0"),10);
-  if(isNaN(propDec)) return;
-  const propCon = parseInt(prompt("Replacement trees proposed on the landscape plan — CONIFEROUS:", "0"),10);
-  if(isNaN(propCon)) return;
+  /* ONE number now. The May 2025 table dropped the deciduous / coniferous split,
+     so there is one replacement cost and one count of plantings proposed. */
+  const prop = parseInt(prompt("Replacement trees proposed on the landscape plan:", "0"),10);
+  if(isNaN(prop)) return;
 
-  const rows = [["Tree #","Species","Common Name","DBH (cm)","Condition Rating","%",
-                 "Number of Replacement Trees (calculated)","Number of Replacement Trees (rounded)",
-                 "Compensation Value ($)"]];
+  /* The Region's own column order, so the CSV drops into their template. */
+  const rows = [["Tree #","Latin Name","Common Name","DBH (cm)","Size Class",
+                 "Species Classification","Condition Rating","Condition Class",
+                 "# of Replacement Trees","Offsetting Value"]];
   let totN = 0, totV = 0, exempt = 0;
   list.forEach((t,i)=>{
     const r = yrReplacement(t);
@@ -8655,21 +9244,21 @@ function exportYRCompensation(){
     if(r.exempt) exempt++;
     totN += r.rounded; totV += v;
     rows.push([ treeNoFor(t, i+1), t.BOTANICAL || "", t.SPECIES || "", t.DBH || "",
-                t.HEALTH || "", r.exempt ? "exempt" : r.pct,
-                r.exempt ? 0 : r.raw, r.rounded, v.toFixed(2) ]);
+                r.size, r.cls, t.HEALTH || "", r.cond, r.rounded, v.toFixed(2) ]);
   });
   rows.push([]);
-  rows.push(["","","","","","Required Replacement Trees", "", totN, totV.toFixed(2)]);
-  const dedDec = propDec * yrRateDec, dedCon = propCon * yrRateCon;
-  rows.push(["","","","","","Proposed deciduous trees","", propDec, "-"+dedDec.toFixed(2)]);
-  rows.push(["","","","","","Proposed coniferous trees","", propCon, "-"+dedCon.toFixed(2)]);
-  const required = Math.max(0, totV - dedDec - dedCon);
-  rows.push(["","","","","","Required Financial Compensation","", "", required.toFixed(2)]);
+  rows.push(["","","","","","","Required Replacement Plantings","", totN, totV.toFixed(2)]);
+  const credit = prop * yrRateRepl;
+  rows.push(["","","","","","","Number of Replacement Plantings Provided","", prop, "-"+credit.toFixed(2)]);
+  const shortfall = Math.max(0, totN - prop);
+  const required = Math.max(0, totV - credit);
+  rows.push(["","","","","","","Required Cash-in-Lieu","", shortfall, required.toFixed(2)]);
   rows.push([]);
-  rows.push(["Notes: Replacement Tree Size is 5 (50mm caliper). Deciduous replacement tree "+money(yrRateDec)+
-             ", coniferous "+money(yrRateCon)+" ("+yrRateYear+" rates). "+
-             "Number of replacement trees = (DBH / 5) x condition rating. "+
-             (exempt ? exempt+" tree(s) exempt from compensation under section 2.4." : "")]);
+  rows.push(["Notes: York Region Tree Removal Offsetting Calculation Table, May 2025. "+
+             "Replacement cost "+money(yrRateRepl)+" per tree ("+yrRateYear+"). "+
+             "Replacement trees are read from the Region's table by size class, species "+
+             "classification and condition class. "+
+             (exempt ? exempt+" tree(s) exempt (species or condition)." : "")]);
 
   downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
                `YorkRegion_Compensation_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
@@ -8786,20 +9375,32 @@ function exportGeoJSON(){
   closeMenu();
   const rows = exportRows();
   if(!rows.length){ toast("No trees with coordinates yet",true); return; }
-  const NUM = {}; FIELDS.forEach(f=>{ if(f.t==="N") NUM[f.k]=1; });
+  const NUM = {}; exportFields().forEach(f=>{ if(f.t==="N") NUM[f.k]=1; });
+  /* The same frame the shapefile goes out in, for the same reason. GeoJSON's own
+     spec says CRS84 and nothing else, so a projected file is written with a named
+     CRS — which is what every GIS actually reads — and the geographic case keeps
+     the spec wording. */
+  const crs = exportCRS(rows);
+  const useTM = !!(crs && crs.kind === "tm");
   const fc = { type:"FeatureCollection",
     name: exportTag(),
-    crs: { type:"name", properties:{ name:"urn:ogc:def:crs:OGC:1.3:CRS84" } },
+    crs: useTM
+      ? { type:"name", properties:{ name: crs.name || "projected" }, wkt: crs.wkt }
+      : { type:"name", properties:{ name:"urn:ogc:def:crs:OGC:1.3:CRS84" } },
     features: rows.map(t=>{
       const p={};
+      const xy = outXY(t, useTM ? crs : null) || {x:null,y:null};
       KEYS.forEach(k=>{
         let v = (k==="HLTH_CODE") ? healthCode(t.HEALTH) : t[k];
+        if((v===undefined || v==="" || v===null) && DERIVED_ON_EXPORT.indexOf(k)>=0) v = derivedFor(t,k);
         if(v===undefined || v==="" || v===null){ p[k]=null; return; }   // a real null
         p[k] = NUM[k] ? (isFinite(parseFloat(v)) ? parseFloat(v) : null) : String(v);
       });
+      p.X = xy.x; p.Y = xy.y;
+      p.TREE_VAL = apprValue(t);
       p.FIELD_CHECKED = !!t._reviewed;
       return { type:"Feature",
-               geometry:{ type:"Point", coordinates:[num(t.LON), num(t.LAT)] },
+               geometry:{ type:"Point", coordinates:[xy.x, xy.y] },
                properties:p };
     })
   };
@@ -11711,6 +12312,52 @@ function fetchUsers(){
   document.body.appendChild(sc);
 }
 
+/* One row per condition the app records, in the order they are ranked. A blank box
+   is a real answer — that condition produces no tree value — so the boxes are never
+   pre-filled with a plausible-looking number. */
+/* Shows the unit cost the numbers above produce, and what one ordinary tree comes
+   to, so the figure can be checked by hand before it reaches a report. */
+function paintApprWhy(){
+  const el = $("apprWhy"); if(!el) return;
+  const rc  = parseFloat($("setApprHard").value) || 0;
+  const cal = parseFloat($("setApprCal").value)  || 0;
+  const sp  = parseFloat($("setApprSp").value);
+  const loc = parseFloat($("setApprLoc").value);
+  if(!(rc > 0) || !(cal > 0)){ el.textContent = "Replacement cost and caliper size are needed."; return; }
+  const unit = rc / (3.14 * Math.pow(cal/2, 2));
+  const one  = rc * Math.pow(30/cal, 2) * 0.9 * (isFinite(sp)?sp:0.75) * (isFinite(loc)?loc:0.75);
+  el.innerHTML =
+    `Unit cost <b>$${(Math.round(unit*100)/100).toFixed(2)}</b> per cm² ` +
+    `(${rc} ÷ 3.14 × (${cal}÷2)²). A 30 cm hardwood in Good condition comes to ` +
+    `<b>$${Math.round(one).toLocaleString()}</b>.<br>` +
+    `Value = unit cost × the tree's trunk area × condition × species × location. ` +
+    `This is what the tree is <b>worth</b>; the Region's offsetting value above is ` +
+    `what it costs to replace. Both are kept and the document chooses which to print.`;
+}
+
+function paintApprFactors(){
+  const box = $("apprFactorRows"); if(!box) return;
+  box.innerHTML = HEALTH_D.map(h=>{
+    const k = h[0], v = apprFactors[k];
+    return `<div class="row2" style="align-items:center;margin-bottom:4px">
+      <div style="font-size:12.5px">${esc(k)}</div>
+      <div><input class="apprF" data-k="${esc(k)}" type="text" inputmode="decimal"
+           placeholder="—" value="${v===undefined||v===null||v===""?"":esc(String(v))}"></div>
+    </div>`;
+  }).join("");
+}
+function readApprFactors(){
+  const out = {};
+  Array.prototype.forEach.call(document.querySelectorAll(".apprF"), el=>{
+    const k = el.getAttribute("data-k");
+    const v = String(el.value||"").trim();
+    if(v === "") return;                    // left blank: no factor, no value
+    const n = parseFloat(v);
+    if(isFinite(n)) out[k] = n;
+  });
+  return out;
+}
+
 function openSettings(){
   closeMenu();
   $("setEmail").value=settings.email||"";
@@ -11725,7 +12372,14 @@ function openSettings(){
   $("setPhotoQ").value = photoQuality;
   $("setPhotoNag").value = (settings.photoNag === false) ? "0" : "1";
   $("setTPP").value = isTPP(currentProject()) ? "1" : "0";
-  $("setYrDec").value = yrRateDec; $("setYrCon").value = yrRateCon; $("setYrYear").value = yrRateYear;
+  $("setYrDec").value = yrRateRepl; $("setYrCon").value = yrRateRepl; $("setYrYear").value = yrRateYear;
+  $("setApprHard").value = apprRCHard; $("setApprCon").value = apprRCCon;
+  $("setApprCal").value  = apprCaliper;
+  $("setApprSp").value   = apprSpecies;  $("setApprLoc").value = apprLocation;
+  ["setApprHard","setApprCon","setApprCal","setApprSp","setApprLoc"].forEach(id=>{
+    const el = $(id); if(el) el.oninput = paintApprWhy;
+  });
+  paintApprFactors(); paintApprWhy();
   $("setPhotoQ").onchange = paintPhotoQNote;
   paintPhotoQNote();
   userSelect();
@@ -11792,6 +12446,9 @@ function saveSettings(){
   setPhotoQuality($("setPhotoQ").value);
   settings.photoNag = $("setPhotoNag").value !== "0";
   setYrRates($("setYrDec").value, $("setYrCon").value, $("setYrYear").value);
+  setApprValue({ hard:$("setApprHard").value, con:$("setApprCon").value,
+                 cal:$("setApprCal").value, sp:$("setApprSp").value,
+                 loc:$("setApprLoc").value, f:readApprFactors() });
   setTPP(currentProject(), $("setTPP").value === "1");
   applyTPPMode(); refreshMenuMode();
   persistSettings();
@@ -12007,12 +12664,15 @@ function showHelp(){
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
+    <p><b>Exports land where your other data lands</b><br>When you import a zipped shapefile, the app keeps its projection and writes every export back out in <i>that same projection</i>, with that same <b>.prj</b> — NAD83 UTM 17N in, NAD83 UTM 17N out. Nothing to define, no transformation dialog, and it drops onto the air photo where it belongs. Both the shapefile and the GeoJSON, and both carry <b>X and Y</b> columns in that frame alongside the latitude and longitude. A project that has never had a file imported exports in WGS84 as before, and a projection the app cannot do — anything that is not UTM or MTM — stays geographic rather than being written wrongly.</p>
+    <p><b>Nothing is exported blank that can be worked out</b><br>Protection zone, crown radius, crown diameter and height are written when a tree is saved, so a tree that was imported and never opened used to carry a DBH and nothing else. The export now fills them from the DBH where they are missing — a value you entered is never replaced, a tree with no DBH stays blank, and a shrub gets no protection zone, matching the dash in the report table. Nothing is written back to the tree: exporting never edits your data.</p>
     <p><b>A device holding copies it must not upload</b><br>Importing tree points stamps them with whatever project the device is set to, and queues them all to sync — so an import made under the wrong project leaves hundreds of <i>copies</i> on that device waiting to go up. <i>Menu → Settings & help → Clear a project from this device</i> handles it. If the records have not synced it warns you first, because unsent trees are usually field work nobody can repeat; but where they really are copies that should never reach the Sheet, it offers to discard them and asks you to type <b>DISCARD</b> to be sure. Nothing touches the Sheet either way.</p>
     <p><b>If the same tree ends up in the Sheet twice</b><br>This happens when a second install — a desktop, a reinstalled phone — creates trees before it has seen what is already there, so one tree ends up under two different IDs. On the Sheet: <i>Tree Tools → Find duplicate trees by position</i>. It asks for a distance (0.5 m is right almost always, since a duplicate sits at the <i>same</i> coordinates while real street trees stand metres apart), then writes a <b>Duplicates</b> tab and stops — nothing changes until you have read it. Every row says KEEP, DROP or IGNORE and you can change any of them. Then <i>Merge the duplicates listed</i> takes a backup, fills the kept tree's blanks from the others, joins their photographs, and moves the dropped rows to the Deleted tab where <i>Restore deleted trees</i> can fetch them back. It will not merge across projects, or where the species disagree, or more than three trees in one place — that is a row of trees, not a duplicate. <b>Afterwards every phone needs <i>Load trees from Sheet</i></b>, or one still holding a deleted tree will put it back on its next sync.</p>
     <p><b>Give every phone its own device letter</b><br>The letter is the only thing keeping tree IDs unique between two people recording at the same time — two crew on A give two different trees the same ID, and the Sheet cannot tell them apart. Settings now says so if you pick a letter a colleague is already using. A new install also asks the Sheet what numbers are already used before it creates its first tree, so it cannot start again at 1 alongside seven hundred trees it has not seen.</p>
     <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
-    <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
+    <p><b>Two values, and the document picks one</b><br>Every tree carries two money figures, because they answer different questions. <b>Tree value</b> is what the tree is worth, by the trunk formula: the replacement cost of a nursery tree spread over its trunk area gives a rate per cm², and that rate is applied to this tree's trunk area and adjusted for condition, species and location. It grows smoothly with diameter. <b>Offsetting value</b> is what it costs to offset removing it — replacement plantings from the Region's table × one cost, so it steps: a 29 cm and a 34 cm tree are both size class C and both come out the same. On a real job the appraisal ran several times the offsetting on big trees and lower on small ones, so they are kept separate rather than reconciled. Which one the report prints is chosen in <i>Assemble the document → Value column</i> — offsetting, appraisal, both, or none — and remembered per project. The appraisal rate and its condition factors are in <i>Settings</i>; a condition left blank produces <b>no</b> value rather than a guessed one, because a plausible figure in a submitted report is worse than an obvious gap.</p>
+    <p><b>York Region tree removal offsetting</b><br>Follows the Region's <b>May 2025</b> table, which replaced the older calculation the app used before. It is a lookup rather than a formula: a <b>size class</b> from the DBH (A to E), a <b>species classification</b> (desirable, less desirable, or exempt — ash, Tree-of-Heaven, European alder, Russian olive and buckthorn are exempt outright), and a <b>condition class</b> (Good and Satisfactory are healthy; potential trouble and declining are poor; death imminent and dead are exempt). Those three read the number of replacement trees straight off the Region's table, and the offsetting value is that number times one replacement cost — <b>$1,290</b> as at May 2025, with no deciduous or coniferous split any more. The rate and its year are in <i>Settings</i>, because the Region reviews the figure. The tree form shows all three classes beside the answer so you can check it against the Region's own workbook without doing any arithmetic, and <i>Menu → Get data out → York Region compensation table</i> produces the CSV in their column order.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
     <p><b>The menu follows the job</b><br>At the top of the menu a line reads <b>This project: tree inventory</b> or <b>tree protection plan</b> — tap it to change. On a tree protection plan the form gains potential impact, prognosis and recommended action, and a <b>🛡 Tree protection &amp; reporting</b> group appears with everything for that work in the order you do it: on site, then the report tables, then the document. On a plain inventory all of that stays hidden, so a crew recording street trees is not scrolling past schedules to reach Sync. It follows the project, so the same phone can do both, and nothing already recorded is lost by switching.</p>
     <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one submission PDF in the <b>tree protection plan format</b>: every sheet is 11×17 with the title block down its right edge — key map, legend, base data credits, prepared by with your logo, prepared for, title, scale and sheet number — and the content laid out to its left. An 8.5×11 arborist report goes <b>two pages up</b> on each sheet, at its own proportions.</p>
