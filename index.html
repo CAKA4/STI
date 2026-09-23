@@ -1378,7 +1378,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-23 · v116";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-23 · v117";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -11808,7 +11808,8 @@ function saveSettings(){
 
   // Trees with no project (or recorded under the previous one) can be re-stamped.
   const noProj = trees.filter(t=>!projectOf(t)).length;
-  if(noProj && confirm(`${noProj} tree(s) on this phone have no project.\n\nAssign them to ${settings.project}?`)){
+  if(noProj && confirm(`${noProj} tree(s) on this device have no project.\n\n` +
+                       `Assign them to "${settings.project}" and upload all ${noProj} to the Sheet?`)){
     let k=0;
     trees.forEach(t=>{ if(!projectOf(t)){ t.PROJECT=settings.project; t._sent=false; k++; } });
     persistTrees(); renderPins();
@@ -11816,10 +11817,26 @@ function saveSettings(){
   }
   if(prevProj && prevProj!==settings.project) showAllProjects=false;
 
-  // Trees recorded before a name was set, or under the previous name, can be
-  // re-attributed. Asked rather than assumed — two people may share a phone.
-  const orphans = trees.filter(t=>!t.CRUISER || (prev && prev!==name && t.CRUISER===prev)).length;
-  if(orphans && confirm(`${orphans} tree(s) on this phone are not attributed to ${name}.\n\nRe-attribute them and re-sync?`)){
+  /* Trees recorded before a name was set, or under the previous name, can be
+     re-attributed. Asked rather than assumed — two people may share a phone.
+
+     AN IMPORTED TREE IS NOT AN ORPHAN. It has no recorder because nobody recorded
+     it, which is not the same as a tree recorded before a name was set. Offering
+     them was how a settings save turned into "1228 tree(s) are not attributed to
+     you" on a machine holding an imported set — and saying yes would have put one
+     person's name on every one of them and re-uploaded all 1228, overwriting the
+     recorder on trees somebody else had actually visited.
+
+     Saying what it is about to re-upload is the rest of the fix. A prompt that does
+     not name its consequence is not really a question. */
+  const wasImported = t => String(t.SOURCE||"").trim().toLowerCase() === "import";
+  const orphanList = trees.filter(t =>
+        (!t.CRUISER && !wasImported(t)) ||
+        (prev && prev !== name && t.CRUISER === prev));
+  if(orphanList.length && confirm(
+        `${orphanList.length} tree(s) on this device are not attributed to ${name}.\n\n` +
+        `Put ${name}'s name on them and re-upload all ${orphanList.length} to the Sheet?\n\n` +
+        `Only do this for trees ${name} actually recorded.`)){
     reattribute(prev && prev!==name ? prev : null);
   }
 }
@@ -11842,7 +11859,7 @@ function clearProjectLocal(){
   const names = Object.keys(counts);
   if(!names.length){ toast("No trees on this phone"); return; }
 
-  const pick = prompt("Clear which project from THIS PHONE?\n\n" +
+  const pick = prompt("Clear which project from THIS DEVICE?\n\n" +
     names.map(n=>`  ${n} (${counts[n]})`).join("\n") +
     "\n\nNothing is removed from the Sheet — this only frees up the device.\n\nType the project name:");
   if(pick===null) return;
@@ -11858,16 +11875,37 @@ function clearProjectLocal(){
   const unsent = mine.filter(t=>!t._sent).length;
   const unsentF = myFeats.filter(f=>!f._sent).length;
   if(unsent || unsentF){
-    toast(`${unsent+unsentF} record(s) have not synced — sync first`,true);
-    alert(`${unsent} of these ${mine.length} tree(s)` +
-          (unsentF ? `, and ${unsentF} of ${myFeats.length} fence/planting record(s),` : "") +
-          ` have not reached the Sheet yet.\n\n` +
-          `Clearing now would lose them. Run Sync, then Verify what reached the Sheet, and try again.`);
-    return;
-  }
+    /* NORMALLY this is a dead end, and rightly so: clearing unsent field work loses
+       it for good, and "sync first" is the answer.
+
+       But there is a real case it used to trap. An import made under the wrong
+       project puts hundreds of COPIES on the device, stamped with that project and
+       queued to sync. Telling the owner to sync first is the one thing they must not
+       do — it would push every copy into the Sheet. They were left with a device
+       holding a duplicate set and no way to get rid of it.
+
+       So there is a second path, and it is deliberately awkward: a word has to be
+       typed. Nothing here touches the Sheet either way. */
+    const word = prompt(
+      `${unsent} of these ${mine.length} tree(s)` +
+      (unsentF ? `, and ${unsentF} of ${myFeats.length} fence/planting record(s),` : "") +
+      ` in "${name}" have NOT reached the Sheet.\n\n` +
+      `If they are field work, do NOT clear them. Cancel, run Sync, then Verify what ` +
+      `reached the Sheet, and come back.\n\n` +
+      `If they are copies that should never reach the Sheet — an import made under the ` +
+      `wrong project, say — they can be discarded from this device. The Sheet is not ` +
+      `touched either way.\n\n` +
+      `To discard them, type:  DISCARD`);
+    if(String(word||"").trim().toUpperCase() !== "DISCARD"){
+      toast("Nothing was cleared"); return;
+    }
+    if(!confirm(`Discard ${mine.length} tree(s) in "${name}" from this device, ` +
+                `including ${unsent} that never reached the Sheet?\n\n` +
+                `This cannot be undone on this device. Nothing changes in the Sheet.`)) return;
+  } else
   if(!confirm(`Remove ${mine.length} tree(s)` +
               (myFeats.length ? ` and ${myFeats.length} fence/planting record(s)` : "") +
-              ` in "${name}" from this phone?\n\n` +
+              ` in "${name}" from this device?\n\n` +
               `They stay in the Sheet and can be pulled back with "Load trees from Sheet".`)) return;
 
   const photoNames = {};
@@ -11969,6 +12007,7 @@ function showHelp(){
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
+    <p><b>A device holding copies it must not upload</b><br>Importing tree points stamps them with whatever project the device is set to, and queues them all to sync — so an import made under the wrong project leaves hundreds of <i>copies</i> on that device waiting to go up. <i>Menu → Settings & help → Clear a project from this device</i> handles it. If the records have not synced it warns you first, because unsent trees are usually field work nobody can repeat; but where they really are copies that should never reach the Sheet, it offers to discard them and asks you to type <b>DISCARD</b> to be sure. Nothing touches the Sheet either way.</p>
     <p><b>If the same tree ends up in the Sheet twice</b><br>This happens when a second install — a desktop, a reinstalled phone — creates trees before it has seen what is already there, so one tree ends up under two different IDs. On the Sheet: <i>Tree Tools → Find duplicate trees by position</i>. It asks for a distance (0.5 m is right almost always, since a duplicate sits at the <i>same</i> coordinates while real street trees stand metres apart), then writes a <b>Duplicates</b> tab and stops — nothing changes until you have read it. Every row says KEEP, DROP or IGNORE and you can change any of them. Then <i>Merge the duplicates listed</i> takes a backup, fills the kept tree's blanks from the others, joins their photographs, and moves the dropped rows to the Deleted tab where <i>Restore deleted trees</i> can fetch them back. It will not merge across projects, or where the species disagree, or more than three trees in one place — that is a row of trees, not a duplicate. <b>Afterwards every phone needs <i>Load trees from Sheet</i></b>, or one still holding a deleted tree will put it back on its next sync.</p>
     <p><b>Give every phone its own device letter</b><br>The letter is the only thing keeping tree IDs unique between two people recording at the same time — two crew on A give two different trees the same ID, and the Sheet cannot tell them apart. Settings now says so if you pick a letter a colleague is already using. A new install also asks the Sheet what numbers are already used before it creates its first tree, so it cannot start again at 1 alongside seven hundred trees it has not seen.</p>
     <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
