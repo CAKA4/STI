@@ -155,7 +155,8 @@
   .full{ background:#fff }
   .full header{ background:#eef2ee; border-bottom-color:#c3cec6 }
   .full .list button{ color:#0d1a13; border-bottom-color:#dde4de; font-weight:500 }
-  .full .list button:active{ background:#e3ebe4 }
+  /* Was #e3ebe4 — a near-white flash that wiped the text out on every tap. */
+  .full .list button:active{ background:var(--line2) }
   .full .list .hdr{ background:#dde4de; color:#245c3b; border-bottom-color:#c3cec6 }
   .full .pillbtn{ background:#1d7a45; color:#fff; border-color:#155e34 }
 
@@ -210,15 +211,35 @@
     border-radius:11px; border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
   /* Twenty-odd flat entries were hard to scan on a phone. Grouped into five, closed
      by default, and the group you opened last is remembered. */
-  .mgroup{ margin-bottom:8px }
+/* EVERY GROUP HAS ITS OWN COLOUR, and the colour runs down the whole open
+   section — a bar on the left of the header and of the body, a tinted background,
+   and a caret in the same hue. With one group expanded and five collapsed, the
+   open one reads as a single block rather than as a run of identical grey bars.
+
+   THIS ALSO FIXES A REAL BUG. The open header used to be painted #e3ebe4, a
+   near-white left over from when this app had a light theme, while .mhead keeps
+   color:var(--text), which is #e7ebe6. Near-white text on a near-white bar: the
+   heading of whichever section was open simply vanished, which is exactly what
+   "can't see the difference between expanded sections" looks like. */
+  .mgroup{ margin-bottom:8px; --g:var(--accent); --gsoft:rgba(76,192,121,.17); --gdim:rgba(76,192,121,.07) }
+  #g_sync  { --g:#5aaee8; --gsoft:rgba(90,174,232,.17);  --gdim:rgba(90,174,232,.07) }
+  #g_layers{ --g:#3ec7b4; --gsoft:rgba(62,199,180,.17);  --gdim:rgba(62,199,180,.07) }
+  #g_out   { --g:#e0a33a; --gsoft:rgba(224,163,58,.17);  --gdim:rgba(224,163,58,.07) }
+  #g_tpp   { --g:#4cc079; --gsoft:rgba(76,192,121,.17);  --gdim:rgba(76,192,121,.07) }
+  #g_review{ --g:#b394ec; --gsoft:rgba(179,148,236,.17); --gdim:rgba(179,148,236,.07) }
+  #g_set   { --g:#93a89e; --gsoft:rgba(147,168,158,.17); --gdim:rgba(147,168,158,.07) }
   .mhead{ display:flex; align-items:center; justify-content:space-between; width:100%;
     padding:14px 12px; font-size:15px; font-weight:700; border-radius:11px;
-    border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
+    border:1px solid var(--line2); border-left:4px solid var(--g);
+    background:var(--surface2); color:var(--text); cursor:pointer }
   .mhead .caret{ transition:transform .15s; color:var(--muted) }
-  .mgroup.open .mhead{ border-bottom-left-radius:0; border-bottom-right-radius:0; background:#e3ebe4 }
-  .mgroup.open .mhead .caret{ transform:rotate(90deg) }
+  /* Open: the text stays light and the bar goes darker-tinted, not lighter. */
+  .mgroup.open .mhead{ border-bottom-left-radius:0; border-bottom-right-radius:0;
+    background:var(--gsoft); border-color:var(--g); border-left-width:4px; color:var(--text) }
+  .mgroup.open .mhead .caret{ transform:rotate(90deg); color:var(--g) }
   .mbody{ display:none; padding:8px 8px 2px; border:1px solid var(--line2); border-top:0;
-    border-radius:0 0 11px 11px; background:rgba(0,0,0,.03) }
+    border-left:4px solid var(--g);
+    border-radius:0 0 11px 11px; background:var(--gdim) }
   .mgroup.open .mbody{ display:block }
   .mbody .menuitem{ font-size:14.5px; padding:12px 11px }
   .menuitem.prime{ background:var(--accent-dk); border-color:var(--accent); color:#fff; font-weight:700 }
@@ -1175,7 +1196,7 @@
     <h2>Tree tools</h2>
     <div class="idline" id="toolsScope">—</div>
     <div class="hint">These run on the Sheet, from here — you do not need access to it. They work only on what <b>Showing</b> is set to.</div>
-    <div class="mini" id="toolsWarn" style="display:none;color:#8c2318;margin-bottom:8px">
+    <div class="mini" id="toolsWarn" style="display:none;color:#ff8f7d;margin-bottom:8px">
       Showing is set to all projects, so these will work on every tree in the Sheet.
       Set a project first unless that is what you want.
     </div>
@@ -1406,7 +1427,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-23 · v121";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-23 · v123";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -4433,16 +4454,15 @@ function fillPopupPhoto(i){
   const t = trees[i]; if(!t) return;
   const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
   const box = $("tpopph"+i);
-  if(!box || !names.length || !HAS_IDB) return;
-  const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
+  if(!box || !names.length) return;
   // Small thumbnails: the popup is for reading the record, not viewing photos.
   // Tapping one opens it full size.
   let shown = 0;
   names.forEach((fn,k)=>{
-    idbGet(fn).then(r=>{
-      if(!r || !r.data) return;                       // on Drive but not on this phone
+    photoThumb(fn).then(src=>{
+      if(!src) return;
       box.insertAdjacentHTML("beforeend",
-        `<img class="ph" src="${r.data}" alt="photo ${k+1} of ${esc(t.TREE_ID)}"
+        `<img class="ph" src="${src}" alt="photo ${k+1} of ${esc(t.TREE_ID)}"
           onclick="openLightbox(${i},${k})">`);
       if(++shown === 1 && names.length > 1)
         box.insertAdjacentHTML("beforeend", `<span class="phn">${names.length} photos</span>`);
@@ -4456,9 +4476,16 @@ function openLightbox(i,k){
   const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
   const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
   const fn = names[k]; if(!fn) return;
-  idbGet(fn).then(r=>{
-    if(!r || !r.data){ toast("That photo is not on this phone",true); return; }
-    $("lbImg").src = r.data;
+  photoFull(fn).then(src=>{
+    if(!src){
+      /* Says WHICH of the two it is. "Not on this phone" was the only message, and
+         on an office machine that is true of every photograph and explains none of
+         them. */
+      toast(isOffline() ? "That photo is on Drive — this device has no connection"
+                        : "That photo is not on this device or on Drive", true);
+      return;
+    }
+    $("lbImg").src = src;
     $("lbCap").textContent = `${t.TREE_ID} · photo ${k+1} of ${names.length}`;
     const d = $("lbDrive");
     if(links[k]){ d.href = links[k]; d.style.display = "inline-block"; } else d.style.display = "none";
@@ -6113,17 +6140,17 @@ function removePhoto(i){
    archive to find five records, and then hang the full-size images in the DOM. */
 function renderThumbs(){
   $("photoThumbs").innerHTML="";
-  if(!currentPhotos.length || !HAS_IDB) return;
+  if(!currentPhotos.length) return;
   const want = currentPhotos.slice();
-  idbGetMany(want).then(list=>{
-    // the form may have moved on while the read was in flight
-    if(currentPhotos.join(";") !== want.join(";")) return;
-    want.forEach((fn,i)=>{
-      const r = list.find(x=>x.filename===fn);
-      // Older records predate thumbnails and fall back to the full image, once.
-      if(r && (r.thumb || r.data)) addThumb(r.thumb || r.data, i+1);
-    });
-  }).catch(()=>{});
+  /* In order, and each one placed only if the form is still on the same tree —
+     a slow fetch must not drop a photo into the next tree's strip. */
+  want.forEach((fn,i)=>{
+    photoThumb(fn).then(src=>{
+      if(!src) return;
+      if(currentPhotos.join(";") !== want.join(";")) return;
+      addThumb(src, i+1);
+    }).catch(()=>{});
+  });
 }
 /* Which photos still need sending is answered from the METADATA, and each one is
    then fetched, posted and released before the next is touched. It used to load
@@ -9987,7 +10014,7 @@ function refreshOfflineEstimate(){
   const mb=(n*16/1024).toFixed(0);           // ~16 KB a tile in practice
   const km = areaKm2(b);
   $("offEst").textContent = `${km.toFixed(2)} km² · zoom ${zMin}–${zMax} · about ${n.toLocaleString()} tiles, roughly ${mb} MB`;
-  $("offEst").style.color = n>TILE_MAX ? "#8c2318" : "";
+  $("offEst").style.color = n>TILE_MAX ? "#ff8f7d" : "";
   $("offGo").disabled = n>TILE_MAX;
   $("offGo").textContent = n>TILE_MAX ? "Too large — zoom in or reduce detail" : "Download this area";
 }
@@ -10930,7 +10957,7 @@ function refreshSheetEstimate(){
   if(!cells.length){ el.textContent = "No trees to map."; return; }
   const most = Math.max.apply(null, cells.map(c=>c.n_trees));
   el.textContent = `${cells.length} sheet(s) + an index · each covers ${Math.round(g.w)} × ${Math.round(g.h)} m · up to ${most} trees on a sheet`;
-  el.style.color = cells.length > SHEET_MAX ? "#8c2318" : "";
+  el.style.color = cells.length > SHEET_MAX ? "#ff8f7d" : "";
 }
 
 // The sheet layout, drawn on the index page so a reader can find the right sheet.
@@ -11045,6 +11072,54 @@ function photoFromDrive(name){
     jsonpGet("photo", { name:name }, r=> res(r && r.ok && r.data ? r.data : null));
   });
 }
+/* THE THREE PLACES A PHOTO IS LOOKED AT — the map popup, the edit form and the
+   full-size viewer — all read this device's own store and nothing else. On the
+   machine the report is written on, which never took any of them, every one came
+   up blank: no thumbnail in the popup, no strip in the form, and "that photo is
+   not on this phone" from the viewer. Appendix B had the same fault and was fixed
+   in v114; these three were missed.
+
+   WHAT IS FETCHED MATTERS FOR MEMORY. Drive holds only full-size images, so asking
+   for a thumbnail pulls half a megabyte. Each one is therefore shrunk to a
+   thumbnail the moment it lands and only the SMALL copy is kept — the full image
+   is released. The cache is capped and oldest-out, because holding a few hundred
+   base64 images is exactly what was crashing phones before v112.
+
+   Nothing is fetched speculatively. A photo is asked for when its popup is opened
+   or its tree is edited, never for every pin on the map. */
+const driveThumbs = new Map();
+const DRIVE_THUMB_MAX = 40;
+
+function loadImg(src){
+  return new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=src; });
+}
+// Small, for the popup and the form strip.
+async function photoThumb(name){
+  if(HAS_IDB){
+    const r = await idbGet(name).catch(()=>null);
+    if(r && (r.thumb || r.data)) return r.thumb || r.data;   // older records have no thumb
+  }
+  if(driveThumbs.has(name)) return driveThumbs.get(name);
+  const full = await photoFromDrive(name);
+  if(!full) return null;
+  let small = full;
+  try{
+    const im = await loadImg(full);
+    if(im) small = renderThumbJpeg(im);
+  }catch(e){}
+  if(driveThumbs.size >= DRIVE_THUMB_MAX) driveThumbs.delete(driveThumbs.keys().next().value);
+  driveThumbs.set(name, small);
+  return small;
+}
+// Full size, for the viewer only. Deliberately not cached.
+async function photoFull(name){
+  if(HAS_IDB){
+    const r = await idbGet(name).catch(()=>null);
+    if(r && r.data) return r.data;
+  }
+  return await photoFromDrive(name);
+}
+
 async function photoImage(name){
   let rec = null;
   if(HAS_IDB) rec = await idbGet(name).catch(()=>null);
@@ -12648,6 +12723,7 @@ function showHelp(){
     <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
+    <p><b>Seeing a photo on a device that did not take it</b><br>Tap a pin, open a tree, or view a photograph full size, and the app looks on this device first and then on <b>Drive</b> for anything it does not hold — so the machine you write the report on shows the same photographs as the phone that took them. Fetched images are shrunk to thumbnails and only the small copies are kept, so browsing does not fill up memory, and nothing is fetched until you actually open something. With no connection you see what is on the device and the viewer tells you the rest are on Drive.</p>
     <p><b>Where photos go</b><br>On the phone until they upload, then into <b>My Drive → Street Tree Photos</b> on the Google account that authorised the script. Archived projects move to <i>Street Tree Photos - Archive</i>, zipped export packages go to <i>Street Tree Exports</i>, and workbook backups to <i>Street Tree Backups</i>.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal, one at a time rather than all at once. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp. A small thumbnail is kept alongside each photo, so opening a tree shows its photos without loading the full-size images.</p>
     <p><b>Saving without a photo</b><br>If a tree is saved with no photograph the app asks once, because a missing photo is usually a forgotten one rather than a decision. Answering <i>save it anyway</i> goes straight through, and the whole reminder can be switched off in <i>Menu → Settings</i> for work that does not photograph every tree.</p>
@@ -12674,6 +12750,7 @@ function showHelp(){
     <p><b>Two values, and the document picks one</b><br>Every tree carries two money figures, because they answer different questions. <b>Tree value</b> is what the tree is worth, by the trunk formula: the replacement cost of a nursery tree spread over its trunk area gives a rate per cm², and that rate is applied to this tree's trunk area and adjusted for condition, species and location. It grows smoothly with diameter. <b>Offsetting value</b> is what it costs to offset removing it — replacement plantings from the Region's table × one cost, so it steps: a 29 cm and a 34 cm tree are both size class C and both come out the same. On a real job the appraisal ran several times the offsetting on big trees and lower on small ones, so they are kept separate rather than reconciled. Which one the report prints is chosen in <i>Assemble the document → Value column</i> — offsetting, appraisal, both, or none — and remembered per project. The appraisal rate and its condition factors are in <i>Settings</i>; a condition left blank produces <b>no</b> value rather than a guessed one, because a plausible figure in a submitted report is worse than an obvious gap.</p>
     <p><b>York Region tree removal offsetting</b><br>Follows the Region's <b>May 2025</b> table, which replaced the older calculation the app used before. It is a lookup rather than a formula: a <b>size class</b> from the DBH (A to E), a <b>species classification</b> (desirable, less desirable, or exempt — ash, Tree-of-Heaven, European alder, Russian olive and buckthorn are exempt outright), and a <b>condition class</b> (Good and Satisfactory are healthy; potential trouble and declining are poor; death imminent and dead are exempt). Those three read the number of replacement trees straight off the Region's table, and the offsetting value is that number times one replacement cost — <b>$1,290</b> as at May 2025, with no deciduous or coniferous split any more. The rate and its year are in <i>Settings</i>, because the Region reviews the figure. The tree form shows all three classes beside the answer so you can check it against the Region's own workbook without doing any arithmetic, and <i>Menu → Get data out → York Region compensation table</i> produces the CSV in their column order.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
+    <p><b>Finding your way round the menu</b><br>Each group has its own colour — blue for Sync, teal for Bring data in, amber for Get data out, green for Tree protection, violet for Review, slate for Settings. The colour runs down the whole of an expanded section, so one open group reads as a single block instead of a run of identical bars.</p>
     <p><b>The menu follows the job</b><br>At the top of the menu a line reads <b>This project: tree inventory</b> or <b>tree protection plan</b> — tap it to change. On a tree protection plan the form gains potential impact, prognosis and recommended action, and a <b>🛡 Tree protection &amp; reporting</b> group appears with everything for that work in the order you do it: on site, then the report tables, then the document. On a plain inventory all of that stays hidden, so a crew recording street trees is not scrolling past schedules to reach Sync. It follows the project, so the same phone can do both, and nothing already recorded is lost by switching.</p>
     <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one submission PDF in the <b>tree protection plan format</b>: every sheet is 11×17 with the title block down its right edge — key map, legend, base data credits, prepared by with your logo, prepared for, title, scale and sheet number — and the content laid out to its left. An 8.5×11 arborist report goes <b>two pages up</b> on each sheet, at its own proportions.</p>
     <p>Tick the sections and order them with the arrows. <b>Add PDFs</b> asks what each one is as it goes in, because that wording is what the contents page prints — the ✎ button renames a section later. The <b>first sheet is the report’s title page on the left and the contents on the right</b>; the contents lists itself as TPP1, names every standard detail separately, and ends with your note. It is written last, from where the sheets actually landed, so it cannot disagree with the document.</p>
