@@ -905,6 +905,8 @@
         <option value="idsp">Tree number and species — T1, Sugar Maple</option>
         <option value="cfg">My label settings</option>
         <option value="id">Tree number only — T1</option>
+        <option value="idtpz">Tree number and protection zone — T1, 2.4 m</option>
+        <option value="idsptpz">Number, species and protection zone</option>
         <option value="sp">Species only</option>
         <option value="none">No labels</option>
       </select>
@@ -1224,6 +1226,21 @@
     <div class="idline" id="filStats">—</div>
     <div class="fld"><label>Project</label><select id="filProject"></select></div>
     <div class="fld"><label>Recorded by</label><select id="filCruiser"></select></div>
+
+    <div class="fld"><label>Phase — recorded between</label>
+      <div class="row2">
+        <div class="fld" style="margin:0"><input id="filFrom" type="date"></div>
+        <div class="fld" style="margin:0"><input id="filTo" type="date"></div>
+      </div>
+      <div class="mini">Leave both empty for every tree. This is what the map, Schedule A, Table 1, the compensation table and the photographs all report on — so a phase reported on today does not carry last month’s trees with it.</div>
+      <div class="btnrow" style="margin-top:6px">
+        <button class="alt" onclick="filPreset(0)">Today</button>
+        <button class="alt" onclick="filPreset(7)">Last 7 days</button>
+        <button class="alt" onclick="filPreset(-1)">Any date</button>
+      </div>
+      <div class="mini" id="filPhaseCount" style="margin-top:6px">—</div>
+    </div>
+
     <div class="mini">Only what is on this phone is listed. Use “Load trees from Sheet” to bring another project down first.</div>
     <div class="btnrow">
       <button class="primary" onclick="applyFilter()">Show these</button>
@@ -1361,7 +1378,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-22 · v113";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-23 · v116";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1708,15 +1725,35 @@ try{ showAllProjects = (STORE&&STORE.getItem("st_showall"))==="1"; }catch(e){}
    "my project" and "everything" was not enough once several jobs and several people
    share one Sheet. */
 let filterProject = "", filterCruiser = "";
+/* The phase being reported on, as YYYY-MM-DD, either end optional. */
+let filterFrom = "", filterTo = "";
 try{ filterProject = (STORE&&STORE.getItem("st_fproj")) || ""; }catch(e){}
 try{ filterCruiser = (STORE&&STORE.getItem("st_fcru")) || ""; }catch(e){}
+try{ filterFrom = (STORE&&STORE.getItem("st_ffrom")) || ""; }catch(e){}
+try{ filterTo   = (STORE&&STORE.getItem("st_fto"))   || ""; }catch(e){}
 function persistFilters(){
   if(!STORE) return;
-  try{ STORE.setItem("st_fproj", filterProject); STORE.setItem("st_fcru", filterCruiser); }catch(e){}
+  try{ STORE.setItem("st_fproj", filterProject); STORE.setItem("st_fcru", filterCruiser);
+       STORE.setItem("st_ffrom", filterFrom);    STORE.setItem("st_fto", filterTo); }catch(e){}
 }
 function projectOf(t){ return String(t.PROJECT||"").trim(); }
+/* WHEN a tree was last recorded, as YYYY-MM-DD. DATE is stamped on every save, so
+   this reads as "touched during that period" — which is what a phase of work is. */
+function treeDay(t){ return String(t.DATE||"").slice(0,10); }
+
 function inCurrentProject(t){
   if(filterCruiser && String(t.CRUISER||"").toLowerCase() !== filterCruiser.toLowerCase()) return false;
+  /* THE PHASE FILTER. A job of seven hundred trees is reported on in phases, and a
+     phase is the run of trees visited between two dates. Applied HERE rather than in
+     each export, so the map, Schedule A, Table 1, the compensation table and the
+     photographs all follow one answer and cannot disagree about which trees the
+     report is about. */
+  if(filterFrom || filterTo){
+    const d = treeDay(t);
+    if(!d) return false;                       // never recorded: part of no phase
+    if(filterFrom && d < filterFrom) return false;
+    if(filterTo   && d > filterTo)   return false;
+  }
   if(filterProject) return projectOf(t).toLowerCase() === filterProject.toLowerCase();
   if(showAllProjects || !settings.project) return true;
   return projectOf(t).toLowerCase() === settings.project.toLowerCase();
@@ -1728,6 +1765,12 @@ function scopeLabel(){
   else if(!showAllProjects && settings.project) bits.push(settings.project);
   else bits.push("all projects");
   if(filterCruiser) bits.push(filterCruiser);
+  /* SAID ON THE BUTTON. A phase filter that is on but invisible is how a report gets
+     built on a third of the trees without anyone meaning it — and equally how the
+     other two thirds creep back in. */
+  if(filterFrom && filterTo) bits.push(filterFrom === filterTo ? filterFrom : filterFrom + " to " + filterTo);
+  else if(filterFrom) bits.push("from " + filterFrom);
+  else if(filterTo)   bits.push("to " + filterTo);
   return bits.join(" · ");
 }
 function visibleTrees(){ return trees.filter(inCurrentProject); }
@@ -1790,10 +1833,74 @@ function isOffline(){ return navigator.onLine===false; }
 let toastT; function toast(msg,err){ const t=$("toast"); t.textContent=msg; t.className="toast show"+(err?" err":""); clearTimeout(toastT); toastT=setTimeout(()=>t.className="toast",2400); }
 function num(v){ const n=parseFloat(v); return isFinite(n)?n:null; }
 
+/* THE HIGHEST NUMBER ALREADY SPOKEN FOR under this prefix and device letter, from
+   whatever this device can see — its own trees, and the watermark left by the last
+   pull from the Sheet.
+
+   This exists because of a real incident. A second install (a desktop) starts with
+   counter = 1 and an empty tree store. Its owner had the Showing filter set to a
+   different project, so "Load trees from Sheet" fetched nothing, and every tree it
+   then created was numbered from 1 with no knowledge of the seven hundred already in
+   the Sheet. The result was one physical tree carried in the Sheet under two
+   different ids — which the backend cannot detect, because it upserts on TREE_ID and
+   two different ids are two different trees.
+
+   settings.counter alone was never enough: it is per-install and starts at 1. */
+const IDHWM = "st_idhwm";
+function idFloor(prefix, dev){
+  const rx = new RegExp("^" + prefix + "-(\\d+)-" + dev + "$");
+  let hi = 0;
+  trees.forEach(t=>{
+    const m = rx.exec(String(t.TREE_ID||"").trim());
+    if(m){ const n = parseInt(m[1],10); if(n > hi) hi = n; }
+  });
+  try{
+    const mark = JSON.parse((STORE && STORE.getItem(IDHWM)) || "{}");
+    const seen = parseInt(mark[prefix + "-" + dev], 10);
+    if(isFinite(seen) && seen > hi) hi = seen;
+  }catch(e){}
+  return hi;
+}
+/* Called after a pull from the Sheet, so the watermark survives a project filter
+   that later hides those trees, and survives "clear this device". */
+function markIdsSeen(rows){
+  let mark = {};
+  try{ mark = JSON.parse((STORE && STORE.getItem(IDHWM)) || "{}"); }catch(e){}
+  (rows||[]).forEach(r=>{
+    const m = /^([A-Za-z0-9]+)-(\d+)-([A-Za-z0-9])$/.exec(String(r.TREE_ID||"").trim());
+    if(!m) return;
+    const k = m[1].toUpperCase() + "-" + m[3].toUpperCase();
+    const n = parseInt(m[2],10);
+    if(isFinite(n) && n > (parseInt(mark[k],10)||0)) mark[k] = n;
+  });
+  try{ if(STORE) STORE.setItem(IDHWM, JSON.stringify(mark)); }catch(e){}
+}
+/* The watermark from the SHEET, for every prefix and device letter it holds,
+   independent of any project filter. The pull alone was not enough: the install that
+   caused the incident had its Showing filter on another project, so its pull came
+   back empty and taught it nothing. This is asked for whenever settings are opened
+   and after a sync, so a fresh install learns the numbering before it can mint. */
+function fetchIdMarks(){
+  if(!connected || isOffline()) return;
+  jsonpGet("idmarks", {}, r=>{
+    if(!r || !r.ok || !r.marks) return;
+    let mark = {};
+    try{ mark = JSON.parse((STORE && STORE.getItem(IDHWM)) || "{}"); }catch(e){}
+    let changed = false;
+    Object.keys(r.marks).forEach(k=>{
+      const n = parseInt(r.marks[k],10);
+      if(isFinite(n) && n > (parseInt(mark[k],10)||0)){ mark[k] = n; changed = true; }
+    });
+    if(changed){ try{ if(STORE) STORE.setItem(IDHWM, JSON.stringify(mark)); }catch(e){} }
+  });
+}
+
 function nextTreeId(){
   const p = (settings.prefix||"AUR").replace(/[^A-Za-z0-9]/g,"").toUpperCase() || "AUR";
   const d = (settings.device||"A").replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,1) || "A";
   let n = parseInt(settings.counter,10); if(!isFinite(n)||n<1) n=1;
+  const floor = idFloor(p, d) + 1;
+  if(floor > n) n = floor;                 // never step back onto a number already used
   let id;
   do { id = `${p}-${pad(n,5)}-${d}`; n++; } while (trees.some(t=>t.TREE_ID===id));   // never reuse an id
   settings.counter = n; persistSettings();
@@ -2165,6 +2272,39 @@ function scheduleRedraw(){
 
 const LABEL_MAX = 90;
 
+/* ONE PLACE where a tree field becomes label text, so the screen, the exported
+   sheet and the settings preview can never disagree about what a tree is called.
+
+   Two of the fields are not columns at all:
+     HLTH_CODE  the health class as its number
+     TPZ_LBL    the protection zone as "2.4 m" — the figure a contractor reads off
+                the plan when standing at the fence. It falls back to the DBH rule
+                where no TPZ_M has been stored, because a zone is drawn for those
+                trees too and a circle with no dimension beside it is not a
+                specification.
+
+   TREE_NO prints as T1, T2 — the number on the tag and in Schedule A — in every
+   one of the three, which it did not before: the screen showed a bare 8 while the
+   plan showed T8. */
+function treeLabelValue(t, f, seq){
+  if(f === "HLTH_CODE") return healthCode(t.HEALTH);
+  if(f === "TREE_NO"){
+    /* seq is the export's north-to-south position, the same fallback Schedule A
+       uses when a tree recorded before TREE_NO existed has none. On screen there
+       is no such ordering, so no seq is passed and an unnumbered tree simply gets
+       no number rather than an invented one that would not match the table. */
+    const n = parseInt(t.TREE_NO, 10);
+    if(n > 0) return "T" + n;
+    return seq ? "T" + seq : "";
+  }
+  if(f === "TPZ_LBL"){
+    const r = parseFloat(t.TPZ_M);
+    const v = (isFinite(r) && r > 0) ? r : tpzFor(t.DBH);
+    return (v > 0) ? (Math.round(v*10)/10) + " m" : "";
+  }
+  return t[f];
+}
+
 // Build one label from an ordered list of fields. Blank fields are skipped rather than
 // leaving gaps, so a tree with no address still labels cleanly.
 function labelHtml(cfg, get){
@@ -2191,7 +2331,8 @@ const FIELD_LABELS = {
   STREET:"Street", PARK:"Park",
   CROWN_RAD:"Crown radius", CROWN_DIA:"Crown diameter", CROWN_BAS:"Crown basis",
   HEIGHT:"Height", HGT_BAS:"Height basis", ITREE:"i-Tree type",
-  TPZ_M:"Tree protection zone (m)", REPL_REQ:"Replacement trees required",
+  TPZ_M:"Tree protection zone (m)", TPZ_LBL:"Protection zone, with units (2.4 m)",
+  REPL_REQ:"Replacement trees required",
   TREE_NO:"Tree number", TAG_NO:"Tag number", LOCATION:"Location / ownership",
   PROP_ACT:"Proposed action", LT_IMPACT:"Potential long term impact",
   ADDR_DIST:"Distance to parcel", STREET_M:"Distance to street",
@@ -2223,7 +2364,7 @@ function renderLabels(){
       if(!inCurrentProject(t)) continue;
       const lat=num(t.LAT), lon=num(t.LON);
       if(lat==null||lon==null||!bb.contains([lat,lon])) continue;
-      const html = labelHtml(tc, f => f==="HLTH_CODE" ? healthCode(t.HEALTH) : t[f]);
+      const html = labelHtml(tc, f => treeLabelValue(t, f));
       if(!html) continue;
       L.marker([lat,lon],{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
       n++;
@@ -3858,7 +3999,15 @@ function layerName(id){
 }
 // Fields offered for a layer: the tree schema, or whatever columns a reference layer carries.
 function fieldsFor(id){
-  if(id==="trees") return KEYS.filter(k=>k!=="PHOTO_LINK"&&k!=="EMAIL");
+  /* TPZ_LBL is not a column — it is the protection zone written as "2.4 m". It sits
+     next to TPZ_M in the list so the two are obviously a pair: the bare number for
+     anyone exporting, the dimensioned one for the plan. */
+  if(id==="trees"){
+    const ks = KEYS.filter(k=>k!=="PHOTO_LINK"&&k!=="EMAIL");
+    const at = ks.indexOf("TPZ_M");
+    ks.splice(at>=0 ? at+1 : ks.length, 0, "TPZ_LBL");
+    return ks;
+  }
   const L2=refLayers.find(x=>x.id===id); if(!L2) return [];
   const keys=[]; L2.features.slice(0,300).forEach(f=>{ for(const k in f.props) if(keys.indexOf(k)<0) keys.push(k); });
   return keys;
@@ -3926,7 +4075,7 @@ function labelPreview(){
   const smp = sampleFor(labelTarget);
   const get = f => {
     if(!smp) return "sample";
-    if(labelTarget==="trees" && f==="HLTH_CODE") return healthCode(smp.HEALTH);
+    if(labelTarget==="trees") return treeLabelValue(smp, f, 1);
     return smp[f];
   };
   const html = labelHtml(c,get);
@@ -6138,6 +6287,9 @@ function pullFromSheet(){
           const t={}; KEYS.forEach(k=>t[k]=r[k]==null?"":r[k]); t.PHOTO_LINK=link; t._sent=true; trees.push(t); added++;
         }
       });
+      /* Even the ids that were NOT loaded (another project, already here) raise the
+         watermark, so a later new tree cannot be numbered on top of one of them. */
+      markIdsSeen(rows);
       persistTrees(); renderPins(); if(added) fitTrees();
       toast(`Loaded ${rows.length} · ${added} new${kept?` · ${kept} local edits kept`:""}`);
     }catch(e){ toast("Could not read the Sheet",true); }
@@ -8539,7 +8691,12 @@ function schedBCaption(t, seq){
 
 async function exportScheduleB(){
   closeMenu();
-  if(!HAS_IDB){ toast("No photo store on this device",true); return; }
+  /* No photo store is no longer a reason to refuse — the photographs are on Drive
+     and a browser without IndexedDB can still fetch every one of them. Offline with
+     no store is the only combination that can produce nothing at all. */
+  if(!HAS_IDB && isOffline()){
+    toast("No photo store on this device, and no connection to reach Drive", true); return;
+  }
   const list = reportTrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
   if(!list.length){ toast("No photos on the trees in view",true); return; }
 
@@ -8566,7 +8723,7 @@ async function exportScheduleB(){
     pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
   }
 
-  let missing=0, seq=0, n=0;
+  let missing=0, seq=0, n=0, fetched=0;
   for(const t of list){
     seq++;
     const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
@@ -8577,20 +8734,24 @@ async function exportScheduleB(){
 
       const capH = Math.round(PDF_DPI*0.50), pad = Math.round(PDF_DPI*0.30);
       const boxW = W-pad*2, boxH = H-pad*2-capH;
-      const rec = await idbGet(names[i]).catch(()=>null);
-      if(rec && rec.data){
-        const im = await new Promise(res=>{ const x=new Image(); x.onload=()=>res(x); x.onerror=()=>res(null); x.src=rec.data; });
-        if(im){
-          const sc = Math.min(boxW/im.width, boxH/im.height);
-          g.drawImage(im, pad+(boxW-im.width*sc)/2, pad+(boxH-im.height*sc)/2, im.width*sc, im.height*sc);
-          n++;
-        } else missing++;
+      /* The phone first, then Drive. A Schedule B is very often built in the office
+         on a machine that was never in the field, where the phone half of that is
+         empty — and a page of grey boxes is not a schedule. */
+      const got = await photoImage(names[i]);
+      if(got){
+        if(got.fromDrive) fetched++;
+        const im = got.im;
+        const sc = Math.min(boxW/im.width, boxH/im.height);
+        g.drawImage(im, pad+(boxW-im.width*sc)/2, pad+(boxH-im.height*sc)/2, im.width*sc, im.height*sc);
+        n++;
       } else {
         missing++;
         g.fillStyle="#eef2ee"; g.fillRect(pad,pad,boxW,boxH);
         g.fillStyle="#76867c"; g.textAlign="center";
         g.font=`${Math.round(PDF_DPI*0.14)}px sans-serif`;
-        g.fillText("Photograph not on this device", W/2, pad+boxH/2);
+        g.fillText(isOffline() ? "Photograph needs a connection"
+                               : "Photograph not found on this phone or on Drive",
+                   W/2, pad+boxH/2);
         g.textAlign="left";
       }
       let cap = schedBCaption(t, seq);
@@ -8601,7 +8762,7 @@ async function exportScheduleB(){
       g.textAlign="left";
       pages.push({data:cv.toDataURL("image/jpeg",0.90), w:W, h:H});
     }
-    if(list.length>20) setStatus(`Schedule B: ${seq} of ${list.length} trees`);
+    setStatus(`Schedule B: ${seq} of ${list.length} trees`);
   }
 
   const bytes = jpegPdfPages(pages, SCHED_B_W_IN*72, SCHED_B_H_IN*72);
@@ -8612,7 +8773,9 @@ async function exportScheduleB(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),4000);
   setStatus(`${visibleTrees().length} trees on device`);
-  toast(`Schedule B: ${n} photograph(s) over ${pages.length} pages` + (missing?` · ${missing} not on this phone`:""));
+  toast(`Schedule B: ${n} photograph(s) over ${pages.length} pages`
+        + (fetched?` · ${fetched} from Drive`:"")
+        + (missing?` · ${missing} could not be found`:""));
 }
 
 /* GeoJSON alongside the shapefile. Shapefile stays because everyone can open it,
@@ -9802,9 +9965,44 @@ async function runSingleExport(opt){
   // someone else needs the tree number and the species, whatever you label with.
   const tc = (labelMode==="cfg") ? cfgFor("trees")
            : { on:labelMode!=="none", sep:"NL", size:"m", names:0, box:0, minZoom:0,
-               fields: labelMode==="idsp" ? ["TREE_NO","SPECIES"]
-                     : labelMode==="id"   ? ["TREE_NO"]
-                     : labelMode==="sp"   ? ["SPECIES"] : [] };
+               fields: labelMode==="idsp"    ? ["TREE_NO","SPECIES"]
+                     : labelMode==="idtpz"   ? ["TREE_NO","TPZ_LBL"]
+                     : labelMode==="idsptpz" ? ["TREE_NO","SPECIES","TPZ_LBL"]
+                     : labelMode==="id"      ? ["TREE_NO"]
+                     : labelMode==="sp"      ? ["SPECIES"] : [] };
+  /* THE TREE PROTECTION ZONES, which is what a tree protection plan is for.
+
+     They were drawn on screen and named in the sheet's legend, but never drawn on
+     the sheet itself — so every exported plan carried a legend entry for a symbol
+     that was not on the paper.
+
+     Radius is measured rather than scaled from a constant: the point r metres due
+     north of the tree is projected alongside the tree itself, and the distance
+     between them on the page IS the radius in pixels. That holds at any zoom, any
+     sheet size and any latitude without a conversion to get wrong.
+
+     Drawn FIRST, under everything, so a zone can never hide a pin, a fence or a
+     label. */
+  if(tpzOn){
+    g.save();
+    shown.forEach(t=>{
+      const la=num(t.LAT), lo=num(t.LON);
+      if(la==null||lo==null) return;
+      const r = parseFloat(t.TPZ_M) || tpzFor(t.DBH);
+      if(!(r>0)) return;
+      const c  = P(la, lo);
+      const up = P(la + r/110540, lo);
+      const px = Math.abs(c[1] - up[1]);
+      if(!(px > 1)) return;                    // smaller than a line width at this scale
+      g.beginPath(); g.arc(c[0], c[1], px, 0, 7);
+      g.fillStyle = "rgba(255,213,79,.16)"; g.fill();
+      g.setLineDash([Math.max(3,R*0.9), Math.max(3,R*0.7)]);
+      g.strokeStyle = "#B8860B"; g.lineWidth = Math.max(1.5, R*0.22);
+      g.stroke();
+    });
+    g.restore();
+  }
+
   shown.forEach(t=>{
     const p=P(num(t.LAT),num(t.LON));
     if(t._reviewed){ g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
@@ -9884,14 +10082,21 @@ async function runSingleExport(opt){
        is pushed further out and joined to its tree with a leader line. Trees close
        together used to print their names straight over one another, which is what made
        a planting cluster unreadable. */
-    const CAND=[[1,0],[1,-1],[1,1],[-1,0],[-1,-1],[-1,1],[0,-1],[0,1]];
+    /* SIXTEEN directions, not eight. On a subdivision with two hundred closely
+       spaced trees, eight directions over three rings runs out of room and the
+       placer gives up — and a tree with no number on the plan cannot be looked up
+       in Schedule A at all, which is worse than a label sitting a little further
+       out on a leader. */
+    const CAND=[];
+    for(let k=0;k<16;k++){
+      const a = k*Math.PI/8;
+      CAND.push([Math.cos(a), Math.sin(a)]);
+    }
     /* TREE_NO prints as T1, T2 — the number on the tag and in the table. The long
        TREE_ID (CG-00742-A) is the record key across every project in the Sheet and
        is far too much to read off a map. */
-    const items = shown.map((t,i)=>({t, parts: tc.fields.map(f=>
-                                  f==="HLTH_CODE" ? healthCode(t.HEALTH)
-                                : f==="TREE_NO"   ? "T"+treeNoFor(t, i+1)
-                                : t[f])
+    let unplaced = 0;
+    const items = shown.map((t,i)=>({t, parts: tc.fields.map(f=>treeLabelValue(t, f, i+1))
                                         .filter(v=>v!=null && String(v).trim()!=="")}))
                        .filter(o=>o.parts.length);
     // north to south, so the order is stable between runs of the same view
@@ -9900,27 +10105,41 @@ async function runSingleExport(opt){
       const p=P(num(t.LAT),num(t.LON));
       const w = Math.max(...parts.map(x=>g.measureText(String(x)).width));
       const h = parts.length*FS*1.2;
+      /* SIX rings, and the gap between labels is a real clearance rather than the
+         four pixels that let two numbers sit touching. */
+      const CLEAR = Math.max(4, Math.round(FS*0.30));
       let best=null;
-      for(let ring=0; ring<3 && !best; ring++){
-        const gap = R*2.2 + ring*FS*2.2;
+      for(let ring=0; ring<6 && !best; ring++){
+        const gap = R*2.2 + ring*FS*2.0;
         for(const [dx,dy] of CAND){
-          const cx = p[0] + dx*gap + (dx<0 ? -w : 0);
-          const cy = p[1] + dy*(gap*0.8) - h/2;
-          const box={x1:cx-4,y1:cy-4,x2:cx+w+4,y2:cy+h+4};
+          const cx = p[0] + dx*gap + (dx<0 ? -w : (dx>-0.3 && dx<0.3 ? -w/2 : 0));
+          const cy = p[1] + dy*gap - h/2;
+          const box={x1:cx-CLEAR,y1:cy-CLEAR,x2:cx+w+CLEAR,y2:cy+h+CLEAR};
           if(box.x1<fx+6||box.x2>fx+fw-6||box.y1<fy+6||box.y2>fy+fh-6) continue;
           if(overlaps(box)) continue;
           best={cx,cy,box,ring,dx,dy}; break;
         }
       }
-      if(!best) return;                       // no room: better a missing label than a pile
+      if(!best){ unplaced++; return; }        // counted, not silently dropped
       taken.push(best.box);
-      if(best.ring>0){                         // pushed out, so show what it belongs to
-        g.strokeStyle="rgba(255,255,255,.95)"; g.lineWidth=Math.max(2,FS*0.10);
-        g.beginPath();
-        g.moveTo(p[0]+ (best.dx>0? R*1.2 : best.dx<0? -R*1.2 : 0), p[1] + (best.dy? best.dy*R*1.2 : 0));
-        const anchorX = best.dx<0 ? best.cx+w : best.cx;
-        g.lineTo(anchorX, best.cy+h/2);
-        g.stroke();
+      /* A LEADER LINE whenever the label is not touching its tree, which past the
+         first ring it never is. Drawn from the edge of the symbol to the near edge
+         of the text, with a dot at the tree end so there is no doubt which tree it
+         belongs to — on a row of trees a metre apart, a line alone is ambiguous. */
+      if(best.ring>0){
+        const len = Math.sqrt(best.dx*best.dx + best.dy*best.dy) || 1;
+        const sx = p[0] + (best.dx/len)*R*1.25, sy = p[1] + (best.dy/len)*R*1.25;
+        const anchorX = best.dx<0 ? best.cx+w : (best.dx>-0.3 && best.dx<0.3 ? best.cx+w/2 : best.cx);
+        const anchorY = best.cy + h/2;
+        // dark under light, so it reads over both imagery and paper
+        [["rgba(0,0,0,.75)", Math.max(3,FS*0.16)],
+         ["rgba(255,255,255,.95)", Math.max(1.5,FS*0.08)]].forEach(([col,wid])=>{
+          g.strokeStyle=col; g.lineWidth=wid;
+          g.beginPath(); g.moveTo(sx,sy); g.lineTo(anchorX,anchorY); g.stroke();
+        });
+        g.beginPath(); g.arc(sx, sy, Math.max(2, R*0.34), 0, 7);
+        g.fillStyle="rgba(255,255,255,.95)"; g.fill();
+        g.strokeStyle="rgba(0,0,0,.75)"; g.lineWidth=Math.max(1,FS*0.05); g.stroke();
       }
       parts.forEach((v,i)=>{
         const txt=String(v), x=best.cx, y=best.cy + FS*0.6 + i*FS*1.2;
@@ -9928,6 +10147,9 @@ async function runSingleExport(opt){
         g.fillStyle="#fff"; g.fillText(txt,x,y);
       });
     });
+    /* Said out loud. A plan quietly missing eleven tree numbers looks finished, and
+       the numbers are how the table and the photographs are found. */
+    if(unplaced) setTimeout(()=>toast(`${unplaced} label(s) had no room on this sheet \u2014 a larger scale will fit them`, true), 400);
     g.textBaseline="alphabetic";
   }
   g.restore();
@@ -10206,8 +10428,34 @@ async function runSeriesExport(){
 /* Photo pages: six to a landscape sheet, each captioned with the tree number and
    species so a photo can be matched back to a point on the map without hunting.
    Photos are read from the device store, so this works with no signal. */
+/* One photo, from the phone if it is here and from DRIVE if it is not.
+
+   Schedule B was built only from the device archive, so a report put together on the
+   office machine, on a second phone, or after the archive had been cleared printed
+   "not on this device" where the photographs should be. Every photo is on Drive; it
+   just had to be asked for.
+
+   Fetched ONE AT A TIME and never held: a base64 photo is most of a megabyte and a
+   phase can run to hundreds, which is precisely the memory fault that was closing the
+   app on the phones. */
+function photoFromDrive(name){
+  return new Promise(res=>{
+    if(!connected || isOffline()) return res(null);
+    jsonpGet("photo", { name:name }, r=> res(r && r.ok && r.data ? r.data : null));
+  });
+}
+async function photoImage(name){
+  let rec = null;
+  if(HAS_IDB) rec = await idbGet(name).catch(()=>null);
+  let src = rec && rec.data ? rec.data : null;
+  let fromDrive = false;
+  if(!src){ src = await photoFromDrive(name); fromDrive = !!src; }
+  if(!src) return null;
+  const im = await new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });
+  return im ? { im:im, fromDrive:fromDrive } : null;
+}
+
 async function buildPhotoPages(shown, W, H, M, title){
-  if(!HAS_IDB) return [];
   const wanted=[];
   shown.forEach(t=>{
     const names=String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
@@ -10219,7 +10467,7 @@ async function buildPhotoPages(shown, W, H, M, title){
   wanted.sort((a,b)=> num(b.t.LAT)-num(a.t.LAT) || a.seq-b.seq);
 
   const COLS=3, ROWS=2, PER=COLS*ROWS;
-  const pages=[]; let missing=0;
+  const pages=[]; let missing=0, fetched=0;
   const total = Math.ceil(wanted.length/PER);
 
   for(let pg=0; pg<total; pg++){
@@ -10251,19 +10499,19 @@ async function buildPhotoPages(shown, W, H, M, title){
       const cx = M + (k%COLS)*cellW, cy = gridY + Math.floor(k/COLS)*cellH;
       const boxW = cellW-pad*2, boxH = cellH-pad*2-capH;
 
-      const rec = await idbGet(item.fn).catch(()=>null);
-      if(rec && rec.data){
-        const im = await new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=rec.data; });
-        if(im){
-          const sc = Math.min(boxW/im.width, boxH/im.height);
-          const w=im.width*sc, h=im.height*sc;
-          g.drawImage(im, cx+pad+(boxW-w)/2, cy+pad+(boxH-h)/2, w, h);
-        } else missing++;
+      setStatus(`Photographs: ${pg*PER+k+1} of ${wanted.length}`);
+      const got = await photoImage(item.fn);
+      if(got){
+        if(got.fromDrive) fetched++;
+        const im = got.im;
+        const sc = Math.min(boxW/im.width, boxH/im.height);
+        const w=im.width*sc, h=im.height*sc;
+        g.drawImage(im, cx+pad+(boxW-w)/2, cy+pad+(boxH-h)/2, w, h);
       } else {
         missing++;
         g.fillStyle="#eef2ee"; g.fillRect(cx+pad, cy+pad, boxW, boxH);
         g.fillStyle="#76867c"; g.font=`${Math.round(PDF_DPI*0.10)}px sans-serif`; g.textAlign="center";
-        g.fillText("not on this device", cx+pad+boxW/2, cy+pad+boxH/2);
+        g.fillText(isOffline() ? "needs a connection" : "not found", cx+pad+boxW/2, cy+pad+boxH/2);
         g.textAlign="left";
       }
       g.strokeStyle="#9fb0a5"; g.lineWidth=2; g.strokeRect(cx+pad, cy+pad, boxW, boxH);
@@ -10282,7 +10530,10 @@ async function buildPhotoPages(shown, W, H, M, title){
     }
     pages.push({ data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H });
   }
-  if(missing) toast(`${missing} photo(s) are on Drive but not on this phone`,true);
+  if(fetched) toast(`${fetched} photo(s) fetched from Drive`);
+  if(missing) toast(isOffline()
+    ? `${missing} photo(s) need a connection \u2014 they are on Drive, not on this phone`
+    : `${missing} photo(s) could not be found on this phone or on Drive`, true);
   return pages;
 }
 
@@ -11357,12 +11608,46 @@ function openFilter(){
   $("filCruiser").innerHTML = opt("","Everyone",trees.length,filterCruiser) +
     Object.keys(cr).sort().map(c=>opt(c==="(nobody)"?"__none__":c,c,cr[c],filterCruiser)).join("");
   $("filStats").textContent = `${trees.length} trees on this phone · ${Object.keys(pj).length} project(s) · ${Object.keys(cr).length} recorder(s)`;
+  $("filFrom").value = filterFrom;
+  $("filTo").value   = filterTo;
+  filPhaseCount();
+  $("filFrom").onchange = filPhaseCount;
+  $("filTo").onchange   = filPhaseCount;
   $("filterSheet").classList.add("show");
+}
+/* The count BEFORE committing to it. "230 trees" or "0 trees" is the difference
+   between the right phase and a wasted afternoon building a report on nothing. */
+function filPhaseCount(){
+  const from = $("filFrom").value, to = $("filTo").value;
+  const n = trees.filter(t=>{
+    const d = treeDay(t);
+    if(!from && !to) return true;
+    if(!d) return false;
+    if(from && d < from) return false;
+    if(to   && d > to)   return false;
+    return true;
+  }).length;
+  $("filPhaseCount").textContent = (!from && !to)
+    ? `Every date · ${n} tree(s) on this phone`
+    : `${n} tree(s) recorded in that window`;
+}
+function filPreset(days){
+  if(days < 0){ $("filFrom").value = ""; $("filTo").value = ""; filPhaseCount(); return; }
+  const to = new Date();
+  const from = new Date(to.getTime() - days*86400000);
+  const iso = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  $("filFrom").value = iso(from);
+  $("filTo").value   = iso(to);
+  filPhaseCount();
 }
 function closeFilter(){ $("filterSheet").classList.remove("show"); }
 function applyFilter(){
   filterProject = $("filProject").value==="__none__" ? "" : $("filProject").value;
   filterCruiser = $("filCruiser").value==="__none__" ? "" : $("filCruiser").value;
+  filterFrom = String($("filFrom").value||"").slice(0,10);
+  filterTo   = String($("filTo").value||"").slice(0,10);
+  // Entered the wrong way round is a mistake, not an empty result.
+  if(filterFrom && filterTo && filterFrom > filterTo){ const x=filterFrom; filterFrom=filterTo; filterTo=x; }
   showAllProjects = !filterProject;
   persistFilters();
   try{ STORE&&STORE.setItem("st_showall", showAllProjects?"1":"0"); }catch(e){}
@@ -11392,7 +11677,8 @@ function applyFilter(){
   if(n) fitTrees();
 }
 function clearFilter(){
-  filterProject=""; filterCruiser=""; showAllProjects=true; persistFilters();
+  filterProject=""; filterCruiser=""; filterFrom=""; filterTo="";
+  showAllProjects=true; persistFilters();
   renderPins(); updateProjBtn(); closeFilter(); toast("Showing everything");
 }
 function updateProjBtn(){
@@ -11449,6 +11735,7 @@ function openSettings(){
   $("settingsSheet").classList.add("show");
   fetchUsers();
   fetchProjects();
+  fetchIdMarks();
 }
 function previewId(){
   const p=($("setPrefix").value||"AUR").toUpperCase(), d=($("setDevice").value||"A").toUpperCase().slice(0,1);
@@ -11481,7 +11768,25 @@ function saveSettings(){
   settings.project=proj;
   settings.email=$("setEmail").value.trim();
   settings.prefix=($("setPrefix").value.trim()||"AUR").toUpperCase();
-  settings.device=($("setDevice").value.trim()||"A").toUpperCase().slice(0,1);
+  const dev = ($("setDevice").value.trim()||"A").toUpperCase().slice(0,1);
+  /* THE DEVICE LETTER IS THE ONLY THING keeping ids unique between two people
+     recording at the same time. Two crew both on A, both on the same prefix, mint
+     the same numbers independently — and the Sheet, which upserts on TREE_ID, has
+     no way to tell that apart from one person editing their own tree.
+
+     The crew list carries each person's letter, so the clash can be caught here
+     rather than discovered in the data weeks later. It is a warning, not a refusal:
+     one person legitimately uses the same letter on the same phone reinstalled, and
+     a colleague's stale row must not lock someone out of their own settings. */
+  const clash = users.find(u =>
+        String(u.device||"").toUpperCase() === dev &&
+        String(u.name||"").trim().toLowerCase() !== name.toLowerCase());
+  if(clash && dev !== String(settings.device||"").toUpperCase() &&
+     !confirm(`${clash.name} is already recording on device letter ${dev}.\n\n` +
+              `Two people on the same letter give two different trees the same ID, ` +
+              `and the Sheet cannot tell them apart.\n\nUse ${dev} anyway?`)) return;
+
+  settings.device = dev;
   settings.counter=Math.max(1,parseInt($("setCounter").value,10)||1);
   setCrownMethod($("setCrownMethod").value);
   setPhotoQuality($("setPhotoQ").value);
@@ -11616,6 +11921,7 @@ function showHelp(){
     <i>✛ Place</i> shows a crosshair — pan the map until it sits on the tree, then tap again to drop it.</p>
     <p><b>Finding yourself</b><br><i>⌖ Locate</i> at the bottom of the map jumps to your position. Tap it again while you are already there and it turns blue and follows you as you walk; panning the map, or dropping a tree, hands control back. If there is no fix yet it asks for one rather than just refusing.</p>
     <p><b>Choosing what to show</b><br><i>Menu → Showing</i> lists every project and every recorder actually on this phone, with counts, and filters the map to any combination. It only offers what would show a tree — if a project is not on the phone yet, pull it down first with <i>Load trees from Sheet</i>. The filter also governs what the statistics count and what the exports and the map sheet contain.</p>
+    <p><b>One phase of a job</b><br>The same <i>Showing</i> sheet carries a <b>date range</b>. A job that runs over months is reported a phase at a time — the two hundred trees updated this week, not the seven hundred in the Sheet — so set <i>From</i> and <i>To</i> and everything narrows together: the map, the statistics, Schedule A, the compensation tables, the map sheets and the assembled document. <b>Today</b> and <b>Last 7 days</b> are one tap; <i>Any date</i> puts it back. The count under the dates tells you how many trees you have caught before you commit, and the <i>Showing</i> button names the range afterwards, because a filter that is on but unsaid is how a report gets built on a third of the trees without anyone meaning it. A tree with no date recorded belongs to no phase and is left out. Dates entered the wrong way round are read as a range rather than as nothing.</p>
     <p><b>Projects</b><br>Every tree is stamped with the project chosen in settings. The list is shared through the Sheet, so everyone picks the same spelling — add a new one with <i>＋ Add a new project</i> and it appears for the whole crew. The map, statistics and exports show only the current project by default; <i>Menu → Showing</i> switches between one project and all of them.</p>
     <div class="stath" style="margin:16px 0 8px">WORKING FROM EXISTING DATA</div>
     <p><b>Starting from an existing tree layer</b><br>You do not have to record a street from nothing. <b>Menu → Import tree points</b> takes a zipped shapefile (.zip), .geojson or .gpx of tree locations — a previous inventory, a planting list, or just bare points with no attributes at all. The points become editable trees in this app, and whatever data they carry is transferred across: you match each incoming column to a field once, with two real sample values shown beside each column name so you can tell which is which. Anything left as “— none —” is simply blank for you to fill in the field.</p>
@@ -11658,12 +11964,17 @@ function showHelp(){
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photos are read from the phone, so this works with no signal; any that are only on Drive show as a blank marked “not on this device”. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Showing the zone distance with the number</b><br>A dashed circle tells a contractor where the fence goes; the figure beside it is what they measure to. The label list on the export offers <i>Tree number and protection zone</i> — <b>T1 / 2.4 m</b> — and <i>Number, species and protection zone</i>, and the same thing is available on screen as a field called <b>Protection zone, with units</b> in <i>Menu → Label settings</i>. Where no zone has been stored for a tree, the figure is worked out from its DBH, because the circle is drawn for those trees too and a circle with no dimension beside it is not a specification. A tree with neither gets no dimension rather than a nought.</p>
+    <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
+    <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
     <p>The imagery is Esri World Imagery, credited on the map as their licence requires. Google's tiles are deliberately not used: their terms do not permit extracting tiles into a document, and they do not send the headers a browser needs to export a map image at all.</p>
+    <p><b>If the same tree ends up in the Sheet twice</b><br>This happens when a second install — a desktop, a reinstalled phone — creates trees before it has seen what is already there, so one tree ends up under two different IDs. On the Sheet: <i>Tree Tools → Find duplicate trees by position</i>. It asks for a distance (0.5 m is right almost always, since a duplicate sits at the <i>same</i> coordinates while real street trees stand metres apart), then writes a <b>Duplicates</b> tab and stops — nothing changes until you have read it. Every row says KEEP, DROP or IGNORE and you can change any of them. Then <i>Merge the duplicates listed</i> takes a backup, fills the kept tree's blanks from the others, joins their photographs, and moves the dropped rows to the Deleted tab where <i>Restore deleted trees</i> can fetch them back. It will not merge across projects, or where the species disagree, or more than three trees in one place — that is a row of trees, not a duplicate. <b>Afterwards every phone needs <i>Load trees from Sheet</i></b>, or one still holding a deleted tree will put it back on its next sync.</p>
+    <p><b>Give every phone its own device letter</b><br>The letter is the only thing keeping tree IDs unique between two people recording at the same time — two crew on A give two different trees the same ID, and the Sheet cannot tell them apart. Settings now says so if you pick a letter a colleague is already using. A new install also asks the Sheet what numbers are already used before it creates its first tree, so it cannot start again at 1 alongside seven hundred trees it has not seen.</p>
     <p><b>Tree numbers</b><br>Every tree gets a plain sequential number within its project — 1, 2, 3 — assigned when you save it, and shown at the top of the form. That is the number for a tag, a map label and a report table. The long <b>TREE_ID</b> stays as the unique record key across every project in the Sheet, which is what it is good for and quite the wrong thing to write on a tree. <i>Menu → Settings & help → Renumber this project</i> closes gaps and puts them in order north to south before a report.</p>
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
     <p><b>York Region compensation</b><br>Alongside the Richmond Hill banded figure, every tree also carries the York Region calculation: <b>replacement trees = DBH ÷ 5 × condition rating</b>, rounded to the nearest whole tree, then multiplied by the replacement cost — deciduous or coniferous, taken from the i-Tree code. Species exempt under section 2.4 (ash, buckthorn, Tree-of-Heaven, Russian olive, European alder) are detected automatically and earn nothing; an ash under an EAB treatment programme can be switched back to compensated. <i>Menu → Get data out → York Region compensation table</i> asks how many replacement trees the landscape plan proposes and produces the Appendix B table with the deductions and the required financial compensation.</p>
-    <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Both follow the Showing filter.</p>
+    <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
     <p><b>The menu follows the job</b><br>At the top of the menu a line reads <b>This project: tree inventory</b> or <b>tree protection plan</b> — tap it to change. On a tree protection plan the form gains potential impact, prognosis and recommended action, and a <b>🛡 Tree protection &amp; reporting</b> group appears with everything for that work in the order you do it: on site, then the report tables, then the document. On a plain inventory all of that stays hidden, so a crew recording street trees is not scrolling past schedules to reach Sync. It follows the project, so the same phone can do both, and nothing already recorded is lost by switching.</p>
     <p><b>Assembling the final document</b><br><i>Menu → Assemble the final document</i> collates everything into one submission PDF in the <b>tree protection plan format</b>: every sheet is 11×17 with the title block down its right edge — key map, legend, base data credits, prepared by with your logo, prepared for, title, scale and sheet number — and the content laid out to its left. An 8.5×11 arborist report goes <b>two pages up</b> on each sheet, at its own proportions.</p>
     <p>Tick the sections and order them with the arrows. <b>Add PDFs</b> asks what each one is as it goes in, because that wording is what the contents page prints — the ✎ button renames a section later. The <b>first sheet is the report’s title page on the left and the contents on the right</b>; the contents lists itself as TPP1, names every standard detail separately, and ends with your note. It is written last, from where the sheets actually landed, so it cannot disagree with the document.</p>
