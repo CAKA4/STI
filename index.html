@@ -272,6 +272,22 @@
   .repobar button{ padding:9px 14px; border-radius:9px; border:1px solid var(--accent);
     background:var(--accent-dk); color:#fff; font-weight:700; font-size:13px; cursor:pointer }
   .repobar button.alt{ background:#26332c; border-color:#3f5346; color:#cfe6d6 }
+  /* The measuring bar carries a reading rather than a message, so it stacks: the
+     figure large enough to read at arm's length, the controls under it. */
+  .repobar.measbar.show{ display:block }
+  .repobar.measbar{ border-color:#00BCD4 }      /* the tool's own colour, as on the map */
+  .measbar .readout{ margin-bottom:8px }
+  .measbar .big{ font-size:21px; font-weight:800; color:#7fe9dc; letter-spacing:.01em;
+                 font-variant-numeric:tabular-nums }
+  .measbar .sub{ font-size:11.5px; color:#9fbcab; margin-top:2px }
+  .measbar .mrow{ display:flex; gap:6px; flex-wrap:wrap }
+  .measbar .mrow button{ padding:8px 11px; font-size:12.5px }
+  .measbar .seg.on{ background:#00BCD4; border-color:#00BCD4; color:#08221f }
+  /* Segment lengths, drawn on the line itself. */
+  .measlab{ font:700 11px/1.1 var(--sans); color:#08343a; background:rgba(127,233,220,.92);
+            border:1px solid #00BCD4; border-radius:5px; padding:2px 5px; white-space:nowrap;
+            transform:translate(-50%,-50%); width:max-content !important; height:auto !important;
+            box-shadow:0 1px 4px rgba(0,0,0,.35) }
 
   .undobar{ display:none; position:fixed; left:12px; right:12px; bottom:calc(78px + env(safe-area-inset-bottom));
     z-index:1900; background:#2a2320; border:1px solid #6d5535; border-radius:11px; padding:11px 13px;
@@ -304,6 +320,14 @@
   .tpop .ph{ width:46px; height:46px; object-fit:cover; border-radius:6px; display:block;
     background:#dfe7e0; border:1px solid #b9c6bd; cursor:pointer }
   .tpop .phn{ font-size:10px; color:#4a6b52; margin-left:2px }
+  /* A slot the moment the popup opens, so a tree with photographs never looks like a
+     tree without any while they are being fetched. */
+  .tpop .phbox{ width:46px; height:46px; border-radius:6px; display:flex; align-items:center;
+                justify-content:center; background:#e8eee9; color:#7d9484; font-size:15px;
+                border:1px dashed #b9c9bd; box-sizing:border-box }
+  .tpop .phbox.bad{ background:#f6e7df; border-color:#d9b49c; color:#b2653a }
+  .tpop .phnote{ flex:0 0 100%; font-size:10.5px; color:#a3552c; line-height:1.35 }
+  .tpop .phnote a{ color:#1d6b3a; text-decoration:underline }
   /* full-size viewer, opened by tapping a thumbnail */
   .lightbox{ display:none; position:fixed; inset:0; z-index:2500; background:rgba(0,0,0,.92);
     align-items:center; justify-content:center; flex-direction:column; padding:16px }
@@ -385,6 +409,7 @@
   <button id="btnLegend" onclick="toggleLegend()" title="Legend">🎨</button>
   <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
   <button id="btnSelect" onclick="toggleSelect()" title="Select a group of trees">⬚</button>
+  <button id="btnMeasure" onclick="toggleMeasure()" title="Measure distance and area">📏</button>
   <button id="btnRoads" onclick="toggleRoads()" title="Roads and place names">🛣</button>
   <button id="btnTPZ" onclick="toggleTPZ()" title="Tree protection zones">🛡</button>
   <button id="btnSymbol" onclick="cycleSymbol()" title="Colour trees by…">🎯</button>
@@ -424,6 +449,7 @@
       </div>
       <input id="photoPick" type="file" accept="image/*" multiple style="display:none" onchange="handlePhoto(this)">
       <div class="thumbs" id="photoThumbs"></div>
+      <div class="mini" id="photoWhy" style="color:#d08a5a"></div>
       <div class="mini" id="photoHint">Saved on the phone, backed up to Drive when online.</div>
     </div>
 
@@ -620,6 +646,7 @@
       <button class="mhead" onclick="toggleGroup('layers')">📥 Bring data in<span class="caret">▸</span></button>
       <div class="mbody">
         <button class="menuitem" onclick="document.getElementById('pointsInput').click()">Import tree points (.zip .shp .geojson .gpx)</button>
+        <button class="menuitem" onclick="document.getElementById('updInput').click()">Update trees from an edited layer or table (.zip .xlsx)</button>
         <button class="menuitem" onclick="document.getElementById('sitePdfInput').click()">Site plan — georeferenced PDF</button>
         <button class="menuitem" onclick="openLayers()">Layers &amp; reference files</button>
         <button class="menuitem" onclick="openDriveLayers()">☁ Layers on Drive — shared with the crew</button>
@@ -1319,6 +1346,47 @@
   </div>
 </div>
 
+<!-- ===== update from an edited layer or table ===== -->
+<div class="sheet" id="updSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Update from an edited file</h2>
+    <div class="idline" id="updFile">—</div>
+    <div class="mini">Nothing is created and nothing is deleted. Trees already here are corrected from the file; rows that match no tree are reported and ignored; trees the file says nothing about are left as they are.</div>
+
+    <div class="fld" style="margin-top:12px">
+      <label>Match the rows on</label>
+      <select id="updKeySel" onchange="updKeyChanged()"></select>
+      <div class="mini">Only trees that are <b>showing</b> can be matched, so another project cannot be written to by accident.</div>
+    </div>
+
+    <div class="fld">
+      <label>Positions</label>
+      <select id="updPosSel" onchange="updPosChanged()"></select>
+      <div class="mini" id="updPosNote"></div>
+    </div>
+
+    <div class="fld">
+      <label>Fields to bring across</label>
+      <div id="updFields"></div>
+      <div class="mini" style="margin-top:6px">A blank cell leaves the tree's value alone — it never clears it. Tree ID, project and the photo columns are never written.</div>
+    </div>
+    <div class="btnrow">
+      <button class="alt" onclick="updTickAll(true)">Tick them all</button>
+      <button class="alt" onclick="updTickAll(false)">Untick them all</button>
+    </div>
+
+    <div class="mini" id="updSummary" style="text-align:center;padding:10px 0;font-weight:600"></div>
+    <div id="updProblems" class="mini"></div>
+
+    <div class="btnrow">
+      <button class="primary" onclick="confirmUpdate()" id="btnUpdGo">Apply the update</button>
+      <button onclick="cancelUpdate()">Cancel</button>
+    </div>
+    <div class="mini">The change goes on the undo stack and syncs to the Sheet — the same rows, changed, not new ones.</div>
+  </div>
+</div>
+
 <!-- ===== selection ===== -->
 <div class="sheet" id="selSheet">
   <div class="sheet-inner">
@@ -1407,6 +1475,7 @@
 </div>
 
 <input id="pointsInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<input id="updInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx,.xlsx" style="display:none">
 <input id="sitePdfInput" type="file" accept=".pdf,application/pdf" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <div class="repobar" id="drawBar">
@@ -1414,6 +1483,21 @@
   <button class="alt" onclick="undoDrawPt()">Undo</button>
   <button class="alt" onclick="cancelDraw()">Cancel</button>
   <button onclick="finishDraw()">Done</button>
+</div>
+<div class="repobar measbar" id="measBar">
+  <div class="readout">
+    <div class="big" id="measBig">—</div>
+    <div class="sub" id="measSub">Tap along the line</div>
+  </div>
+  <div class="mrow">
+    <button class="alt seg" id="btnMeasLine" onclick="setMeasMode('line')">↔ Distance</button>
+    <button class="alt seg" id="btnMeasArea" onclick="setMeasMode('area')">▱ Area</button>
+    <button class="alt" onclick="measAtCrosshair()" title="Add a point at the centre of the map">✛ Centre</button>
+    <button class="alt" onclick="undoMeasPt()">Undo</button>
+    <button class="alt" onclick="clearMeasPts()">Clear</button>
+    <button class="alt" onclick="copyMeasure()">Copy</button>
+    <button onclick="endMeasure()">Done</button>
+  </div>
 </div>
 <div class="repobar" id="pdfBar">
   <span class="msg">Site plan</span>
@@ -1453,7 +1537,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-24 · v135";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-24 · v138";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2479,6 +2563,7 @@ function labelPointOf(f){
 
 /* ---------- crosshair placement ---------- */
 function togglePlace(){
+  if(!placeMode && measureOn()) endMeasure();
   placeMode=!placeMode;
   $("crosshair").style.display = placeMode ? "block" : "none";
   $("btnPlace").classList.toggle("on", placeMode);
@@ -4657,25 +4742,49 @@ function treePopupHtml(i){
   </div>`;
 }
 
-// The thumbnail is fetched after the popup opens — reading it inline would block the tap.
+/* The thumbnails are fetched after the popup opens — reading them inline would block
+   the tap. Each one gets its SLOT STRAIGHT AWAY, so the popup shows how many
+   photographs the tree has before any of them have arrived, and a slot that never
+   fills says why rather than disappearing. */
 function fillPopupPhoto(i){
   const t = trees[i]; if(!t) return;
   const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
   const box = $("tpopph"+i);
-  if(!box || !names.length) return;
-  // Small thumbnails: the popup is for reading the record, not viewing photos.
-  // Tapping one opens it full size.
-  let shown = 0;
+  if(!box) return;
+  if(!names.length){
+    // NOT the same thing as a photograph that would not load, and it used to look it.
+    box.innerHTML = `<span class="phn">No photographs on this tree</span>`;
+    return;
+  }
+  box.innerHTML = names.map((fn,k)=>
+    `<span class="phbox" id="tpopph${i}_${k}" title="${esc(fn)}">…</span>`).join("") +
+    (names.length > 1 ? `<span class="phn">${names.length} photos</span>` : "") +
+    `<span class="phnote" id="tpopphn${i}"></span>`;
+  let bad = "";
   names.forEach((fn,k)=>{
-    photoThumb(fn).then(src=>{
-      if(!src) return;
-      box.insertAdjacentHTML("beforeend",
-        `<img class="ph" src="${src}" alt="photo ${k+1} of ${esc(t.TREE_ID)}"
-          onclick="openLightbox(${i},${k})">`);
-      if(++shown === 1 && names.length > 1)
-        box.insertAdjacentHTML("beforeend", `<span class="phn">${names.length} photos</span>`);
+    photoThumbInfo(fn).then(r=>{
+      const slot = $("tpopph"+i+"_"+k);
+      if(!slot) return;                                   // the popup closed
+      if(r.src){
+        slot.outerHTML = `<img class="ph" src="${r.src}" alt="photo ${k+1} of ${esc(t.TREE_ID)}"
+          onclick="openLightbox(${i},${k})">`;
+        return;
+      }
+      slot.className = "phbox bad";
+      slot.textContent = "✕";
+      if(!bad){
+        bad = r.why || "missing";
+        const note = $("tpopphn"+i);
+        if(note) note.innerHTML = esc(PHOTO_WHY[bad] || PHOTO_WHY.missing) +
+          ` <a href="javascript:void(0)" onclick="retryPopupPhotos(${i})">try again</a>`;
+      }
     }).catch(()=>{});
   });
+}
+function retryPopupPhotos(i){
+  const t = trees[i]; if(!t) return;
+  forgetPhotoMisses(String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean));
+  fillPopupPhoto(i);
 }
 /* Full-size viewer. Reads from the device archive so it works with no signal;
    the Drive link is offered alongside when there is one. */
@@ -4686,11 +4795,12 @@ function openLightbox(i,k){
   const fn = names[k]; if(!fn) return;
   photoFull(fn).then(src=>{
     if(!src){
-      /* Says WHICH of the two it is. "Not on this phone" was the only message, and
-         on an office machine that is true of every photograph and explains none of
-         them. */
-      toast(isOffline() ? "That photo is on Drive — this device has no connection"
-                        : "That photo is not on this device or on Drive", true);
+      /* Says WHICH of them it is. "Not on this phone" was the only message, and on an
+         office machine that is true of every photograph and explains none of them.
+         The store failing to open is now named separately, because that one is fixed
+         by closing another tab rather than by looking on Drive. */
+      const why = !connected ? "nolink" : isOffline() ? "offline" : (idbTrouble || "missing");
+      toast("That photo is " + (PHOTO_WHY[why] || PHOTO_WHY.missing), true);
       return;
     }
     $("lbImg").src = src;
@@ -4771,7 +4881,6 @@ function setStatsRange(k){
 
 // DATE is stored as "YYYY-MM-DD HH:MM:SS", so a plain string compare on the date part
 // is both correct and cheap — no parsing, no timezone drift.
-function treeDay(t){ return String(t.DATE||"").slice(0,10); }
 function statsFiltered(){
   // Independent of the map: driven by the pickers in this sheet.
   const wantP = $("statsProject") ? $("statsProject").value : "";
@@ -6019,13 +6128,43 @@ const PHOTO_DB="st_photos_db", PHOTO_STORE="photos", LAYER_STORE="layers";
 const TILE_STORE="tiles", AREA_STORE="areas";
 let pendingMem=[];
 
-function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(PHOTO_DB,3);
+/* OPENING THE DATABASE CAN HANG FOR EVER, AND DID.
+
+   indexedDB.open() fires `blocked` — and then NEITHER success NOR error, ever — when
+   another tab or window holds the same database open at an older version. This
+   promise had no onblocked handler and no timeout, so it simply never settled. Every
+   caller awaits it, and `await idbGet(name)` inside photoThumb then waited for the
+   rest of the session: no thumbnail in the map popup, no strip in the edit form, no
+   message, no error in the console. The tree looked as though it had no photographs.
+
+   NOBODY OPENS TWO TABS ON A PHONE. On a desktop it is the ordinary way to work —
+   the app in one tab while the Sheet is in another, or the installed window open
+   beside a browser tab — which is why this only ever showed up on Windows and why it
+   survived every phone in the field.
+
+   Now it settles three ways: success, error, or blocked; and a timeout behind all
+   three so a browser that answers none of them still cannot wedge the app. A handle
+   that arrives after the timeout is closed rather than leaked. */
+const IDB_OPEN_MS = 5000;
+let idbTrouble = "";                     // the last reason, for the photo messages
+function idbOpen(){ return new Promise((res,rej)=>{
+  let settled = false;
+  const fail = why => { if(settled) return; settled = true; idbTrouble = why; rej(new Error(why)); };
+  const r = indexedDB.open(PHOTO_DB,3);
   r.onupgradeneeded=()=>{ const db=r.result;
     if(!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE,{keyPath:"filename"});
     if(!db.objectStoreNames.contains(LAYER_STORE)) db.createObjectStore(LAYER_STORE,{keyPath:"id"});
     if(!db.objectStoreNames.contains(TILE_STORE))  db.createObjectStore(TILE_STORE,{keyPath:"k"});
     if(!db.objectStoreNames.contains(AREA_STORE))  db.createObjectStore(AREA_STORE,{keyPath:"id"}); };
-  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+  r.onsuccess=()=>{
+    // It answered after we had given up: close it rather than leak the handle.
+    if(settled){ try{ r.result.close(); }catch(e){} return; }
+    settled = true; idbTrouble = ""; res(r.result);
+  };
+  r.onerror   = ()=>fail("error");
+  r.onblocked = ()=>fail("blocked");     // another tab is holding an older version
+  setTimeout(()=>fail("timeout"), IDB_OPEN_MS);
+}); }
 
 /* ================================================================== *
  *  OFFLINE IMAGERY
@@ -6348,18 +6487,27 @@ function removePhoto(i){
    archive to find five records, and then hang the full-size images in the DOM. */
 function renderThumbs(){
   $("photoThumbs").innerHTML="";
+  $("photoWhy").textContent = "";
   if(!currentPhotos.length) return;
   const want = currentPhotos.slice();
   /* In order, and each one placed only if the form is still on the same tree —
      a slow fetch must not drop a photo into the next tree's strip. */
+  let bad = 0, why = "";
   want.forEach((fn,i)=>{
-    photoThumb(fn).then(src=>{
-      if(!src) return;
+    photoThumbInfo(fn).then(r=>{
       if(currentPhotos.join(";") !== want.join(";")) return;
-      addThumb(src, i+1);
+      if(r.src){ addThumb(r.src, i+1); return; }
+      /* SAYS SO. The strip used to come up empty on the office machine with nothing
+         to explain it, which is the half of this bug that wasted the time. */
+      bad++; why = why || r.why || "missing";
+      $("photoWhy").innerHTML =
+        `${bad} of ${want.length} photograph(s) could not be shown — ` +
+        esc(PHOTO_WHY[why] || PHOTO_WHY.missing) +
+        ` <a href="javascript:void(0)" onclick="retryFormPhotos()">try again</a>`;
     }).catch(()=>{});
   });
 }
+function retryFormPhotos(){ forgetPhotoMisses(currentPhotos.slice()); renderThumbs(); }
 /* Which photos still need sending is answered from the METADATA, and each one is
    then fetched, posted and released before the next is touched. It used to load
    every image in the archive and fire a fetch for each un-uploaded one at the same
@@ -6797,6 +6945,531 @@ function confirmImport(){
   toast(`Imported ${added}${skipped?` · ${skipped} already present`:""}`);
 }
 function cancelImport(){ importFeatures=null; $("mapSheet").classList.remove("show"); }
+
+/* ================================================================== *
+ *  UPDATE FROM AN EDITED LAYER OR TABLE
+ * ================================================================== *
+
+   Chris: "i may need to pass back to you updated tree point layer that is edited
+   for positioning. can you allow for that and then update the x and y shown in the
+   sheet with those new coordinates? Additionally, can you update certain fields in
+   the sheet based on new data that is in the layer, or supplied table — will need
+   to ensure tree numbers match for the project to update the correct points."
+
+   This is the one path in the app that writes to trees it did not create, from a
+   file it did not write, so every decision below is the cautious one.
+
+   WHAT IT IS NOT. It is not an import. Nothing is ever created: a row in the file
+   that matches no tree on the phone is COUNTED AND NAMED and then ignored, and a
+   tree the file says nothing about is left exactly as it stands. Both of those were
+   asked for explicitly, and both are the behaviour you want the day somebody hands
+   back the wrong file — the worst case is a report saying "none of these 412 rows
+   matched", not 412 new trees in the Sheet.
+
+   THE MATCH KEY. TREE_ID where the file carries it, because that is the identifier
+   the app minted and nothing else is guaranteed unique. TREE_NO otherwise, and then
+   only WITHIN WHAT IS SHOWING — the same scope the search and the bulk edit use — so
+   a number that means one tree on Centre Street East cannot reach into another job.
+   A key held by two trees in scope, or appearing twice in the file, is AMBIGUOUS:
+   it is reported and written to nothing. Guessing there is how a crew's tags end up
+   on the wrong stems, and this job already has duplicate tree numbers in it.
+
+   A BLANK CELL IS NOT AN INSTRUCTION. Field data arrives half-filled all the time —
+   a column only populated for the trees somebody reviewed. An empty cell leaves the
+   tree's value alone. Clearing a field is what the bulk edit is for, where you have
+   to say so.
+
+   WHAT IT WILL NOT WRITE. TREE_ID and PROJECT are the two that would be genuinely
+   destructive — one is identity, the other is which job a tree belongs to, and both
+   have their own deliberate paths. Photo fields are resolved by the Sheet from
+   Drive and a stale value would overwrite the real one. LAT/LON are not on the
+   field list either; positions have their own tick, because moving a tree is a
+   different decision from correcting its DBH.
+
+   IT GOES THROUGH bulkApply, so it lands on the persisted undo stack, only records
+   what actually changed, marks those trees unsent and syncs. An update applied to
+   the wrong project is one button away from being put back. */
+
+const UPD_BLOCK = ["TREE_ID","PROJECT","PHOTO_LINK","PHOTOS","LAT","LON","HLTH_CODE",
+                   "BOTANICAL","FAMILY","GENUS","ITREE"];
+const UPD_FIELDS = KEYS.filter(k => UPD_BLOCK.indexOf(k) < 0);
+function updFieldLabel(k){
+  const b = BULK_FIELDS.find(f => f[0] === k);   if(b) return b[1];
+  const q = QUERY_FIELDS.find(f => f[0] === k);  if(q) return q[1];
+  const f = FIELDS.find(f => f.k === k);
+  return (f && f.label) || k;
+}
+
+/* ---- reading a .xlsx ---------------------------------------------------------
+
+   Enough of the format to read a table somebody exported from ArcGIS or typed in
+   Excel, and no more. A workbook is a zip; the first worksheet and the shared
+   string table are the only parts that matter. SheetJS would do this too, at 900 kB
+   over the wire, for a screen most users will open twice a year.
+
+   Cells are sparse — a row with nothing in column C simply has no <c r="C7">. The
+   column letter in the r attribute is therefore read rather than counted, which is
+   the mistake that shifts every value one place left the first time somebody hands
+   over a sheet with a gap in it. */
+function xmlUnesc(s){
+  return String(s == null ? "" : s)
+    .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'")
+    .replace(/&#(\d+);/g, (m,d) => String.fromCharCode(parseInt(d,10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (m,h) => String.fromCharCode(parseInt(h,16)))
+    .replace(/&amp;/g,"&");
+}
+function colIndexOf(ref){
+  const m = /^([A-Za-z]+)/.exec(String(ref || ""));
+  if(!m) return -1;
+  const s = m[1].toUpperCase();
+  let n = 0;
+  for(let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n - 1;
+}
+function sharedStringsOf(xml){
+  if(!xml) return [];
+  const out = [], re = /<si\b[^>]*\/>|<si\b[^>]*>([\s\S]*?)<\/si>/g;
+  let m;
+  while((m = re.exec(xml))){
+    let s = "", tm, tre = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+    while((tm = tre.exec(m[1] || ""))) s += xmlUnesc(tm[1]);
+    out.push(s);
+  }
+  return out;
+}
+function xlsxGrid(xml, shared){
+  const rows = [], rre = /<row\b[^>]*\/>|<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  let rm;
+  while((rm = rre.exec(xml || ""))){
+    const cells = [], cre = /<c\b([^>]*?)\/>|<c\b([^>]*?)>([\s\S]*?)<\/c>/g;
+    let cm, auto = 0;
+    while((cm = cre.exec(rm[1] || ""))){
+      const attrs = (cm[1] || cm[2] || ""), inner = cm[3] || "";
+      const rf = /\br="([^"]+)"/.exec(attrs), ty = /\bt="([^"]+)"/.exec(attrs);
+      const i = rf ? colIndexOf(rf[1]) : auto;
+      auto = (i < 0 ? auto : i) + 1;
+      let v = "";
+      if(ty && ty[1] === "inlineStr"){
+        let tm, tre = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+        while((tm = tre.exec(inner))) v += xmlUnesc(tm[1]);
+      } else {
+        const vm = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(inner);
+        v = vm ? xmlUnesc(vm[1]) : "";
+        if(ty && ty[1] === "s"){ const k = parseInt(v, 10); v = shared[k] == null ? "" : shared[k]; }
+      }
+      if(i >= 0) cells[i] = v;
+    }
+    rows.push(cells);
+  }
+  return rows;
+}
+/* The header is the first row carrying two or more filled cells, so a title line or
+   a blank row above the table does not become the column names — which is exactly
+   what a formatted report table looks like. */
+function gridToRecords(grid){
+  let h = -1;
+  for(let i = 0; i < grid.length; i++){
+    const n = (grid[i] || []).filter(v => String(v == null ? "" : v).trim() !== "").length;
+    if(n >= 2){ h = i; break; }
+  }
+  if(h < 0) return { cols:[], recs:[] };
+  const names = [], used = {};
+  (grid[h] || []).forEach((v, i) => {
+    let s = String(v == null ? "" : v).trim();
+    if(!s) return;
+    if(used[s]) s = s + " (" + (++used[s]) + ")"; else used[s] = 1;
+    names[i] = s;
+  });
+  const cols = names.filter(Boolean), recs = [];
+  for(let i = h + 1; i < grid.length; i++){
+    const r = grid[i] || [];
+    if(!r.filter(v => String(v == null ? "" : v).trim() !== "").length) continue;
+    const o = {};
+    names.forEach((nm, ci) => { if(nm) o[nm] = r[ci] == null ? "" : r[ci]; });
+    recs.push({ props:o, lat:null, lon:null });
+  }
+  return { cols:cols, recs:recs };
+}
+async function readTableFile(file){
+  const buf = await file.arrayBuffer();
+  const shared = sharedStringsOf(await zipTextEntry(buf, /xl\/sharedStrings\.xml$/i));
+  const sheet  = await zipTextEntry(buf, /xl\/worksheets\/sheet1\.xml$/i);
+  if(!sheet) throw new Error("no worksheet");
+  return gridToRecords(xlsxGrid(sheet, shared));
+}
+/* A layer read the same way the importer reads one, except the geometry is kept
+   beside the attributes rather than becoming a new tree. shpjs has already put the
+   coordinates into WGS84 using the file's own .prj by the time this sees them. */
+async function readUpdateGeo(file){
+  const gj = await readGeoFile(file);
+  const recs = [];
+  (Array.isArray(gj) ? gj : [gj]).forEach(fc => ((fc && fc.features) || []).forEach(f => {
+    const g = f.geometry;
+    let lat = null, lon = null, c = g && g.coordinates;
+    if(g && (g.type === "Point" || g.type === "MultiPoint") && c){
+      while(Array.isArray(c[0])) c = c[0];
+      if(typeof c[0] === "number"){ lon = c[0]; lat = c[1]; }
+    }
+    recs.push({ props: f.properties || {}, lat:lat, lon:lon });
+  }));
+  const cols = [];
+  recs.slice(0, 500).forEach(r => { for(const k in r.props) if(cols.indexOf(k) < 0) cols.push(k); });
+  return { cols:cols, recs:recs };
+}
+
+/* ---- matching rows to trees ---------------------------------------------- */
+function normHead(s){ return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function updIdKey(v){ return String(v == null ? "" : v).trim().toLowerCase(); }
+/* "T2", "2", "002" and the 2 a spreadsheet wrote as "2.0" are the same tree number.
+   Anything that is not a plain number is compared as text rather than thrown away,
+   so a job numbering its trees 12A still matches. */
+function updNoKey(v){
+  const s = String(v == null ? "" : v).trim();
+  if(!s) return "";
+  const m = /^[Tt]?\s*0*(\d+)(?:\.0+)?$/.exec(s);
+  return m ? m[1] : s.toLowerCase();
+}
+function updKeyFn(key){ return key === "TREE_ID" ? updIdKey : updNoKey; }
+function updIndex(scope, key){
+  const fn = updKeyFn(key), ix = {};
+  (scope || []).forEach(t => {
+    const k = fn(key === "TREE_ID" ? t.TREE_ID : t.TREE_NO);
+    if(!k) return;
+    (ix[k] = ix[k] || []).push(t);
+  });
+  return ix;
+}
+/* Which column holds the key, and which key it is. TREE_ID is preferred wherever
+   the file carries it — the exported .dbf always does — and only falls back to the
+   tree number when it does not. */
+const UPD_ID_HEADS = ["treeid","id","uniqueid","treeuid","guid"];
+const UPD_NO_HEADS = ["treeno","treenum","treenumber","treenmbr","no","num","number","tree"];
+function updGuessKey(cols){
+  const byNorm = {};
+  (cols || []).forEach(c => { const n = normHead(c); if(!byNorm[n]) byNorm[n] = c; });
+  for(const h of UPD_ID_HEADS) if(byNorm[h]) return { key:"TREE_ID", col:byNorm[h] };
+  for(const h of UPD_NO_HEADS) if(byNorm[h]) return { key:"TREE_NO", col:byNorm[h] };
+  return { key:"TREE_NO", col:"" };
+}
+/* THE TABLE HE IS ACTUALLY HANDED BACK. The emailed report table is by far the
+   likeliest file to come back edited, and its headings are the client's wording
+   rather than the app's: "Canopy Radius (m)" for the crown radius, "Notes" for the
+   comments, "TPP Page" for the map sheet. On name and label alone, four of its
+   eighteen columns went unrecognised — and an unrecognised column is not an error,
+   it is a field that silently does not get updated, which is the worst way for this
+   to fail. These are the headings REPORT_COLS_ writes in Code.gs, and the two lists
+   have to move together; the suite reads them out of Code.gs and checks. */
+const UPD_ALIASES = {
+  TREE_NO:    ["Tree #", "Tree No", "Tree No.", "Tree Number", "TreeNUM"],
+  TAG_NO:     ["Tag", "Tag #", "Tag No"],
+  SPECIES:    ["Common Name", "Species"],
+  DBH:        ["DBH (cm)", "Diameter", "Diameter (cm)"],
+  HEIGHT:     ["Height (m)"],
+  CROWN_RAD:  ["Canopy Radius (m)", "Canopy Radius", "Crown Radius"],
+  TPZ_M:      ["Tree Preservation Zone (m)", "Tree Protection Zone (m)", "TPZ", "TPZ (m)"],
+  HEALTH:     ["Condition Rating", "Condition"],
+  LOCATION:   ["Ownership"],
+  COMMENTS:   ["Notes"],
+  SHEET_NO:   ["TPP Page", "Map Sheet", "Sheet"],
+  IMPACT_POT: ["Potential Construction Impact"],
+  PROP_ACT:   ["Proposed Action"],
+  LT_IMPACT:  ["Potential long term impact"],
+  RECOTREA:   ["Recommended Treatment"],
+  CRUISER:    ["Recorded By", "Collector", "Arborist", "Assessed By"],
+  ADDRESS:    ["Municipal Address"],
+  STREET:     ["Street Name"]
+};
+/* Incoming columns matched to app fields by name, then by the label the field is
+   shown under, then by those aliases — so a table written with "Condition Rating"
+   at the top lands on HEALTH without anybody choosing it from a list. */
+function updGuessMap(cols){
+  const byNorm = {};
+  (cols || []).forEach(c => { const n = normHead(c); if(!byNorm[n]) byNorm[n] = c; });
+  const map = {};
+  UPD_FIELDS.forEach(k => {
+    let hit = byNorm[normHead(k)] || byNorm[normHead(updFieldLabel(k))];
+    if(!hit) (UPD_ALIASES[k] || []).some(a => (hit = byNorm[normHead(a)]));
+    if(hit) map[k] = hit;
+  });
+  return map;
+}
+const UPD_X_HEADS   = ["x","easting","east","utmx","xutm","xcoord","coordx","pointx","xm"];
+const UPD_Y_HEADS   = ["y","northing","north","utmy","yutm","ycoord","coordy","pointy","ym"];
+const UPD_LAT_HEADS = ["lat","latitude","ylat"];
+const UPD_LON_HEADS = ["lon","long","lng","longitude","xlon","xlong"];
+function updGuessPos(cols, hasGeom){
+  const byNorm = {};
+  (cols || []).forEach(c => { const n = normHead(c); if(!byNorm[n]) byNorm[n] = c; });
+  const pick = list => { for(const h of list) if(byNorm[h]) return byNorm[h]; return ""; };
+  const lat = pick(UPD_LAT_HEADS), lon = pick(UPD_LON_HEADS);
+  const x = pick(UPD_X_HEADS), y = pick(UPD_Y_HEADS);
+  /* THE GEOMETRY WINS over any X/Y columns in the same file, and this is the whole
+     reason the feature exists: an edited layer's attribute table still holds the X
+     and Y it was exported with, which are the OLD positions. Reading those back
+     would move every tree straight home again and report that nothing had changed. */
+  if(hasGeom) return { from:"geometry", lat:lat, lon:lon, x:x, y:y };
+  if(lat && lon) return { from:"latlon", lat:lat, lon:lon, x:x, y:y };
+  if(x && y)     return { from:"xy",     lat:lat, lon:lon, x:x, y:y };
+  return { from:"", lat:lat, lon:lon, x:x, y:y };
+}
+
+/* One incoming cell, turned into what the field actually stores. null means "the
+   file says nothing here" — never "clear it". */
+function updValue(f, raw){
+  const s = String(raw == null ? "" : raw).trim();
+  if(s === "") return null;
+  if(f === "SPECIES") return matchSpecies(normText(s));
+  if(f === "HEALTH")  return matchHealth(s);
+  const spec = FIELDS.find(x => x.k === f);
+  if(spec && spec.t === "N"){
+    const n = num(s);
+    if(n === null) return null;                       // text in a number column is ignored
+    return String(spec.d ? Number(n.toFixed(spec.d)) : Math.round(n));
+  }
+  return normText(s);
+}
+function updPosOf(r, o){
+  if(o.posFrom === "geometry"){
+    const la = num(r.lat), lo = num(r.lon);
+    return (la === null || lo === null) ? null : { lat:la, lon:lo };
+  }
+  if(o.posFrom === "latlon"){
+    const la = num(r.props[o.latCol]), lo = num(r.props[o.lonCol]);
+    return (la === null || lo === null) ? null : { lat:la, lon:lo };
+  }
+  if(o.posFrom === "xy"){
+    const x = num(r.props[o.xCol]), y = num(r.props[o.yCol]);
+    if(x === null || y === null) return null;
+    /* A COLUMN CALLED X IS NOT NECESSARILY METRES. Until the project's .prj was set,
+       the emailed report table's X and Y held longitude and latitude — that is the
+       whole metre-off saga — and those files are still out there. Feeding -79.4 to a
+       Transverse Mercator inverse as an easting produces a coordinate in the middle
+       of nowhere, so a pair that is plainly degrees is read as degrees. Nothing real
+       in metres can look like this: the smallest false easting in use here is
+       304,800. */
+    if(Math.abs(x) <= 180 && Math.abs(y) <= 90) return { lat:y, lon:x };
+    if(!o.inv) return null;
+    const p = o.inv(x, y);
+    return (p && isFinite(p.lat) && isFinite(p.lon)) ? p : null;
+  }
+  return null;
+}
+
+/* The whole plan, worked out before anything is written. Pure: hand it rows, a
+   scope and the choices, get back what WOULD happen. The sheet shows this, and the
+   apply walks the same list, so what is previewed and what lands cannot differ. */
+function updatePlan(recs, o){
+  o = o || {};
+  const key = o.key || "TREE_ID", fn = updKeyFn(key);
+  const ix = updIndex(o.scope || [], key);
+  const map = o.map || {};
+  const fields = Object.keys(map).filter(k => map[k] && UPD_BLOCK.indexOf(k) < 0);
+  const counts = {}; fields.forEach(k => counts[k] = 0);
+  const out = { rows:[], matched:0, unmatched:[], ambiguous:[], nokey:0, counts:counts,
+                posN:0, maxShift:0, meanShift:0, noPos:0, unchanged:0 };
+  const seen = {};
+  let sum = 0;
+  (recs || []).forEach(r => {
+    const raw = o.keyCol ? r.props[o.keyCol] : "";
+    const k = fn(raw);
+    if(!k){ out.nokey++; return; }
+    const hit = ix[k];
+    if(!hit){ out.unmatched.push(String(raw == null ? "" : raw).trim()); return; }
+    if(hit.length > 1 || seen[k]){ out.ambiguous.push(String(raw == null ? "" : raw).trim()); return; }
+    seen[k] = 1;
+    out.matched++;
+    const t = hit[0], want = {};
+    fields.forEach(f => {
+      const v = updValue(f, r.props[map[f]]);
+      if(v === null) return;
+      if(String(t[f] == null ? "" : t[f]) === String(v)) return;
+      want[f] = v; counts[f]++;
+      /* The fields that are DERIVED from the one being written have to follow it or
+         the tree contradicts itself: a Dead tree still carrying health code 1 is
+         sorted and coloured as a healthy one. */
+      if(f === "HEALTH") want.HLTH_CODE = healthCode(v);
+      if(f === "SPECIES"){
+        const tx = taxonFor(v);
+        if(tx[0]){ want.BOTANICAL = tx[0]; want.FAMILY = tx[1] || ""; want.GENUS = tx[2] || ""; }
+        const it = itreeType(v);
+        if(it) want.ITREE = it;
+      }
+    });
+    if(o.pos){
+      const p = updPosOf(r, o);
+      if(!p) out.noPos++;
+      else {
+        const la = Number(p.lat).toFixed(6), lo = Number(p.lon).toFixed(6);
+        if(la !== String(t.LAT == null ? "" : t.LAT) || lo !== String(t.LON == null ? "" : t.LON)){
+          const hadLat = num(t.LAT), hadLon = num(t.LON);
+          const d = (hadLat === null || hadLon === null) ? 0 : distM(hadLat, hadLon, p.lat, p.lon);
+          want.LAT = la; want.LON = lo;
+          out.posN++; sum += d;
+          if(d > out.maxShift) out.maxShift = d;
+        }
+      }
+    }
+    if(Object.keys(want).length) out.rows.push({ id:t.TREE_ID, want:want });
+    else out.unchanged++;
+  });
+  out.meanShift = out.posN ? sum / out.posN : 0;
+  return out;
+}
+
+/* ---- the sheet ----------------------------------------------------------- */
+let updData = null, updOpts = null, updPlan = null, updName = "";
+$("updInput").addEventListener("change", e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if(f) openUpdate(f);
+});
+async function openUpdate(file){
+  closeMenu();
+  toast("Reading…");
+  try{
+    const lower = file.name.toLowerCase();
+    const isTable = /\.(xlsx|xlsm)$/.test(lower);
+    updData = isTable ? await readTableFile(file) : await readUpdateGeo(file);
+    updName = file.name;
+    if(!updData.recs.length){ toast("No rows found in that file", true); updData = null; return; }
+    const hasGeom = updData.recs.some(r => num(r.lat) !== null && num(r.lon) !== null);
+    const k = updGuessKey(updData.cols), pos = updGuessPos(updData.cols, hasGeom);
+    const inv = updInverter();
+    updOpts = { key:k.key, keyCol:k.col, map:updGuessMap(updData.cols), pos:pos.from !== "",
+                posFrom:pos.from, latCol:pos.lat, lonCol:pos.lon, xCol:pos.x, yCol:pos.y,
+                hasGeom:hasGeom, inv:inv.fn, invLabel:inv.label, scope:visibleTrees() };
+    renderUpdate();
+    $("updSheet").classList.add("show");
+  }catch(err){
+    updData = null;
+    toast(isXlsxName(file.name) ? "Could not read that workbook" : "Could not read that file", true);
+  }
+}
+function isXlsxName(n){ return /\.(xlsx|xlsm)$/i.test(String(n || "")); }
+function cancelUpdate(){ updData = null; updOpts = null; updPlan = null; $("updSheet").classList.remove("show"); }
+/* The frame an X/Y table is read back through is the SAME one the project exports
+   in, so a round trip lands where it started. */
+function updInverter(){
+  const C = exportCRS(visibleTrees());
+  if(C && C.kind === "tm")
+    return { fn:(x,y) => tmInverse(x, y, C), label:(C.name || "the project's coordinate system") };
+  return { fn:(x,y) => utmToLatLon(x, y, 17),
+           label:"NAD83 UTM zone 17N — assumed, because no .prj is set for this project" };
+}
+function updKeyChanged(){
+  const v = $("updKeySel").value, i = v.indexOf("|");
+  updOpts.key = v.slice(0, i); updOpts.keyCol = v.slice(i + 1);
+  renderUpdate();
+}
+function updPosChanged(){
+  const v = $("updPosSel").value;
+  updOpts.pos = v !== "";
+  updOpts.posFrom = v;
+  renderUpdate();
+}
+function updTickAll(on){
+  Object.keys(updOpts.map).forEach(k => { if(!on) delete updOpts.map[k]; });
+  if(on) updOpts.map = updGuessMap(updData.cols);
+  renderUpdate();
+}
+function updToggle(k, col, on){
+  if(on) updOpts.map[k] = col; else delete updOpts.map[k];
+  renderUpdate();
+}
+/* A column name carrying an apostrophe — "Owner's notes" is a real one — would end
+   the JavaScript string literal in the handler attribute and leave broken markup, so
+   it is escaped for the literal as well as for the HTML. */
+function jsq(s){ return String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+function renderUpdate(){
+  if(!updData || !updOpts) return;
+  const cols = updData.cols;
+  const guessAll = updGuessMap(cols);
+  $("updFile").textContent = updName + " · " + updData.recs.length + " row(s) · " + cols.length + " column(s)";
+
+  // match key
+  const opts = [];
+  cols.forEach(c => {
+    opts.push(`<option value="TREE_ID|${esc(c)}">Tree ID — column “${esc(c)}”</option>`);
+    opts.push(`<option value="TREE_NO|${esc(c)}">Tree number — column “${esc(c)}”</option>`);
+  });
+  const sel = $("updKeySel");
+  sel.innerHTML = opts.join("");
+  sel.value = updOpts.key + "|" + updOpts.keyCol;
+
+  // positions
+  const pOpts = [`<option value="">Leave every position alone</option>`];
+  if(updOpts.hasGeom) pOpts.push(`<option value="geometry">From where the points now sit in the layer</option>`);
+  if(updOpts.latCol && updOpts.lonCol)
+    pOpts.push(`<option value="latlon">From the “${esc(updOpts.latCol)}” / “${esc(updOpts.lonCol)}” columns</option>`);
+  if(updOpts.xCol && updOpts.yCol)
+    pOpts.push(`<option value="xy">From the “${esc(updOpts.xCol)}” / “${esc(updOpts.yCol)}” columns</option>`);
+  const ps = $("updPosSel");
+  ps.innerHTML = pOpts.join("");
+  ps.value = updOpts.pos ? updOpts.posFrom : "";
+  $("updPosNote").innerHTML = updOpts.posFrom === "xy"
+    ? "Read back as " + esc(updOpts.invLabel) +
+      ". A pair that is plainly degrees is read as longitude and latitude instead."
+    : (updOpts.posFrom === "geometry"
+        ? "The layer's own geometry, not the X and Y in its table — those still hold the positions it was exported with."
+        : (updOpts.posFrom === "latlon" ? "Degrees, read as they stand." : "Nothing is moved."));
+
+  updPlan = updatePlan(updData.recs, updOpts);
+
+  // fields
+  const rows = [];
+  UPD_FIELDS.forEach(k => {
+    const guess = guessAll[k];
+    if(!guess) return;
+    const on = updOpts.map[k] === guess;
+    const n = updPlan.counts[k] || 0;
+    rows.push(
+      `<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid rgba(0,0,0,.06)">
+         <input type="checkbox" ${on ? "checked" : ""} onchange="updToggle('${esc(jsq(k))}','${esc(jsq(guess))}',this.checked)">
+         <span style="flex:1"><b>${esc(updFieldLabel(k))}</b><br>
+           <span class="mini">from “${esc(guess)}”</span></span>
+         <span class="mini" style="white-space:nowrap">${on ? (n ? n + " change" + (n === 1 ? "" : "s") : "no change") : "off"}</span>
+       </label>`);
+  });
+  $("updFields").innerHTML = rows.length ? rows.join("")
+    : `<div class="mini">None of the columns in this file match a field in the app. Check it was exported from this project.</div>`;
+
+  // summary
+  const p = updPlan;
+  const bits = [`<b>${p.matched}</b> of ${updData.recs.length} row(s) matched a tree that is showing`];
+  if(p.rows.length) bits.push(`<b>${p.rows.length}</b> tree(s) would change`);
+  else bits.push(`nothing would change`);
+  if(p.posN) bits.push(`<b>${p.posN}</b> moved · mean ${p.meanShift.toFixed(2)} m · largest ${p.maxShift.toFixed(2)} m`);
+  $("updSummary").innerHTML = bits.join("<br>");
+
+  const probs = [];
+  const list = a => a.slice(0, 12).map(v => v === "" ? "(blank)" : v).join(", ") + (a.length > 12 ? ", …" : "");
+  if(p.unmatched.length) probs.push(`⚠ <b>${p.unmatched.length}</b> row(s) matched no tree here and will be ignored: ${esc(list(p.unmatched))}`);
+  if(p.ambiguous.length) probs.push(`⚠ <b>${p.ambiguous.length}</b> row(s) are ambiguous — the key is held by more than one tree, or appears twice in the file — and will be ignored: ${esc(list(p.ambiguous))}`);
+  if(p.nokey)           probs.push(`⚠ <b>${p.nokey}</b> row(s) have nothing in the key column.`);
+  if(p.noPos)           probs.push(`⚠ <b>${p.noPos}</b> matched row(s) carry no usable position.`);
+  $("updProblems").innerHTML = probs.length
+    ? probs.map(s => `<div style="padding:4px 0;color:#b24a2b">${s}</div>`).join("")
+    : `<div style="padding:4px 0">Every row matched.</div>`;
+  $("btnUpdGo").disabled = !p.rows.length;
+}
+function confirmUpdate(){
+  if(!updPlan || !updPlan.rows.length){ toast("Nothing to apply", true); return; }
+  const p = updPlan;
+  const lines = [`Update ${p.rows.length} tree(s) from ${updName}?`, ""];
+  UPD_FIELDS.forEach(k => { if(p.counts[k]) lines.push("  " + updFieldLabel(k) + " — " + p.counts[k]); });
+  if(p.posN) lines.push(`  Position — ${p.posN} (largest move ${p.maxShift.toFixed(2)} m)`);
+  if(p.unmatched.length) lines.push("", `${p.unmatched.length} row(s) matched nothing and are ignored.`);
+  if(p.ambiguous.length) lines.push(`${p.ambiguous.length} ambiguous row(s) are ignored.`);
+  lines.push("", "This can be undone.");
+  if(!confirm(lines.join("\n"))) return;
+  const byId = {};
+  p.rows.forEach(r => byId[r.id] = r.want);
+  const list = (updOpts.scope || []).filter(t => byId[t.TREE_ID]);
+  const n = bulkApply("Update from " + updName, list, t => byId[t.TREE_ID] || null);
+  cancelUpdate();
+  toast(n ? `${n} tree(s) updated` : "Nothing changed");
+  if(n) fitTrees();
+}
+
 
 // Incoming species text rarely matches the list exactly — take an exact hit, else a
 // clean case-insensitive one, else keep the original text so nothing is silently lost.
@@ -7657,6 +8330,7 @@ const STOCK_D = [
 let drawMode = null, drawPts = [], drawLine = null, drawMarks = [];
 function startFence(){
   closeMenu();
+  if(measureOn()) endMeasure();
   drawMode = "fence"; drawPts = []; clearDrawing();
   $("drawBar").classList.add("show");
   $("drawMsg").textContent = "Tap along the fence line";
@@ -7665,6 +8339,7 @@ function startFence(){
 }
 function startPlanting(){
   closeMenu();
+  if(measureOn()) endMeasure();
   drawMode = "planting"; drawPts = []; clearDrawing();
   $("drawBar").classList.add("show");
   $("drawMsg").textContent = "Tap each planting location";
@@ -7719,6 +8394,238 @@ function finishDraw(){
   }
   cancelDraw();
 }
+
+/* ================================================================== *
+ *  MEASURING — DISTANCE AND AREA
+ * ================================================================== *
+
+   Chris: "we need to add a measuring tool to the tools on the right of the map.
+   measure linear distance and area."
+
+   HOW THE ARITHMETIC IS DONE, AND WHY IT IS NOT THE USUAL WAY.
+
+   The standard trick in a web map is the spherical-excess formula — every mapping
+   library uses it, it is four lines, and it is WRONG BY TWO PARTS IN A THOUSAND at
+   this latitude. Measured against PROJ's geodesic area on a woodlot-sized polygon
+   near Richmond Hill:
+
+       PROJ geodesic                       185,284.49 m²
+       spherical excess, authalic radius   184,920.83 m²      1,963 ppm out
+       local Transverse Mercator           185,284.49 m²           0 ppm
+
+   Two parts in a thousand is 364 m² on an 18.5 ha block. On an MFTIP plan that is
+   the difference between two acreages, and it is not a rounding argument you want to
+   have with a reviewer.
+
+   So every vertex is projected through a TRANSVERSE MERCATOR CENTRED ON THE SHAPE
+   ITSELF — its own mean latitude and longitude, scale factor exactly 1, GRS80 — and
+   the area is then the ordinary shoelace and the length the ordinary Pythagoras, in
+   metres, on a plane. tmForward is the same routine the exports use and is checked
+   to the millimetre against PROJ. Scale error grows as (x/2R)², so a shape 16 km
+   across is still within 0.03 ppm and one 40 km across within 0.2 ppm: past anything
+   anybody measures by tapping a map.
+
+   Distances between consecutive points are computed the same way rather than with
+   the haversine the rest of the app uses for proximity — over a few hundred metres
+   the two agree to millimetres, but a perimeter should be the boundary of the area
+   that is printed beside it, not a different number arrived at a different way. */
+
+const GRS80_A = 6378137.0, GRS80_INVF = 298.257222101;
+const M_TO_FT = 3.280839895013123;       // exactly 1 / 0.3048
+const M2_TO_AC = 1 / 4046.8564224;       // international acre, exactly
+function localTM(pts){
+  let la = 0, lo = 0, n = 0;
+  (pts || []).forEach(p => { const a = num(p[0]), b = num(p[1]);
+    if(a === null || b === null) return; la += a; lo += b; n++; });
+  if(!n) return null;
+  return { kind:"tm", a:GRS80_A, invf:GRS80_INVF, k0:1,
+           lat0: la / n, lon0: lo / n, fe:0, fn:0 };
+}
+function projectPts(pts){
+  const P = localTM(pts);
+  if(!P) return [];
+  return (pts || []).map(p => tmForward(num(p[0]), num(p[1]), P));
+}
+/* Length along the points, in metres. One point is zero, not an error. */
+function measureLength(pts){
+  const xy = projectPts(pts);
+  let m = 0;
+  for(let i = 1; i < xy.length; i++) m += Math.hypot(xy[i].x - xy[i-1].x, xy[i].y - xy[i-1].y);
+  return m;
+}
+/* Shoelace on the projected ring, closed automatically. Absolute, so the direction
+   the points were tapped in does not matter. Fewer than three points has no area. */
+function measureArea(pts){
+  const xy = projectPts(pts);
+  if(xy.length < 3) return 0;
+  let s = 0;
+  for(let i = 0; i < xy.length; i++){
+    const a = xy[i], b = xy[(i + 1) % xy.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+function measurePerimeter(pts){
+  if(!pts || pts.length < 3) return measureLength(pts);
+  return measureLength(pts.concat([pts[0]]));
+}
+/* HOW IT IS WRITTEN DOWN. Metric leads because that is what the plans are in, and
+   feet and acres follow on the same line because that is what half the conversations
+   are in. Significant figures follow the magnitude: 0.86 m and 1,284 m are both
+   read at a glance, "1283.7419 m" is not. */
+function fmtLen(m){
+  if(!isFinite(m)) return "—";
+  const ft = m * M_TO_FT;
+  const met = m >= 1000 ? (m / 1000).toFixed(2) + " km"
+            : m >= 100  ? m.toFixed(0) + " m"
+            : m >= 10   ? m.toFixed(1) + " m"
+                        : m.toFixed(2) + " m";
+  const imp = ft >= 5280 ? (ft / 5280).toFixed(2) + " mi"
+            : ft >= 100  ? Math.round(ft).toLocaleString() + " ft"
+                         : ft.toFixed(1) + " ft";
+  return met + "  ·  " + imp;
+}
+function fmtArea(m2){
+  if(!isFinite(m2) || m2 <= 0) return "—";
+  const ha = m2 / 10000, ac = m2 * M2_TO_AC;
+  const met = m2 >= 10000 ? ha.toFixed(ha >= 10 ? 2 : 3) + " ha"
+            : m2 >= 100   ? Math.round(m2).toLocaleString() + " m²"
+                          : m2.toFixed(1) + " m²";
+  const imp = ac >= 0.01 ? ac.toFixed(ac >= 10 ? 2 : 3) + " ac"
+                         : Math.round(m2 * M_TO_FT * M_TO_FT).toLocaleString() + " ft²";
+  return met + "  ·  " + imp;
+}
+
+/* ---- the tool ------------------------------------------------------------ */
+let measMode = null;                 // null | "line" | "area"
+let measPts = [], measLayers = [];
+function measureOn(){ return measMode !== null; }
+function toggleMeasure(){
+  if(measureOn()){ endMeasure(); return; }
+  startMeasure("line");
+}
+function startMeasure(kind){
+  closeMenu();
+  // One map-click owner at a time. Selection and placing both bind the same event.
+  if(typeof selMode !== "undefined" && selMode) toggleSelect();
+  if(typeof placeMode !== "undefined" && placeMode) togglePlace();
+  if(drawMode) cancelDraw();
+  measMode = kind; measPts = [];
+  clearMeasure();
+  $("btnMeasure").classList.add("on");
+  $("crosshair").style.display = "block";     // "Centre" is how a lot corner is hit accurately
+  $("measBar").classList.add("show");
+  fmap.on("click", measClick);
+  renderMeasure();
+  toast(kind === "area" ? "Tap round the area" : "Tap along the line");
+}
+function setMeasMode(kind){
+  if(measMode === kind) return;
+  measMode = kind;                    // the points are KEPT: the same shape, read two ways
+  renderMeasure();
+}
+function endMeasure(){
+  measMode = null; measPts = [];
+  clearMeasure();
+  try{ fmap.off("click", measClick); }catch(e){}
+  $("btnMeasure").classList.remove("on");
+  if(typeof placeMode === "undefined" || !placeMode) $("crosshair").style.display = "none";
+  $("measBar").classList.remove("show");
+  setStatus(`${trees.length} trees on device`);
+}
+function measClick(e){ addMeasPt(e.latlng.lat, e.latlng.lng); }
+/* The crosshair puts a vertex exactly where the map is centred, which is the only
+   way to hit a lot corner accurately with a thumb. */
+function measAtCrosshair(){
+  const c = fmap.getCenter();
+  addMeasPt(c.lat, c.lng);
+}
+function addMeasPt(lat, lon){
+  if(!measureOn()) return;
+  measPts.push([lat, lon]);
+  renderMeasure();
+}
+function undoMeasPt(){ measPts.pop(); renderMeasure(); }
+function clearMeasPts(){ measPts = []; renderMeasure(); }
+function clearMeasure(){
+  measLayers.forEach(l => { try{ fmap.removeLayer(l); }catch(e){} });
+  measLayers = [];
+}
+const MEAS_COLOR = "#00BCD4";
+function renderMeasure(){
+  clearMeasure();
+  if(!measureOn()){ measureReadout(); return; }
+  const area = measMode === "area";
+  if(measPts.length > 1){
+    if(area && measPts.length > 2){
+      measLayers.push(L.polygon(measPts, { color:MEAS_COLOR, weight:3, fillColor:MEAS_COLOR,
+        fillOpacity:0.18, pane:"labelPane" }).addTo(fmap));
+    } else {
+      measLayers.push(L.polyline(measPts, { color:MEAS_COLOR, weight:3, dashArray:"7 5",
+        pane:"labelPane" }).addTo(fmap));
+    }
+    /* EVERY LEG LABELLED. The total is what gets written down, but laying out a
+       fence or a driveway is done one span at a time and having to subtract two
+       running totals to read a span is how the tool stops being used. */
+    const legs = area && measPts.length > 2 ? measPts.concat([measPts[0]]) : measPts;
+    for(let i = 1; i < legs.length; i++){
+      const d = measureLength([legs[i-1], legs[i]]);
+      if(d < 0.5) continue;
+      const mid = [(legs[i-1][0] + legs[i][0]) / 2, (legs[i-1][1] + legs[i][1]) / 2];
+      measLayers.push(L.marker(mid, { pane:"labelPane", interactive:false,
+        icon: L.divIcon({ className:"measlab", html: esc(fmtLen(d).split("·")[0].trim()),
+                          iconSize:[0,0] }) }).addTo(fmap));
+    }
+  }
+  measPts.forEach((p, i) => measLayers.push(
+    L.circleMarker(p, { radius:5, color:"#fff", weight:2, fillColor:MEAS_COLOR,
+      fillOpacity:1, pane:"labelPane", interactive:false }).addTo(fmap)));
+  measureReadout();
+}
+function measureReadout(){
+  const big = $("measBig"), sub = $("measSub");
+  if(!big) return;
+  $("btnMeasLine").classList.toggle("on", measMode === "line");
+  $("btnMeasArea").classList.toggle("on", measMode === "area");
+  if(!measPts.length){
+    big.textContent = "—";
+    sub.textContent = measMode === "area" ? "Tap round the area — three points or more"
+                                          : "Tap along the line";
+    return;
+  }
+  if(measMode === "area"){
+    if(measPts.length < 3){
+      big.textContent = fmtLen(measureLength(measPts));
+      sub.textContent = `${measPts.length} point(s) · an area needs three`;
+      return;
+    }
+    big.textContent = fmtArea(measureArea(measPts));
+    sub.textContent = `${measPts.length} points · perimeter ${fmtLen(measurePerimeter(measPts))}`;
+  } else {
+    big.textContent = fmtLen(measureLength(measPts));
+    const n = measPts.length;
+    sub.textContent = n < 2 ? "1 point · tap another"
+      : `${n} points · ${n-1} leg(s)` +
+        (n > 2 ? ` · straight line ${fmtLen(measureLength([measPts[0], measPts[n-1]])).split("·")[0].trim()}` : "");
+  }
+}
+/* Copying the figure out is the whole point of measuring it — it goes into a report,
+   an email or a cell. The clipboard API is not available on every browser the crew
+   uses, so the fallback is a prompt with the text selected. */
+function copyMeasure(){
+  if(!measPts.length){ toast("Nothing measured yet", true); return; }
+  const txt = measMode === "area"
+    ? `Area ${fmtArea(measureArea(measPts))} · perimeter ${fmtLen(measurePerimeter(measPts))}`
+    : `Length ${fmtLen(measureLength(measPts))}`;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(()=>toast("Copied"), ()=>prompt("Measurement:", txt));
+      return;
+    }
+  }catch(e){}
+  prompt("Measurement:", txt);
+}
+
 /* A planting is a point with a species from the same list the trees use, so the
    plant list and the inventory speak the same language. */
 /* Where a planting goes, which the plan and the plant list both split on: caliper
@@ -9876,6 +10783,9 @@ function exportCSV(){
 let selMode=false, selPts=[], selLine=null, selPoly=null, selected=[];
 
 function toggleSelect(){
+  /* ONE OWNER OF THE MAP CLICK. Two of these bound at once and every tap both
+     measured and selected. */
+  if(measureOn()) endMeasure();
   selMode = !selMode;
   $("btnSelect").classList.toggle("on", selMode);
   clearSelShapes();
@@ -10469,7 +11379,7 @@ function toolScope(){
 
 /* One JSONP call. The app cannot read a no-cors POST reply, so every tool that needs
    an answer goes through GET. */
-function jsonpGet(action, params, cb){
+function jsonpGet(action, params, cb, ms){
   if(isOffline()){ cb(null); return; }
   const name = "__tt" + Date.now() + Math.floor(Math.random()*1000);
   const sc = document.createElement("script");
@@ -10483,7 +11393,7 @@ function jsonpGet(action, params, cb){
            (q?"&"+q:"") + "&callback=" + name;
   document.body.appendChild(sc);
   // A request that never answers must not leave the tool stuck for ever.
-  setTimeout(()=>{ if(!settled){ settled=true; done(null); } }, 90000);
+  setTimeout(()=>{ if(!settled){ settled=true; done(null); } }, ms || 90000);
 }
 
 function toolRunning(btn, on, label){
@@ -10802,8 +11712,6 @@ function offlineTileLayer(url, set, opts){
  *  than being squashed into a north-up rectangle.
  * ================================================================== */
 let pdfOverlay=null, pdfBounds=null, pdfVisible=true, pdfName="", pdfCorners=null;
-function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
-
 function cornerImageOverlay_(url, corners){
   const layer=L.layerGroup();
   const img=document.createElement("img");
@@ -11717,11 +12625,26 @@ async function runSeriesExport(){
    Fetched ONE AT A TIME and never held: a base64 photo is most of a megabyte and a
    phase can run to hundreds, which is precisely the memory fault that was closing the
    app on the phones. */
+/* ONE AT A TIME, IN A QUEUE. A tree with five photographs used to fire five of
+   these the instant its popup opened. Apps Script runs one execution per user at a
+   time, so the fifth request sat behind four half-megabyte transfers, and the popup
+   showed nothing at all while they queued. On a phone this path never runs — the
+   photographs are already on the device — so the pile-up only ever happened on the
+   machine the report is written on. */
+let drivePhotoQ = Promise.resolve();
+const PHOTO_FETCH_MS = 25000;
 function photoFromDrive(name){
-  return new Promise(res=>{
-    if(!connected || isOffline()) return res(null);
-    jsonpGet("photo", { name:name }, r=> res(r && r.ok && r.data ? r.data : null));
+  const run = () => new Promise(res=>{
+    if(!connected) return res(null);
+    if(isOffline()) return res(null);
+    /* NOT the 90-second default. That is right for a tool the crew starts and waits
+       on; it is not right for a thumbnail, where a minute and a half of blank space
+       is indistinguishable from the feature being broken. */
+    jsonpGet("photo", { name:name }, r => res(r && r.ok && r.data ? r.data : null), PHOTO_FETCH_MS);
   });
+  const p = drivePhotoQ.then(run, run);
+  drivePhotoQ = p.then(()=>{}, ()=>{});
+  return p;
 }
 /* THE THREE PLACES A PHOTO IS LOOKED AT — the map popup, the edit form and the
    full-size viewer — all read this device's own store and nothing else. On the
@@ -11744,15 +12667,46 @@ const DRIVE_THUMB_MAX = 40;
 function loadImg(src){
   return new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=src; });
 }
-// Small, for the popup and the form strip.
-async function photoThumb(name){
+/* WHY THERE IS NO PHOTOGRAPH, AS WELL AS WHETHER THERE IS ONE.
+
+   Both places that show a thumbnail did `if(!src) return;` — so a photograph that
+   could not be found produced NOTHING AT ALL: no image, no gap, no message. Four
+   completely different situations looked identical on the screen, and three of them
+   are fixable in about a minute once you know which one you are looking at:
+
+     the tree genuinely has no photographs on it;
+     this machine has none of them and there is no connection;
+     the Sheet is reachable but the photograph is not in the Drive folder;
+     the local store would not open (see idbOpen — this was the Windows one).
+
+   So the lookup now reports a REASON, and the popup and the form print it. */
+const PHOTO_WHY = {
+  blocked:  "the photo store is open in another tab or window \u2014 close the others and reload",
+  timeout:  "the photo store did not open on this device",
+  error:    "the photo store could not be opened on this device",
+  offline:  "on Drive \u2014 this device has no connection",
+  nolink:   "no Sheet to fetch it from",
+  missing:  "not on this device, and not found on Drive",
+  slow:     "Drive did not answer in time \u2014 tap to try again"
+};
+const driveMisses = new Map();
+async function photoThumbInfo(name){
   if(HAS_IDB){
     const r = await idbGet(name).catch(()=>null);
-    if(r && (r.thumb || r.data)) return r.thumb || r.data;   // older records have no thumb
+    if(r && (r.thumb || r.data)) return { src: r.thumb || r.data };   // older records have no thumb
   }
-  if(driveThumbs.has(name)) return driveThumbs.get(name);
+  if(driveThumbs.has(name)) return { src: driveThumbs.get(name) };
+  if(driveMisses.has(name)) return { src:null, why: driveMisses.get(name) };
+  /* The two that are NOT the photograph's fault are answered without asking Drive,
+     and are never remembered — plug the machine back in and it works. */
+  if(!connected)  return { src:null, why:"nolink" };
+  if(isOffline()) return { src:null, why:"offline" };
   const full = await photoFromDrive(name);
-  if(!full) return null;
+  if(!full){
+    const why = idbTrouble || "missing";
+    driveMisses.set(name, why);
+    return { src:null, why:why };
+  }
   let small = full;
   try{
     const im = await loadImg(full);
@@ -11760,7 +12714,15 @@ async function photoThumb(name){
   }catch(e){}
   if(driveThumbs.size >= DRIVE_THUMB_MAX) driveThumbs.delete(driveThumbs.keys().next().value);
   driveThumbs.set(name, small);
-  return small;
+  return { src: small };
+}
+// Small, for the popup and the form strip.
+async function photoThumb(name){ return (await photoThumbInfo(name)).src; }
+/* Forget what could not be found, so "try again" means it. A photograph still being
+   backed up from somebody's phone is found on the second attempt, and remembering a
+   miss for the whole session would hide that. */
+function forgetPhotoMisses(names){
+  (names || []).forEach(n => { driveMisses.delete(n); driveThumbs.delete(n); });
 }
 // Full size, for the viewer only. Deliberately not cached.
 async function photoFull(name){
@@ -13374,6 +14336,8 @@ function showHelp(){
     <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
+    <p><b>When a photograph will not show</b><br>The popup lays out a <b>slot for each photograph the moment it opens</b>, so a tree with photographs never looks like one without any while they are being fetched, and a slot that cannot be filled is marked and <b>says why</b> — four things used to look identical and only one of them is about the photograph. <i>No photographs on this tree</i> means exactly that. <i>The photo store is open in another tab or window</i> is the one to know about on a desktop: close the other tabs showing this app and reload. <i>No connection</i> and <i>not found on Drive</i> are the other two. <b>Try again</b> beside the message forgets the failure and re-asks, which matters when a photograph is still being backed up from somebody's phone. The same message appears under the strip in the edit form and in the full-size viewer.</p>
+
     <p><b>Seeing a photo on a device that did not take it</b><br>Tap a pin, open a tree, or view a photograph full size, and the app looks on this device first and then on <b>Drive</b> for anything it does not hold — so the machine you write the report on shows the same photographs as the phone that took them. Fetched images are shrunk to thumbnails and only the small copies are kept, so browsing does not fill up memory, and nothing is fetched until you actually open something. With no connection you see what is on the device and the viewer tells you the rest are on Drive.</p>
     <p><b>Where photos go</b><br>On the phone until they upload, then into <b>My Drive → Street Tree Photos</b> on the Google account that authorised the script. Archived projects move to <i>Street Tree Photos - Archive</i>, zipped export packages go to <i>Street Tree Exports</i>, and workbook backups to <i>Street Tree Backups</i>.</p>
     <p><b>Photos</b><br>Stored on the phone and backed up to Drive when there is signal, one at a time rather than all at once. Filenames are unique by construction, built from the tree ID, sequence, your name and a timestamp. A small thumbnail is kept alongside each photo, so opening a tree shows its photos without loading the full-size images.</p>
@@ -13402,6 +14366,9 @@ function showHelp(){
     <p><b>York Region tree removal offsetting</b><br>Follows the Region's <b>May 2025</b> table, which replaced the older calculation the app used before. It is a lookup rather than a formula: a <b>size class</b> from the DBH (A to E), a <b>species classification</b> (desirable, less desirable, or exempt — ash, Tree-of-Heaven, European alder, Russian olive and buckthorn are exempt outright), and a <b>condition class</b> (Good and Satisfactory are healthy; potential trouble and declining are poor; death imminent and dead are exempt). Those three read the number of replacement trees straight off the Region's table, and the offsetting value is that number times one replacement cost — <b>$1,290</b> as at May 2025, with no deciduous or coniferous split any more. The rate and its year are in <i>Settings</i>, because the Region reviews the figure. The tree form shows all three classes beside the answer so you can check it against the Region's own workbook without doing any arithmetic, and <i>Menu → Get data out → York Region compensation table</i> produces the CSV in their column order.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
     <p><b>Finding trees by attribute</b><br><i>Menu → Find trees by attribute</i> searches on any field, with as many conditions as you like — <i>Recorded by is Kathleen Conners</i> <b>and</b> <i>Condition rating is Dead</i> — and hands the result to the same selection sheet the lasso uses, so the bulk edit, <b>Assign project</b> and the undo all work on it. Conditions are ANDed: every one has to be true, because an OR would quietly return the whole job the first time a row was left half filled in. The operators are <i>is</i>, <i>is not</i>, <i>contains</i>, <i>is blank</i>, <i>is not blank</i>, and <i>at least</i> / <i>at most</i> on a number — two of those make a range. Each field offers <b>the values actually present on the trees in view</b>, in the pick list's own order, with anything the crew typed that is not on the list appended so those trees can still be found. The search covers what the <i>Showing</i> filter is set to and nothing beyond it, so another project cannot be edited by accident, and the selection sheet prints the search that found the trees beside the count.</p>
+    <p><b>Measuring</b><br>The <b>📏</b> button on the map rail measures a <i>distance</i> or an <i>area</i>. Tap along the line, or round the shape; <b>✛ Centre</b> drops a point exactly at the middle of the map, which is the only way to hit a lot corner accurately with a thumb. Every leg is labelled on the map as you go, and the reading shows metric first with feet, miles or acres beside it — a distance gives the legs and the straight line end to end, an area gives its perimeter. Switching between <i>Distance</i> and <i>Area</i> <b>keeps the points</b>, so the same shape can be read both ways, and <b>Copy</b> puts the figure on the clipboard for a report or an email. Nothing is saved: it is a tape measure, not a record.<br><br>The arithmetic is not the usual web-map kind. Every point is projected into a Transverse Mercator centred on the shape itself before the area or the length is worked out, which agrees with a proper geodesic calculation to less than a part per million. The spherical formula most mapping tools use is about two parts in a thousand out at this latitude — 364 m² on an 18.5 ha block — and that is the difference between two acreages on a plan.</p>
+
+    <p><b>Updating from an edited layer or table</b><br><i>Menu → Bring data in → Update trees from an edited layer or table</i> takes a <b>zipped shapefile</b> or an <b>.xlsx</b> and corrects the trees that are already here from it. <b>It is not an import.</b> Nothing is ever created and nothing is ever deleted: a row that matches no tree is counted, named on screen, and applied to nothing; a tree the file says nothing about is left exactly as it stands.<br><br>Rows are matched on the <b>Tree ID</b> wherever the file carries it — the exported <i>.dbf</i> always does — and on the <b>tree number</b> otherwise, and then only within what is <i>Showing</i>, so a number cannot reach into another job. <i>T2</i>, <i>2</i>, <i>002</i> and <i>2.0</i> are one tree. A key held by <b>two</b> trees in view, or appearing twice in the file, is ambiguous: it is reported and written to neither, because this job genuinely has duplicate tree numbers in it and guessing is how tags end up on the wrong stems.<br><br>Columns are matched to fields by name, by the label the field is shown under, and by the headings the <b>emailed report table</b> uses — <i>Canopy Radius (m)</i>, <i>Condition Rating</i>, <i>Notes</i>, <i>TPP Page</i> — so that table can be edited in Excel and handed straight back. Each field is ticked on or off with a count of how many trees it would change. <b>A blank cell leaves the tree's value alone; it never clears a field</b> — clearing is what the bulk edit is for, where you have to say so. The Tree ID, the project and the photo columns are never written, and the botanical name, i-Tree code and condition code follow the species and the rating rather than being copied.<br><br><b>Positions</b> are a separate tick. From an edited layer they come from where the points now sit — <b>not</b> from the X and Y in its attribute table, which still hold the positions it was exported with. From a table they come from an <i>X</i> / <i>Y</i> pair, read back through the project's own coordinate system so a round trip lands where it started, or from a latitude and longitude pair; a pair that is plainly degrees is read as degrees whatever the column is called. The preview gives the number moved with the mean and the largest distance, in metres, before anything is written.<br><br>The whole thing goes through the same path the bulk edit uses, so it lands on the <b>undo</b> stack, marks only the trees that actually changed, and syncs those rows to the Sheet — changed, not duplicated.</p>
     <p><b>Deleting a selection</b><br>The selection sheet can also <b>delete</b> what is on it. This is the one action there that is not on the undo stack, and it says so: the way back is the <b>Deleted</b> tab of the Sheet, where every row is copied before it is removed — <i>Tree Tools → Restore deleted</i> puts them back. Trees that never reached the Sheet have no copy and are gone for good, so the confirmation counts those separately. Past ten trees it asks for the word DELETE to be typed, because a confirmation is one tap and forty trees is a job.</p>
     <p><b>Renumbering a section so it starts at 1</b><br><i>Menu → Renumber what is showing</i> follows the Showing filter like everything else, so a section — one recorder, a date range — can be numbered 1 to N on its own. <b>Only the tree number changes.</b> The record id (TREE_ID) is never touched, which is why a renumber reaches the Sheet as an edit to the rows that are already there and never as a second copy. <b>Nothing else recomputes a number</b> either: moving a tree out of a project frees its number and leaves every other tree where it was, because the number is what goes on a tag and changing it is always deliberate. It also <b>refuses to create a clash</b> — if a tree that is not showing already holds a number in the new range, nothing is written and it says how many are in the way, since numbering a subset over numbers already in use is exactly how this data once ended up with 127 numbers used twice. Across all projects it declines, a number only meaning anything inside one.</p>
     <p><b>The order is geographic, along the run of the site</b><br>Numbering follows where the trees <i>stand</i>, never the order they were recorded in — a crew does not always walk a site in order, and a table numbered by collection sequence reads as scrambled on the ground. <b>North to south alone is not enough</b>: a street tree job runs along a street, and ordering by latitude zigzags back and forth across the road. So the app works out the site's own axis from the trees and numbers along it — <i>west to east</i> where the run is mostly east-west, <i>north to south</i> where it is mostly north-south — with two trees facing each other across a road getting consecutive numbers. A site with no clear run, a park or a single block, falls back to plain north to south, which is at least predictable. The confirmation names the direction before anything is changed, and a tree with no position is numbered last rather than placed somewhere it is not.</p>
