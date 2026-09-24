@@ -639,6 +639,7 @@
         <button class="menuitem" onclick="reconcileWithSheet()">Check what the Sheet already has</button>
         <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
+        <button class="menuitem" onclick="openDiag('')">Sheet &amp; photo check — why a photo will not load</button>
       </div>
     </div>
 
@@ -1220,6 +1221,20 @@
 </div>
 
 <!-- ===== tree tools ===== -->
+<!-- ===== what is actually wrong ===== -->
+<div class="sheet" id="diagSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Sheet &amp; photo check</h2>
+    <div class="mini">Asks the Sheet the questions this app cannot answer from the outside, and prints what it says.</div>
+    <div id="diagOut" style="margin-top:12px">—</div>
+    <div class="btnrow" style="margin-top:14px">
+      <button class="primary" onclick="runDiag()">Run it again</button>
+      <button onclick="closeDiag()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="sheet" id="toolsSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
@@ -1537,7 +1552,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-24 · v138";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-24 · v139";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -4775,8 +4790,12 @@ function fillPopupPhoto(i){
       if(!bad){
         bad = r.why || "missing";
         const note = $("tpopphn"+i);
+        /* THE SHEET'S OWN WORDS, when it gave any. doGet returns the exception it
+           caught in `error`, and throwing that away is what made this guesswork. */
         if(note) note.innerHTML = esc(PHOTO_WHY[bad] || PHOTO_WHY.missing) +
-          ` <a href="javascript:void(0)" onclick="retryPopupPhotos(${i})">try again</a>`;
+          (r.note ? `<br><i>the Sheet said: ${esc(r.note)}</i>` : "") +
+          ` <a href="javascript:void(0)" onclick="retryPopupPhotos(${i})">try again</a>` +
+          ` · <a href="javascript:void(0)" onclick="openDiag('${esc(jsq(names[k]))}')">check</a>`;
       }
     }).catch(()=>{});
   });
@@ -6503,7 +6522,9 @@ function renderThumbs(){
       $("photoWhy").innerHTML =
         `${bad} of ${want.length} photograph(s) could not be shown — ` +
         esc(PHOTO_WHY[why] || PHOTO_WHY.missing) +
-        ` <a href="javascript:void(0)" onclick="retryFormPhotos()">try again</a>`;
+        (r.note ? `<br><i>the Sheet said: ${esc(r.note)}</i>` : "") +
+        ` <a href="javascript:void(0)" onclick="retryFormPhotos()">try again</a>` +
+        ` · <a href="javascript:void(0)" onclick="openDiag('${esc(jsq(want[i]))}')">check</a>`;
     }).catch(()=>{});
   });
 }
@@ -8624,6 +8645,120 @@ function copyMeasure(){
     }
   }catch(e){}
   prompt("Measurement:", txt);
+}
+
+
+/* ================================================================== *
+ *  WHAT IS ACTUALLY WRONG — the Sheet and the photographs
+ * ================================================================== *
+
+   "The image is still not loading. It loads in the iPhone."
+
+   It loads on the iPhone because the iPhone TOOK it: the photograph is in that
+   phone's own store and Drive is never troubled for it. Every other machine has to
+   ask the Sheet, and that request had four ways to fail which all looked identical
+   on screen. Three rounds went into guessing between them, so this screen exists to
+   stop that happening again — it asks the questions the app cannot answer from the
+   outside and prints the answers verbatim.
+
+   THE QUESTION THAT KEPT BEING GUESSED AT is whether the Sheet is running the
+   current Code.gs. A deployment that is behind looks exactly like a working one
+   until something added since happens to be used. The app can now settle it WITHOUT
+   the Sheet being updated first: an action a deployment has never heard of falls
+   through to doGet's own index, and a reply carrying `service` instead of the thing
+   that was asked for is proof the deployment is behind. */
+let diagFor = "";
+function openDiag(name){
+  closeMenu();
+  diagFor = String(name || "");
+  $("diagSheet").classList.add("show");
+  $("diagOut").innerHTML = `<div class="mini">Asking the Sheet…</div>`;
+  runDiag();
+}
+function closeDiag(){ $("diagSheet").classList.remove("show"); }
+function diagLine(state, label, detail){
+  const mark = state === "ok" ? "✓" : state === "bad" ? "✕" : "…";
+  const col  = state === "ok" ? "#4cc079" : state === "bad" ? "#ff8f7d" : "#9fbcab";
+  return `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+            <span style="color:${col};font-weight:800;width:14px">${mark}</span>
+            <span style="flex:1"><b>${esc(label)}</b>${detail ? `<br><span class="mini">${detail}</span>` : ""}</span>
+          </div>`;
+}
+/* A photograph to ask about. The one whose slot was tapped, or failing that the
+   first one on any tree in view — asking about nothing answers nothing. */
+function diagPhotoName(){
+  if(diagFor) return diagFor;
+  const t = visibleTrees().find(x => String(x.PHOTOS||"").trim());
+  return t ? String(t.PHOTOS).split(";")[0].trim() : "";
+}
+function runDiag(){
+  const out = [];
+  const name = diagPhotoName();
+  out.push(diagLine("ok", "This app", esc(APP_BUILD)));
+  if(!connected){
+    out.push(diagLine("bad", "No Sheet address is set", "Nothing can be fetched."));
+    $("diagOut").innerHTML = out.join(""); return;
+  }
+  if(isOffline()){
+    out.push(diagLine("bad", "This device is offline", "Reconnect and run this again."));
+    $("diagOut").innerHTML = out.join(""); return;
+  }
+  $("diagOut").innerHTML = out.join("") + `<div class="mini">Asking the Sheet…</div>`;
+
+  jsonpGet("photocheck", name ? { name:name } : {}, r => {
+    if(!r){
+      out.push(diagLine("bad", "The Sheet did not answer",
+        "It may be busy, or the address in the app may be wrong. Try once more."));
+      $("diagOut").innerHTML = out.join(""); return;
+    }
+    /* THE ONE THAT MATTERS. An unknown action falls through to doGet's index. */
+    if(r.service || !r.build){
+      out.push(diagLine("bad", "The Sheet is running an older Code.gs",
+        "It answered, but it does not know the checks this build asks for — so the " +
+        "<b>photo</b> action it needs to send a photograph to a device that did not take " +
+        "one may not be there either.<br><br><b>Apps Script → Deploy → Manage deployments → " +
+        "pencil → New version.</b> Never <i>New deployment</i> — that changes the URL and " +
+        "every phone stops syncing."));
+      $("diagOut").innerHTML = out.join(""); return;
+    }
+    out.push(diagLine("ok", "The Sheet", esc(r.build)));
+    const nf = Number(r.folders || 0);
+    /* getFoldersByName RETURNS TRASHED FOLDERS and picks whichever it likes when
+       there is more than one. A second folder of the same name anywhere in the Drive
+       silently becomes the one every lookup uses. */
+    out.push(diagLine(nf === 1 ? "ok" : "bad",
+      `${nf} folder(s) named “${esc(r.folder || "Street Tree Photos")}”`,
+      nf === 1 ? `${r.filesInFolder}${r.filesCapped ? "+" : ""} file(s) in it`
+               : (nf === 0 ? "The photographs have nowhere to live."
+                 : `The Sheet is using <code>${esc(r.usingFolderId||"")}</code>` +
+                   (r.trashedFolders ? ` · ${r.trashedFolders} of them are in the trash` : "") +
+                   `. More than one folder of the same name is how photographs go missing — ` +
+                   `rename or remove the spares.`)));
+    if(r.usingTrashed)
+      out.push(diagLine("bad", "The folder it is using is in the trash", "Restore it, or delete it so a fresh one is made."));
+    if(r.folderError) out.push(diagLine("bad", "The Sheet could not read the Drive", esc(r.folderError)));
+
+    if(!name){
+      out.push(diagLine("ok", "No photograph to test", "Open a tree that has one and use <i>check</i> beside the message."));
+      $("diagOut").innerHTML = out.join(""); return;
+    }
+    out.push(diagLine(r.found ? "ok" : "bad", esc(name),
+      r.found ? `Found in ${esc(r.foundBy)} · ${Math.round((r.bytes||0)/1024)} kB`
+              : "Not in the folder, not in the photo index, and not anywhere else in the Drive — " +
+                "it was never backed up, or it has been deleted."));
+    if(r.lookupError) out.push(diagLine("bad", "Looking it up raised an error", esc(r.lookupError)));
+
+    // And what this device is still holding that has not gone up.
+    $("diagOut").innerHTML = out.join("") + `<div class="mini">Checking this device…</div>`;
+    idbMeta().then(meta => {
+      const un = meta.filter(x => !x.uploaded).length;
+      out.push(diagLine(un ? "bad" : "ok",
+        `${meta.length} photograph(s) on this device`,
+        un ? `<b>${un} have not reached Drive.</b> They exist only here. Open the Photo archive and sync.`
+           : "All backed up."));
+      $("diagOut").innerHTML = out.join("");
+    }).catch(()=>{ $("diagOut").innerHTML = out.join(""); });
+  }, 30000);
 }
 
 /* A planting is a point with a species from the same list the trees use, so the
@@ -12633,14 +12768,39 @@ async function runSeriesExport(){
    machine the report is written on. */
 let drivePhotoQ = Promise.resolve();
 const PHOTO_FETCH_MS = 25000;
+/* WHAT THE SHEET ACTUALLY SAID, rather than merely whether a photograph arrived.
+
+   Four replies are possible and they mean entirely different things:
+
+     { ok:true, data:"data:image/jpeg;base64,…" }     the photograph
+     { ok:false, error:"…" }                          the Sheet looked and could not
+                                                      send it, AND SAYS WHY
+     { ok:true, service:"street-tree-inventory" }     doGet fell through to its own
+                                                      index: THIS DEPLOYMENT HAS NO
+                                                      photo ACTION AT ALL
+     null                                             nothing came back in time
+
+   All four were collapsed into null, so all four rendered as "not found on Drive".
+   The third is the one that cost a round: it is not a photograph problem at all, it
+   means the Code.gs on the Sheet is older than the Code.gs in the package, and the
+   fix is Manage deployments → pencil → New version. The second is the one that will
+   answer this: doGet already puts the exception in `error` and the app was throwing
+   it away. */
+function readPhotoReply(r){
+  if(!r) return { data:null, why:"slow" };
+  if(r.ok && r.data) return { data:r.data };
+  // An action this deployment has never heard of lands on doGet's own index.
+  if(r.service || Array.isArray(r.actions)) return { data:null, why:"stale", note:r.build || "" };
+  return { data:null, why:"missing", note: String(r.error || "").slice(0,200) };
+}
 function photoFromDrive(name){
   const run = () => new Promise(res=>{
-    if(!connected) return res(null);
-    if(isOffline()) return res(null);
+    if(!connected) return res({ data:null, why:"nolink" });
+    if(isOffline()) return res({ data:null, why:"offline" });
     /* NOT the 90-second default. That is right for a tool the crew starts and waits
        on; it is not right for a thumbnail, where a minute and a half of blank space
        is indistinguishable from the feature being broken. */
-    jsonpGet("photo", { name:name }, r => res(r && r.ok && r.data ? r.data : null), PHOTO_FETCH_MS);
+    jsonpGet("photo", { name:name }, r => res(readPhotoReply(r)), PHOTO_FETCH_MS);
   });
   const p = drivePhotoQ.then(run, run);
   drivePhotoQ = p.then(()=>{}, ()=>{});
@@ -12687,26 +12847,36 @@ const PHOTO_WHY = {
   offline:  "on Drive \u2014 this device has no connection",
   nolink:   "no Sheet to fetch it from",
   missing:  "not on this device, and not found on Drive",
-  slow:     "Drive did not answer in time \u2014 tap to try again"
+  slow:     "Drive did not answer in time \u2014 tap to try again",
+  /* NOT A PHOTOGRAPH PROBLEM. The Sheet is running an older Code.gs that has no
+     photo action at all, so no photograph can ever be fetched on any device that
+     did not take it. */
+  stale:    "the Sheet is running an older Code.gs \u2014 it has no photo action yet. " +
+            "Apps Script \u2192 Deploy \u2192 Manage deployments \u2192 pencil \u2192 New version"
 };
-const driveMisses = new Map();
+const driveMisses = new Map(), driveNotes = new Map();
 async function photoThumbInfo(name){
   if(HAS_IDB){
     const r = await idbGet(name).catch(()=>null);
     if(r && (r.thumb || r.data)) return { src: r.thumb || r.data };   // older records have no thumb
   }
   if(driveThumbs.has(name)) return { src: driveThumbs.get(name) };
-  if(driveMisses.has(name)) return { src:null, why: driveMisses.get(name) };
+  if(driveMisses.has(name)) return { src:null, why: driveMisses.get(name), note: driveNotes.get(name) || "" };
   /* The two that are NOT the photograph's fault are answered without asking Drive,
      and are never remembered — plug the machine back in and it works. */
   if(!connected)  return { src:null, why:"nolink" };
   if(isOffline()) return { src:null, why:"offline" };
-  const full = await photoFromDrive(name);
-  if(!full){
-    const why = idbTrouble || "missing";
+  const got = await photoFromDrive(name);
+  if(!got.data){
+    /* The Sheet's own answer wins over the local store's, because "the deployment is
+       behind" and "the Drive folder does not have it" are both actionable and
+       "this device has none of them" is merely true of every photograph here. */
+    const why = (got.why === "missing" && idbTrouble) ? idbTrouble : (got.why || "missing");
     driveMisses.set(name, why);
-    return { src:null, why:why };
+    driveNotes.set(name, got.note || "");
+    return { src:null, why:why, note:got.note || "" };
   }
+  const full = got.data;
   let small = full;
   try{
     const im = await loadImg(full);
@@ -12722,7 +12892,7 @@ async function photoThumb(name){ return (await photoThumbInfo(name)).src; }
    backed up from somebody's phone is found on the second attempt, and remembering a
    miss for the whole session would hide that. */
 function forgetPhotoMisses(names){
-  (names || []).forEach(n => { driveMisses.delete(n); driveThumbs.delete(n); });
+  (names || []).forEach(n => { driveMisses.delete(n); driveNotes.delete(n); driveThumbs.delete(n); });
 }
 // Full size, for the viewer only. Deliberately not cached.
 async function photoFull(name){
@@ -12730,7 +12900,7 @@ async function photoFull(name){
     const r = await idbGet(name).catch(()=>null);
     if(r && r.data) return r.data;
   }
-  return await photoFromDrive(name);
+  return (await photoFromDrive(name)).data;
 }
 
 async function photoImage(name){
@@ -12738,7 +12908,7 @@ async function photoImage(name){
   if(HAS_IDB) rec = await idbGet(name).catch(()=>null);
   let src = rec && rec.data ? rec.data : null;
   let fromDrive = false;
-  if(!src){ src = await photoFromDrive(name); fromDrive = !!src; }
+  if(!src){ src = (await photoFromDrive(name)).data; fromDrive = !!src; }
   if(!src) return null;
   const im = await new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });
   return im ? { im:im, fromDrive:fromDrive } : null;
@@ -14336,6 +14506,8 @@ function showHelp(){
     <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
+    <p><b>Sheet &amp; photo check</b><br><i>Menu → Sync &amp; the Sheet → Sheet &amp; photo check</i>, or the <i>check</i> link beside a photograph that would not load. It asks the Sheet the things the app cannot see from the outside and prints the answers: <b>which Code.gs the Sheet is actually running</b>, how many folders answer to the name <i>Street Tree Photos</i> and which one is being used, whether one named photograph is there and how it was found, and how many photographs on this device have never reached Drive. It settles a stale deployment <b>without the Sheet being updated first</b>: an action a deployment has never heard of falls through to its own index, and a reply of that shape is proof the Sheet is behind.</p>
+
     <p><b>When a photograph will not show</b><br>The popup lays out a <b>slot for each photograph the moment it opens</b>, so a tree with photographs never looks like one without any while they are being fetched, and a slot that cannot be filled is marked and <b>says why</b> — four things used to look identical and only one of them is about the photograph. <i>No photographs on this tree</i> means exactly that. <i>The photo store is open in another tab or window</i> is the one to know about on a desktop: close the other tabs showing this app and reload. <i>No connection</i> and <i>not found on Drive</i> are the other two. <b>Try again</b> beside the message forgets the failure and re-asks, which matters when a photograph is still being backed up from somebody's phone. The same message appears under the strip in the edit form and in the full-size viewer.</p>
 
     <p><b>Seeing a photo on a device that did not take it</b><br>Tap a pin, open a tree, or view a photograph full size, and the app looks on this device first and then on <b>Drive</b> for anything it does not hold — so the machine you write the report on shows the same photographs as the phone that took them. Fetched images are shrunk to thumbnails and only the small copies are kept, so browsing does not fill up memory, and nothing is fetched until you actually open something. With no connection you see what is on the device and the viewer tells you the rest are on Drive.</p>
