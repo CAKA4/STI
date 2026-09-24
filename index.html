@@ -1428,7 +1428,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-23 · v127";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-24 · v128";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -6929,6 +6929,27 @@ function queueSettings(payload){
   persistPendSettings();
   flushSettings();
 }
+/* THE FRAMES THIS DEVICE ALREADY HOLDS, SENT UP ONCE.
+
+   rememberCRS pushes a project's .prj when a zipped shapefile is IMPORTED. Every
+   project imported before that existed therefore has an empty Coordinate system cell
+   on the Sheet, however many times the app has synced since — and the first real
+   report table came out with longitude and latitude in the X and Y columns because
+   of it. The frame was on the phone the whole time; nothing had ever asked it for it.
+
+   So on first run after this build, every frame in projCRS is queued. Once per
+   device, flagged, because after that rememberCRS keeps them current and re-sending
+   them on every launch would overwrite a .prj somebody had corrected in the Sheet. */
+const CRSPUSH_KEY = "st_crspushed";
+function backfillCRSPush(){
+  if(!STORE) return;
+  try{ if(STORE.getItem(CRSPUSH_KEY)) return; }catch(e){ return; }
+  Object.keys(projCRS).forEach(p => {
+    const rec = projCRS[p];
+    if(p && rec && rec.wkt) queueSettings({ project: p, prj: rec.wkt });
+  });
+  try{ STORE.setItem(CRSPUSH_KEY, "1"); }catch(e){}
+}
 function flushSettings(){
   if(!connected || isOffline() || !pendingSettings.length) return;
   pendingSettings.slice().forEach(p => {
@@ -7084,7 +7105,13 @@ let apprRCHard = 1290, apprRCCon = 1290, apprCaliper = 5;
 let apprSpecies = 0.75, apprLocation = 0.75;
 let apprFactors = {
   "Good": 0.9, "Satisfactory": 0.75, "Potential trouble": 0.6,
-  "Declining": 0.35, "Death imminent": 0.1, "Dead": 0
+  "Declining": 0.35, "Death imminent": 0.1, "Dead": 0,
+  /* NOT CONDITION CLASSES — states. The trunk formula has nothing to say about a
+     tree that is already gone, so these had no factor, and "no factor" means "no
+     figure": 73 blank cells in the value column of the first real report table. A
+     blank there reads as "not worked out yet" and gets chased. A tree that is gone
+     has no standing value, and nought is that answer rather than the absence of one. */
+  "Removed": 0, "Stump": 0, "Stump carving": 0
 };
 try{
   const a2 = JSON.parse((STORE && STORE.getItem("st_apprval")) || "null");
@@ -12938,6 +12965,7 @@ window.addEventListener("offline", netDot);
   flushUsers();
   flushProjects();
   flushDomains();
+  backfillCRSPush();
   flushSettings();
   /* Fences, plantings and their deletions queue on the phone exactly as the trees do,
      so anything drawn with no signal goes up on the next launch. Without this they
