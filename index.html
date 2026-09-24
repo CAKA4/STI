@@ -671,6 +671,7 @@
       <button class="mhead" onclick="toggleGroup('review')">📊 Review<span class="caret">▸</span></button>
       <div class="mbody">
         <button class="menuitem" onclick="openStats()">Statistics</button>
+        <button class="menuitem" onclick="openQuery()">Find trees by attribute — edit, move or delete</button>
         <button class="menuitem" onclick="selectShowing()">Select everything showing — edit or move it</button>
         <button class="menuitem" onclick="openArchive()">Photo archive (<span id="archCount">0</span>)</button>
       </div>
@@ -681,7 +682,7 @@
       <div class="mbody">
         <button class="menuitem" onclick="openSettings()">Cruiser, project &amp; ID settings</button>
         <button class="menuitem" onclick="showHelp()">How this app works</button>
-        <button class="menuitem" onclick="renumberProject()">Renumber this project 1, 2, 3…</button>
+        <button class="menuitem" onclick="renumberProject()">Renumber what is showing 1, 2, 3…</button>
         <button class="menuitem" onclick="clearProjectLocal()">Clear a project from this phone</button>
         <button class="menuitem danger" onclick="clearAllData()">Clear all data on this device</button>
       </div>
@@ -1301,6 +1302,23 @@
   </div>
 </div>
 
+<!-- ===== search by attribute ===== -->
+<div class="sheet" id="querySheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Find trees</h2>
+    <div class="idline" id="qryScope">—</div>
+    <div id="qryRows"></div>
+    <div class="btnrow"><button class="alt" onclick="addQueryRow()">＋ Add a condition</button></div>
+    <div class="mini" id="qryCount" style="text-align:center;padding:8px 0;font-weight:600"></div>
+    <div class="btnrow">
+      <button class="primary" onclick="applyQuery()" id="btnQryGo">Select them</button>
+      <button onclick="closeQuery()">Close</button>
+    </div>
+    <div class="mini">Every condition has to be true. The search covers what the <i>Showing</i> filter is set to and nothing else, so another project cannot be edited by accident.</div>
+  </div>
+</div>
+
 <!-- ===== selection ===== -->
 <div class="sheet" id="selSheet">
   <div class="sheet-inner">
@@ -1331,6 +1349,12 @@
       <select id="selProject"></select>
     </div>
     <div class="btnrow"><button onclick="applySelProject()">Assign project</button></div>
+
+    <div class="fld" style="margin-top:14px">
+      <label>Remove them</label>
+      <button type="button" class="danger" onclick="deleteSelection()" id="btnSelDelete">🗑 Delete these trees</button>
+      <div class="mini">They go to the <b>Deleted</b> tab of the Sheet, which is the way back. This is not on the undo stack.</div>
+    </div>
 
     <div class="btnrow" id="bulkUndoRow" style="display:none;margin-top:16px">
       <button class="alt" onclick="bulkUndoLast()" id="bulkUndoBtn">↩ Undo</button>
@@ -1429,7 +1453,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-24 · v131";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-24 · v135";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -3234,19 +3258,143 @@ function treeNoFloor(project){
 }
 function nextTreeNo(project){ return treeNoFloor(project) + 1; }
 // Fills any gaps and puts a project's trees in order, for tidying up before a report.
+/* RENUMBERING FOLLOWS THE SHOWING FILTER, like everything else in this app.
+
+   A section of a job is "the trees this person recorded in these weeks", and that is
+   the set a plan reports on — so it is the set worth numbering from 1. Numbering only
+   the whole project meant a crew whose numbers started at 2, because somebody else's
+   stray tree happened to hold 1, had no way to close the gap short of renumbering
+   seven hundred trees.
+
+   TWO THINGS MAKE IT SAFE.
+
+   First, IT REFUSES TO CREATE A COLLISION. Numbering a SUBSET 1 to N is exactly how
+   this data ended up with 127 numbers used twice: the numbers handed out were already
+   on other trees in the same project. So the trees in the project that are NOT in the
+   set are checked first, and if any of them hold a number in the range, nothing is
+   written and the problem is named.
+
+   Second, it offers to KEEP THE ORDER THE CREW CREATED. North to south is a fine
+   order for a fresh project and the wrong one for a set already numbered in the order
+   somebody walked it — renumbering by geography would scramble the correspondence
+   with their field notes for no reason. Closing the gaps keeps 2,3,4… as 1,2,3… */
+/* NUMBERING IN GEOGRAPHIC ORDER, ALONG THE RUN OF THE SITE.
+
+   Chris: "it would be important to number them in a geographic sequence rather than
+   by the sequence in which they were collected as sometimes this is not done in
+   geographic order."
+
+   NORTH TO SOUTH IS NOT THE ANSWER ON ITS OWN. A street tree job runs along a
+   street: Ainley-Richmond Hill is 1,353 m east to west and 450 m north to south, and
+   the section being reported is 426 m by 204 m with its long axis at 121 degrees.
+   Ordering that by latitude alone zigzags back and forth across the road — on the
+   real data it puts 160 of 232 trees more than five places from where walking the
+   street would put them, which is no order at all.
+
+   So the SITE'S OWN AXIS is worked out from the trees (the principal axis of the
+   point cloud, in metres) and they are numbered along it: west to east where the run
+   is mostly east-west, north to south where it is mostly north-south. A site with no
+   clear run — a park, a block — falls back to plain north to south, which is at
+   least predictable.
+
+   Ties along the axis are broken by the perpendicular, so two trees facing each
+   other across a road get consecutive numbers rather than an arbitrary pair. */
+function geoOrder(list){
+  const pts = list.map(t=>({ t:t, la:num(t.LAT), lo:num(t.LON) }))
+                  .filter(p=>p.la!=null && p.lo!=null);
+  const noPos = list.filter(t=>num(t.LAT)==null || num(t.LON)==null);
+  if(pts.length < 3){
+    return list.slice().sort((a,b)=>(num(b.LAT)||0)-(num(a.LAT)||0));
+  }
+  const cy = pts.reduce((s,p)=>s+p.la,0)/pts.length;
+  const cx = pts.reduce((s,p)=>s+p.lo,0)/pts.length;
+  const mLat = 111320, mLon = 111320 * Math.cos(cy*Math.PI/180);
+  pts.forEach(p=>{ p.e = (p.lo-cx)*mLon; p.n = (p.la-cy)*mLat; });
+
+  let sxx=0, syy=0, sxy=0;
+  pts.forEach(p=>{ sxx += p.e*p.e; syy += p.n*p.n; sxy += p.e*p.n; });
+  const th = 0.5*Math.atan2(2*sxy, sxx-syy);
+  const half = (sxx+syy)/2, root = Math.sqrt(Math.pow((sxx-syy)/2,2) + sxy*sxy);
+  const l1 = half+root, l2 = Math.max(half-root, 1e-9);
+
+  let ue = Math.cos(th), un = Math.sin(th);
+  /* A round site has no run to follow and the axis angle is meaningless noise, so it
+     is not used. 1.5 is a shape, not a threshold to tune: below it the two spreads
+     are close enough that any axis is arbitrary. */
+  if(Math.sqrt(l1/l2) < 1.5){ ue = 0; un = -1; }
+  else if(Math.abs(ue) >= Math.abs(un)){ if(ue < 0){ ue = -ue; un = -un; } }   // point it east
+  else if(un > 0){ ue = -ue; un = -un; }                                        // point it south
+
+  const along = p => p.e*ue + p.n*un;
+  const across = p => -p.e*un + p.n*ue;
+  pts.sort((a,b)=>{ const d = along(a)-along(b); return d || (across(a)-across(b)); });
+  /* A tree with no position cannot be placed, so it goes last rather than being given
+     a number that means somewhere. */
+  return pts.map(p=>p.t).concat(noPos);
+}
+/* What the order actually came out as, for the confirmation — an order nobody can
+   name is an order nobody trusts. */
+function geoOrderLabel(list){
+  const pts = list.filter(t=>num(t.LAT)!=null && num(t.LON)!=null);
+  if(pts.length < 3) return "north to south";
+  const o = geoOrder(pts);
+  const a = o[0], b = o[o.length-1];
+  const cy = (num(a.LAT)+num(b.LAT))/2;
+  const de = (num(b.LON)-num(a.LON)) * 111320 * Math.cos(cy*Math.PI/180);
+  const dn = (num(b.LAT)-num(a.LAT)) * 111320;
+  if(Math.abs(de) > Math.abs(dn)) return de > 0 ? "west to east, along the run of the site"
+                                                : "east to west, along the run of the site";
+  return dn < 0 ? "north to south" : "south to north";
+}
+
 function renumberProject(){
   closeMenu();
-  const p = filterProject || settings.project || "";
-  const list = trees.filter(t=>projectOf(t)===p);
-  if(!list.length){ toast("No trees in that project",true); return; }
+  if(showAllProjects && !filterProject){
+    toast("Pick one project in Showing first — numbers are per project",true); return;
+  }
+  const p = currentProject();
+  const whole = trees.filter(t=>projectOf(t)===p);
+  if(!whole.length){ toast("No trees in that project",true); return; }
+  const list = visibleTrees().filter(t=>projectOf(t)===p);
+  if(!list.length){ toast("Nothing is showing to renumber",true); return; }
+
+  const rest = whole.filter(t=>list.indexOf(t) < 0);
+  const scope = scopeLabel();
+  const partial = rest.length > 0;
+
+  /* The numbers about to be handed out, checked against the trees this is NOT
+     touching. Naming them matters: "renumber the whole project instead" is only
+     obviously right once you can see what is in the way. */
+  if(partial){
+    const clash = rest.filter(t=>{ const n = parseInt(t.TREE_NO,10); return n>0 && n<=list.length; });
+    if(clash.length){
+      alert(`Cannot renumber these ${list.length} tree(s) as 1 to ${list.length}.\n\n` +
+        `${clash.length} other tree(s) in "${p}" already use numbers in that range, so this ` +
+        `would put two trees on the same number — which is the problem it is meant to solve.\n\n` +
+        `Either clear the Showing filter and renumber the whole project, or move these ` +
+        `trees into a project of their own first (Menu → Select everything showing → ` +
+        `Assign them to this project).`);
+      return;
+    }
+  }
+
   const have = list.filter(t=>parseInt(t.TREE_NO,10)>0).length;
-  if(!confirm(`Renumber all ${list.length} tree(s) in "${p||"(no project)"}" as 1 to ${list.length}?\n\n` +
-    `${have} already carry a number, which will change. Anything already printed or tagged will no longer match.`)) return;
-  // north to south, the order a crew walks and a sheet reads
-  list.sort((a,b)=> (num(b.LAT)||0)-(num(a.LAT)||0));
-  list.forEach((t,i)=>{ if(String(t.TREE_NO)!==String(i+1)){ t.TREE_NO=i+1; t._sent=false; } });
-  persistTrees(); renderPins();
-  toast(`Renumbered ${list.length} tree(s) 1–${list.length}`);
+  const dir = geoOrderLabel(list);
+  if(!confirm(`Renumber ${list.length} tree(s) as 1 to ${list.length}?\n\n` +
+    `Showing: ${scope}\n` +
+    `Order: ${dir} — NOT the order they were collected in, which is not always the ` +
+    `order they stand in.\n` +
+    (partial ? `This is ${list.length} of the ${whole.length} tree(s) in "${p}". The other ${rest.length} keep their numbers.\n` : "") +
+    `\n${have} already carry a number, which will change. Anything already printed or tagged will no longer match.\n\n` +
+    `Only the tree NUMBER changes. The tree's record id (TREE_ID) is untouched, so nothing in the Sheet is duplicated or lost.`)) return;
+
+  /* ONLY TREE_NO IS WRITTEN. TREE_ID is the record key the Sheet matches on and the
+     thing every photograph, inspection and export is filed under; renumbering must
+     never touch it, or a renumber would become a second copy of every tree. */
+  const ordered = geoOrder(list);
+  ordered.forEach((t,i)=>{ if(String(t.TREE_NO)!==String(i+1)){ t.TREE_NO=i+1; t._sent=false; } });
+  persistTrees(); renderPins(); renderLabels();
+  toast(`Renumbered ${ordered.length} tree(s) 1–${ordered.length} · ${dir}`);
   setTimeout(syncNow, 600);
 }
 
@@ -9786,6 +9934,253 @@ function treesInPolygon(pts){
     return ringContains(ring, la, lo);
   });
 }
+/* ================================================================== *
+ *  SEARCH BY ATTRIBUTE
+ *
+ *  "Select tree points meeting a specific series of attributes (e.g. collector =
+ *  Kathleen, health = dead) and assign an attribute value to these, or delete the
+ *  trees from the project."
+ *
+ *  The Showing filter answers three questions — project, recorder, dates — because
+ *  those are the ones a whole report narrows on. This answers the rest: any field,
+ *  any number of conditions, ANDed. It hands its result to the SAME selection sheet
+ *  the lasso uses, so bulk edit, assign-a-project and the persisted undo all come
+ *  free and there is one place where mass changes happen rather than two.
+ *
+ *  IT SEARCHES WITHIN WHAT IS SHOWING, like everything else here. A search that
+ *  quietly reached into other projects would be a fine way to bulk-edit a job you
+ *  were not looking at.
+ * ================================================================== */
+
+/* Fields worth searching on, in the order a person thinks of them. The pick-list
+   ones offer their list; the rest take typed text or a number. */
+const QUERY_FIELDS = [
+  ["CRUISER",    "Recorded by",            "user"],
+  ["HEALTH",     "Condition rating",       "list"],
+  ["SPECIES",    "Common name",            "species"],
+  ["BOTANICAL",  "Botanical name",         "text"],
+  ["DBH",        "DBH (cm)",               "num"],
+  ["TREE_NO",    "Tree number",            "num"],
+  ["TAG_NO",     "Tag number",             "text"],
+  ["ADDRESS",    "Address",                "text"],
+  ["STREET",     "Street",                 "text"],
+  ["PARK",       "Park",                   "text"],
+  ["LOCATION",   "Location / ownership",   "list"],
+  ["RECOTREA",   "Recommended treatment",  "list"],
+  ["ACTIVITY",   "Activity",               "list"],
+  ["PROP_ACT",   "Proposed action",        "list"],
+  ["LT_IMPACT",  "Potential long term impact", "list"],
+  ["IMPACT_POT", "Potential construction impact", "text"],
+  ["SITELOCA",   "Site location",          "list"],
+  ["STRUDEFE",   "Structural defect",      "list"],
+  ["WOUNCANK",   "Wound / canker",         "list"],
+  ["DEADDECAY",  "Dead / decay",           "list"],
+  ["PESTDISEAS", "Pest / disease",         "list"],
+  ["IMPEDMNT",   "Impediment",             "list"],
+  ["FAILPOTE",   "Failure potential",      "list"],
+  ["RISK",       "Risk rating",            "text"],
+  ["YR_EXEMPT",  "York Region exempt",     "text"],
+  ["COMP_INCL",  "Counted for compensation", "text"],
+  ["TPZ_M",      "Protection zone (m)",    "num"],
+  ["CROWN_RAD",  "Crown radius (m)",       "num"],
+  ["HEIGHT",     "Height (m)",             "num"],
+  ["SHEET_NO",   "Map sheet / TPP page",   "num"],
+  ["COMMENTS",   "Comments",               "text"],
+  ["SOURCE",     "How it was placed",      "text"],
+  ["EXT_ID",     "Imported id",            "text"],
+  ["PHOTOS",     "Photographs",            "text"]
+];
+const QUERY_OPS = [
+  ["is",       "is"],
+  ["not",      "is not"],
+  ["has",      "contains"],
+  ["blank",    "is blank"],
+  ["filled",   "is not blank"],
+  ["ge",       "is at least"],
+  ["le",       "is at most"]
+];
+let queryRows = [{ f:"CRUISER", op:"is", v:"" }];
+
+function queryKind(f){
+  const hit = QUERY_FIELDS.find(x=>x[0]===f);
+  return hit ? hit[2] : "text";
+}
+function queryFieldLabel(f){
+  const hit = QUERY_FIELDS.find(x=>x[0]===f);
+  return hit ? hit[1] : f;
+}
+/* One condition against one tree. Text comparison is case-insensitive and trimmed,
+   because "Dead" typed in a box and "dead" off a pick list are the same tree. */
+function queryMatch(t, c){
+  const raw = t[c.f];
+  const s = String(raw==null ? "" : raw).trim();
+  const want = String(c.v==null ? "" : c.v).trim();
+  if(c.op === "blank")  return s === "";
+  if(c.op === "filled") return s !== "";
+  if(c.op === "ge" || c.op === "le"){
+    const a = parseFloat(s), b = parseFloat(want);
+    if(!isFinite(a) || !isFinite(b)) return false;
+    return c.op === "ge" ? a >= b : a <= b;
+  }
+  if(want === "") return true;              // an empty value is not a condition yet
+  const sl = s.toLowerCase(), wl = want.toLowerCase();
+  if(c.op === "has") return sl.indexOf(wl) >= 0;
+  if(c.op === "not") return sl !== wl;
+  return sl === wl;
+}
+/* ALL the conditions, not any: "Kathleen AND dead" is the question being asked, and
+   an OR would quietly return the whole job the first time somebody left a row half
+   filled in. */
+function runQuery(rows){
+  const live = (rows||[]).filter(c=>c.f && (c.op==="blank" || c.op==="filled" || String(c.v||"").trim()!==""));
+  if(!live.length) return [];
+  return visibleTrees().filter(t=>live.every(c=>queryMatch(t,c)));
+}
+function queryCount(){ return runQuery(queryRows).length; }
+
+/* ---- the search sheet ---------------------------------------------------- */
+function openQuery(){
+  closeMenu();
+  if(!queryRows.length) queryRows = [{ f:"CRUISER", op:"is", v:"" }];
+  $("qryScope").textContent = "Searching: " + scopeLabel();
+  renderQueryRows();
+  $("querySheet").classList.add("show");
+}
+function closeQuery(){ $("querySheet").classList.remove("show"); }
+function addQueryRow(){ queryRows.push({ f:"HEALTH", op:"is", v:"" }); renderQueryRows(); }
+function dropQueryRow(i){
+  queryRows.splice(i,1);
+  if(!queryRows.length) queryRows = [{ f:"CRUISER", op:"is", v:"" }];
+  renderQueryRows();
+}
+function setQueryField(i, f){
+  queryRows[i].f = f;
+  queryRows[i].v = "";                       // a value from the old field means nothing
+  const k = queryKind(f);
+  if((k==="num") && ["has"].indexOf(queryRows[i].op)>=0) queryRows[i].op = "is";
+  if((k!=="num") && ["ge","le"].indexOf(queryRows[i].op)>=0) queryRows[i].op = "is";
+  renderQueryRows();
+}
+function setQueryOp(i, op){ queryRows[i].op = op; renderQueryRows(); }
+function setQueryVal(i, v){ queryRows[i].v = v; paintQueryCount(); }
+
+/* The values on offer for a field: its own pick list where it has one, the crew for
+   the recorder, the species list for a species — and the values ACTUALLY PRESENT on
+   the trees in view, which is the list that matters. Offering "Dead" when no tree is
+   dead wastes a tap; offering a spelling the crew actually used finds the trees. */
+function queryValues(f){
+  const k = queryKind(f);
+  const seen = {};
+  visibleTrees().forEach(t=>{ const v = String(t[f]==null?"":t[f]).trim(); if(v) seen[v]=1; });
+  const present = Object.keys(seen).sort((a,b)=>a.localeCompare(b));
+  if(k === "user")    return present.length ? present : users.map(u=>u.name).filter(Boolean);
+  if(k === "species") return present;
+  if(k === "list"){
+    const d = DOMAIN_FIELDS[f] || (f==="HEALTH" ? HEALTH_D : null);
+    if(!d) return present;
+    /* The list's own order, but only the values in use, with anything the crew typed
+       that is not on the list appended so it can still be found. */
+    const inList = d.map(p=>p[0]).filter(v=>seen[v]);
+    const extra = present.filter(v=>!d.some(p=>p[0]===v));
+    return inList.concat(extra);
+  }
+  return present.length <= 40 ? present : [];      // a free-text field with few values
+}
+
+function renderQueryRows(){
+  const box = $("qryRows");
+  box.innerHTML = queryRows.map((c,i)=>{
+    const k = queryKind(c.f);
+    const ops = QUERY_OPS.filter(o=>{
+      if(o[0]==="ge" || o[0]==="le") return k==="num";
+      if(o[0]==="has") return k!=="num";
+      return true;
+    });
+    const vals = (c.op==="blank"||c.op==="filled") ? null : queryValues(c.f);
+    const valBox = (c.op==="blank"||c.op==="filled")
+      ? `<input type="text" value="" disabled placeholder="—">`
+      : (vals && vals.length
+          ? `<select onchange="setQueryVal(${i}, this.value); renderQueryRows()">` +
+            `<option value="">— any —</option>` +
+            vals.map(v=>`<option value="${esc(v)}"${String(c.v)===v?" selected":""}>${esc(domainLabel(c.f,v))}</option>`).join("") +
+            `</select>`
+          : `<input type="${k==="num"?"number":"text"}" value="${esc(c.v||"")}" ` +
+            `inputmode="${k==="num"?"decimal":"text"}" ` +
+            `oninput="setQueryVal(${i}, this.value)" placeholder="value">`);
+    return `<div class="fld" style="margin-bottom:10px">
+      <label>${i===0 ? "Where" : "and"}${queryRows.length>1 ? ` <span style="float:right;opacity:.7" onclick="dropQueryRow(${i})">✕ remove</span>` : ""}</label>
+      <select onchange="setQueryField(${i}, this.value)">
+        ${QUERY_FIELDS.map(x=>`<option value="${x[0]}"${c.f===x[0]?" selected":""}>${esc(x[1])}</option>`).join("")}
+      </select>
+      <div class="row2" style="margin-top:6px">
+        <div><select onchange="setQueryOp(${i}, this.value)">
+          ${ops.map(o=>`<option value="${o[0]}"${c.op===o[0]?" selected":""}>${esc(o[1])}</option>`).join("")}
+        </select></div>
+        <div>${valBox}</div>
+      </div>
+    </div>`;
+  }).join("");
+  paintQueryCount();
+}
+function paintQueryCount(){
+  const n = queryCount();
+  const tot = visibleTrees().length;
+  $("qryCount").textContent = n
+    ? `${n} of ${tot} tree(s) match`
+    : (runQuery(queryRows).length === 0 && queryRows.some(c=>String(c.v||"").trim()!=="" || c.op==="blank" || c.op==="filled")
+        ? "Nothing matches" : "Set a value to search");
+  const b = $("btnQryGo"); if(b) b.disabled = !n;
+}
+function applyQuery(){
+  const found = runQuery(queryRows);
+  if(!found.length){ toast("Nothing matches",true); return; }
+  selected = found;
+  closeQuery();
+  if(selMode) toggleSelect();
+  clearSelShapes(); selPts = [];
+  openSelSheet(queryRows
+    .filter(c=>c.op==="blank"||c.op==="filled"||String(c.v||"").trim()!=="")
+    .map(c=>queryFieldLabel(c.f) + " " + (QUERY_OPS.find(o=>o[0]===c.op)||["",c.op])[1] +
+             (c.op==="blank"||c.op==="filled" ? "" : " " + c.v))
+    .join(" · "));
+}
+
+/* ---- deleting a selection ------------------------------------------------ *
+ *
+ *  The one thing on this sheet that cannot be undone from the phone. Every other
+ *  bulk action records what it overwrote; a delete has nothing to put back, so the
+ *  Sheet's Deleted tab is the safety net and the confirmation says so rather than
+ *  implying an undo that is not there.
+ * -------------------------------------------------------------------------- */
+function deleteSelection(){
+  if(!selected.length) return;
+  const n = selected.length;
+  const unsent = selected.filter(t=>!t._sent).length;
+  if(!confirm(`Delete ${n} tree(s) from this project?\n\n` +
+    (unsent ? `${unsent} of them have NOT reached the Sheet and will be gone for good.\n` : "") +
+    `The rest are copied to the Deleted tab of the Sheet first, which is the way back — ` +
+    `Tree Tools → Restore deleted puts them in again.\n\n` +
+    `This is NOT on the undo stack.`)) return;
+  /* A typed word past ten. A confirm dialog is one tap and forty trees is a job; the
+     two should not cost the same. */
+  if(n > 10){
+    const word = prompt(`This removes ${n} trees.\n\nType DELETE to confirm:`);
+    if(String(word||"").trim().toUpperCase() !== "DELETE"){ toast("Nothing was deleted"); return; }
+  }
+  const ids = selected.map(t=>t.TREE_ID);
+  const synced = selected.filter(t=>t._sent).map(t=>t.TREE_ID);
+  const gone = {}; ids.forEach(id=>{ gone[id]=1; });
+  trees = trees.filter(t=>!gone[t.TREE_ID]);
+  selected = [];
+  persistTrees(); renderPins(); renderLabels(); updateSubLine();
+  closeSelSheet();
+  if(synced.length && connected && !isOffline()){
+    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({_action:"deletebatch", ids:synced, by:settings.cruiser||""})}).catch(()=>{});
+  }
+  toast(`Deleted ${n} tree(s)` + (synced.length ? ` — ${synced.length} kept on the Deleted tab` : ""));
+}
+
 /* SELECTING BY THE FILTER RATHER THAN BY DRAWING ROUND IT.
 
    Splitting a job into a plan for one section is not a shape on a map — it is "the
@@ -13006,6 +13401,10 @@ function showHelp(){
     <p><b>Two values, and the document picks one</b><br>Every tree carries two money figures, because they answer different questions. <b>Tree value</b> is what the tree is worth, by the trunk formula: the replacement cost of a nursery tree spread over its trunk area gives a rate per cm², and that rate is applied to this tree's trunk area and adjusted for condition, species and location. It grows smoothly with diameter. <b>Offsetting value</b> is what it costs to offset removing it — replacement plantings from the Region's table × one cost, so it steps: a 29 cm and a 34 cm tree are both size class C and both come out the same. On a real job the appraisal ran several times the offsetting on big trees and lower on small ones, so they are kept separate rather than reconciled. Which one the report prints is chosen in <i>Assemble the document → Value column</i> — offsetting, appraisal, both, or none — and remembered per project. The appraisal rate and its condition factors are in <i>Settings</i>; a condition left blank produces <b>no</b> value rather than a guessed one, because a plausible figure in a submitted report is worse than an obvious gap.</p>
     <p><b>York Region tree removal offsetting</b><br>Follows the Region's <b>May 2025</b> table, which replaced the older calculation the app used before. It is a lookup rather than a formula: a <b>size class</b> from the DBH (A to E), a <b>species classification</b> (desirable, less desirable, or exempt — ash, Tree-of-Heaven, European alder, Russian olive and buckthorn are exempt outright), and a <b>condition class</b> (Good and Satisfactory are healthy; potential trouble and declining are poor; death imminent and dead are exempt). Those three read the number of replacement trees straight off the Region's table, and the offsetting value is that number times one replacement cost — <b>$1,290</b> as at May 2025, with no deciduous or coniferous split any more. The rate and its year are in <i>Settings</i>, because the Region reviews the figure. The tree form shows all three classes beside the answer so you can check it against the Region's own workbook without doing any arithmetic, and <i>Menu → Get data out → York Region compensation table</i> produces the CSV in their column order.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
+    <p><b>Finding trees by attribute</b><br><i>Menu → Find trees by attribute</i> searches on any field, with as many conditions as you like — <i>Recorded by is Kathleen Conners</i> <b>and</b> <i>Condition rating is Dead</i> — and hands the result to the same selection sheet the lasso uses, so the bulk edit, <b>Assign project</b> and the undo all work on it. Conditions are ANDed: every one has to be true, because an OR would quietly return the whole job the first time a row was left half filled in. The operators are <i>is</i>, <i>is not</i>, <i>contains</i>, <i>is blank</i>, <i>is not blank</i>, and <i>at least</i> / <i>at most</i> on a number — two of those make a range. Each field offers <b>the values actually present on the trees in view</b>, in the pick list's own order, with anything the crew typed that is not on the list appended so those trees can still be found. The search covers what the <i>Showing</i> filter is set to and nothing beyond it, so another project cannot be edited by accident, and the selection sheet prints the search that found the trees beside the count.</p>
+    <p><b>Deleting a selection</b><br>The selection sheet can also <b>delete</b> what is on it. This is the one action there that is not on the undo stack, and it says so: the way back is the <b>Deleted</b> tab of the Sheet, where every row is copied before it is removed — <i>Tree Tools → Restore deleted</i> puts them back. Trees that never reached the Sheet have no copy and are gone for good, so the confirmation counts those separately. Past ten trees it asks for the word DELETE to be typed, because a confirmation is one tap and forty trees is a job.</p>
+    <p><b>Renumbering a section so it starts at 1</b><br><i>Menu → Renumber what is showing</i> follows the Showing filter like everything else, so a section — one recorder, a date range — can be numbered 1 to N on its own. <b>Only the tree number changes.</b> The record id (TREE_ID) is never touched, which is why a renumber reaches the Sheet as an edit to the rows that are already there and never as a second copy. <b>Nothing else recomputes a number</b> either: moving a tree out of a project frees its number and leaves every other tree where it was, because the number is what goes on a tag and changing it is always deliberate. It also <b>refuses to create a clash</b> — if a tree that is not showing already holds a number in the new range, nothing is written and it says how many are in the way, since numbering a subset over numbers already in use is exactly how this data once ended up with 127 numbers used twice. Across all projects it declines, a number only meaning anything inside one.</p>
+    <p><b>The order is geographic, along the run of the site</b><br>Numbering follows where the trees <i>stand</i>, never the order they were recorded in — a crew does not always walk a site in order, and a table numbered by collection sequence reads as scrambled on the ground. <b>North to south alone is not enough</b>: a street tree job runs along a street, and ordering by latitude zigzags back and forth across the road. So the app works out the site's own axis from the trees and numbers along it — <i>west to east</i> where the run is mostly east-west, <i>north to south</i> where it is mostly north-south — with two trees facing each other across a road getting consecutive numbers. A site with no clear run, a park or a single block, falls back to plain north to south, which is at least predictable. The confirmation names the direction before anything is changed, and a tree with no position is numbered last rather than placed somewhere it is not.</p>
     <p><b>Every file says what its coordinates are</b><br>Two numbers headed <b>X</b> and <b>Y</b> look identical whether they are metres or degrees, so every table now names its frame. A caption sits over the two columns giving the coordinate system and its EPSG code — green when it is already NAD83 UTM zone 17N and nothing needs doing, orange when it is not — the headings carry the full instructions as a hover note, and the same text prints as a grey block two rows under the last tree, because a note is easy to miss and does not print. The wording changes with what the file actually holds: “reproject to 26917” is right for a file in degrees and wrong for one already in 26917. On the Sheet, a <b>Read me — coordinates</b> tab lists every project, what its exports come out in and what to do with them, and carries the <i>.prj</i> text to paste in for NAD83 UTM 17N. It is rebuilt each time a package is built, and from <i>Tree Tools</i> on demand.</p>
     <p><b>Splitting a job into a plan for one section</b><br>A large job is often reported a section at a time, and a section is usually "the trees this person recorded in these weeks" rather than a shape on a map. <i>Menu → Showing</i> narrows to exactly that — project, recorder and date range — and then <i>Menu → Select everything showing</i> hands that set to the bulk sheet, which names the count and the filter it came from so nothing moves on the strength of a filter nobody could see. From there <b>Assign them to this project</b> stamps them with a new project, existing or typed in on the spot, and everything follows: the map, the statistics, Schedule A, the compensation tables, the map sheets and the assembled document all report on the new project alone. The move goes through the same undo as every other bulk change, so a wrong tap on two hundred trees is one tap to put back.</p>
     <p><b>What a new project inherits</b><br>Several things are kept <i>per project</i> — the coordinate system the data arrived in, whether the project is a tree protection plan, and which value column the report prints — and a project invented thirty seconds ago has none of them. Moving trees in carries them over from the project they came from, and the confirmation says which; anything the new project has already been given is left alone. Without that a section plan would export in longitude and latitude while the job it came out of exported in UTM, and the two would not overlay. <b>Tree numbers are per project too</b>, which is a real benefit here: trees whose numbers clashed with another set in the big job become unambiguous the moment they are their own project, and a new tree recorded in the section carries on from the section's own highest number.</p>
