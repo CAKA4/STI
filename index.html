@@ -671,6 +671,7 @@
       <button class="mhead" onclick="toggleGroup('review')">📊 Review<span class="caret">▸</span></button>
       <div class="mbody">
         <button class="menuitem" onclick="openStats()">Statistics</button>
+        <button class="menuitem" onclick="selectShowing()">Select everything showing — edit or move it</button>
         <button class="menuitem" onclick="openArchive()">Photo archive (<span id="archCount">0</span>)</button>
       </div>
     </div>
@@ -1428,7 +1429,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-24 · v128";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-24 · v131";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1933,7 +1934,11 @@ function markIdsSeen(rows){
 function fetchIdMarks(){
   if(!connected || isOffline()) return;
   jsonpGet("idmarks", {}, r=>{
-    if(!r || !r.ok || !r.marks) return;
+    if(!r || !r.ok) return;
+    /* The tree NUMBERS come back in the same call, for the same reason: a device
+       holding part of a project cannot see what the project has already used. */
+    rememberTreeNos(r.nos);
+    if(!r.marks) return;
     let mark = {};
     try{ mark = JSON.parse((STORE && STORE.getItem(IDHWM)) || "{}"); }catch(e){}
     let changed = false;
@@ -3164,16 +3169,70 @@ function toggleTPPSection(){
    on a tag, a map label and a report table. TREE_ID stays the globally unique key,
    which is the right thing for a spreadsheet of every tree ever recorded and quite
    the wrong thing to write on a tree. */
-function nextTreeNo(project){
+/* THE NUMBERS THIS PROJECT HAS ALREADY USED, from the Sheet.
+
+   THIS IS THE DUPLICATE TREE_ID FAULT AGAIN, on a different column. nextTreeNo
+   worked the next number out from the trees THIS DEVICE holds, so a phone carrying
+   part of a project could not see the project's real highest number and started
+   again near 1. On Ainley-Richmond Hill that produced two numbering runs over one
+   job — 503 trees numbered 1 to 735 and 232 more numbered 2 to 233, with 127
+   numbers used twice — and a report table with two trees called #5 cannot be
+   submitted, because the tag, the photograph caption and the table row stop
+   agreeing.
+
+   So the Sheet is asked, exactly as it is for the id watermark, and the answer is
+   kept on the device so a save with no signal still numbers sensibly. */
+const NOHWM = "st_treenos";
+let treeNoMarks = {};
+try{ treeNoMarks = JSON.parse((STORE && STORE.getItem(NOHWM)) || "{}") || {}; }catch(e){ treeNoMarks = {}; }
+function rememberTreeNos(nos){
+  if(!nos) return;
+  let changed = false;
+  Object.keys(nos).forEach(p=>{
+    const inc = nos[p] || {};
+    const cur = treeNoMarks[p] || { hi:0, used:[] };
+    const seen = {};
+    (cur.used || []).concat(inc.used || []).forEach(n=>{ const v=parseInt(n,10); if(isFinite(v)&&v>0) seen[v]=1; });
+    const used = Object.keys(seen).map(Number).sort((a,b)=>a-b);
+    const hi = Math.max(cur.hi||0, parseInt(inc.hi,10)||0, used.length ? used[used.length-1] : 0);
+    if(hi !== (cur.hi||0) || used.length !== (cur.used||[]).length){ changed = true; }
+    treeNoMarks[p] = { hi: hi, used: used };
+  });
+  if(changed && STORE){ try{ STORE.setItem(NOHWM, JSON.stringify(treeNoMarks)); }catch(e){} }
+}
+
+/* The next plan number in this project, so numbering follows the site plan.
+
+   Plain sequential numbering within a project: 1, 2, 3. This is the number that goes
+   on a tag, a map label and a report table. TREE_ID stays the globally unique key,
+   which is the right thing for a spreadsheet of every tree ever recorded and quite
+   the wrong thing to write on a tree.
+
+   IT ONLY EVER COUNTS UP. A gap in the numbering is not an invitation to fill it:
+   a gap usually means a tree was DELETED, and its tag may still be nailed to
+   something. Reissuing that number puts two different trees on one tag — the same
+   accident this is meant to end, in a form nobody would think to look for. The
+   watermark therefore covers the Deleted and Archive tabs too, exactly as the
+   TREE_ID watermark does, and a gap is left as a gap. */
+function usedTreeNos(project){
   const p = String(project!==undefined ? project : (settings.project||""));
-  let max = 0;
+  const used = {};
   trees.forEach(t=>{
     if(projectOf(t) !== p) return;
     const n = parseInt(t.TREE_NO,10);
-    if(isFinite(n) && n>max) max = n;
+    if(isFinite(n) && n>0) used[n] = 1;
   });
-  return max + 1;
+  const mark = treeNoMarks[p];
+  if(mark && mark.used) mark.used.forEach(n=>{ used[n] = 1; });
+  return used;
 }
+function treeNoFloor(project){
+  const p = String(project!==undefined ? project : (settings.project||""));
+  let hi = (treeNoMarks[p] && parseInt(treeNoMarks[p].hi,10)) || 0;
+  Object.keys(usedTreeNos(p)).forEach(k=>{ const n = parseInt(k,10); if(n > hi) hi = n; });
+  return hi;
+}
+function nextTreeNo(project){ return treeNoFloor(project) + 1; }
 // Fills any gaps and puts a project's trees in order, for tidying up before a report.
 function renumberProject(){
   closeMenu();
@@ -9258,15 +9317,48 @@ const SCHED_A_SHEET = ["Map sheet", t=>t.SHEET_NO || ""];
    tree's position — so the table and the photographs disagreed, which is worse than
    either being wrong on its own. One function now answers for both, and offers to
    write the missing numbers back so the Sheet matches the report. */
+/* Which numbers in this set are on more than one tree. A report table with two
+   trees called #5 cannot be submitted, and nothing on the face of it says so. */
+function duplicateNos(list){
+  const seen = {}, dup = {};
+  (list||[]).forEach(t=>{
+    const n = parseInt(t.TREE_NO,10);
+    if(!(n>0)) return;
+    if(seen[n]) dup[n] = 1; else seen[n] = 1;
+  });
+  return Object.keys(dup).map(Number).sort((a,b)=>a-b);
+}
 function reportTrees(){
   const list = scheduleATrees();
+  /* SAID BEFORE THE TABLE IS BUILT, not after it has been emailed. Renumbering is a
+     decision about somebody's tags, so this warns and lets the work continue rather
+     than fixing it silently — Menu → Renumber this project does the fixing. */
+  const dup = duplicateNos(list);
+  if(dup.length){
+    const shown = dup.slice(0,10).join(", ") + (dup.length>10 ? ", …" : "");
+    alert(`${dup.length} tree number(s) are used by more than one tree in this project:\n\n${shown}\n\n` +
+      `The table, the tags and the photograph captions will not agree until this is sorted out.\n\n` +
+      `Menu → Renumber this project renumbers every tree 1 to ${list.length} north to south.`);
+  }
   const missing = list.filter(t=>!(parseInt(t.TREE_NO,10)>0));
   if(missing.length && confirm(
       `${missing.length} of these ${list.length} tree(s) have no tree number.\n\n` +
-      `Number them 1 to ${list.length} now, in order north to south?\n\n` +
-      `Without a number they appear in the table by position only, which will not match a tag.`)){
+      `Number them now, in order north to south, using the numbers this project has not used?\n\n` +
+      `The ${list.length - missing.length} tree(s) that already carry a number keep it.\n` +
+      `Without a number a tree appears in the table by position only, which will not match a tag.`)){
+    /* IT HANDS OUT FREE NUMBERS, NOT POSITIONS.
+
+       This used to sort the whole list north to south and give each UNNUMBERED tree
+       its index in that full ordering — so an unnumbered tree at position 5 was
+       given 5 whether or not another tree already held 5. On a part-numbered
+       project that collides by construction, and it is half of how Ainley-Richmond
+       Hill ended up with 127 numbers used twice. The prompt even said "number them
+       1 to N", which was not what it did. */
+    const used = usedTreeNos(currentProject());
+    let next = treeNoFloor(currentProject());      // past everything the project has reached
+    const free = () => { do { next++; } while(used[next]); used[next] = 1; return next; };
     list.slice().sort((a,b)=>(num(b.LAT)||0)-(num(a.LAT)||0))
-        .forEach((t,i)=>{ if(!(parseInt(t.TREE_NO,10)>0)){ t.TREE_NO=i+1; t._sent=false; } });
+        .forEach(t=>{ if(!(parseInt(t.TREE_NO,10)>0)){ t.TREE_NO = free(); t._sent=false; } });
     persistTrees();
     setTimeout(syncNow, 600);
     return scheduleATrees();
@@ -9694,10 +9786,33 @@ function treesInPolygon(pts){
     return ringContains(ring, la, lo);
   });
 }
+/* SELECTING BY THE FILTER RATHER THAN BY DRAWING ROUND IT.
+
+   Splitting a job into a plan for one section is not a shape on a map — it is "the
+   trees Kathleen recorded that week". The Showing filter already answers exactly
+   that question, for the map, the statistics and every export, so it can answer it
+   here too and the same bulk tools apply to the result.
+
+   Drawing a lasso round two hundred trees on a phone, accurately, is not a thing
+   anybody should be asked to do. */
+function selectShowing(){
+  closeMenu();
+  const list = visibleTrees();
+  if(!list.length){ toast("Nothing is showing",true); return; }
+  if(selMode) toggleSelect();
+  clearSelShapes(); selPts = [];
+  selected = list;
+  openSelSheet(scopeLabel ? scopeLabel() : "");
+}
+
 function selFinish(){
   selected = treesInPolygon(selPts);
   if(!selected.length){ toast("No trees inside that shape",true); return; }
-  $("selCount").textContent = `${selected.length} tree(s) selected`;
+  openSelSheet("");
+}
+
+function openSelSheet(from){
+  $("selCount").textContent = `${selected.length} tree(s) selected` + (from ? ` · ${from}` : "");
   $("selProject").innerHTML = projects.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")
     + `<option value="__new__">＋ A project not on the list…</option>`;
   if(settings.project) $("selProject").value = settings.project;
@@ -9884,11 +9999,36 @@ function applySelProject(){
     queueProject(name);
   }
   if(!name){ toast("Choose a project",true); return; }
-  if(!confirm(`Assign ${selected.length} tree(s) to "${name}"?\n\nThey will re-sync with the new project.`)) return;
+  /* WHAT THE TREES ARE LEAVING BEHIND. Several things are held PER PROJECT \u2014 the
+     coordinate system the data arrived in, whether it is a protection plan, which
+     value column the report prints \u2014 and a project that has just been invented has
+     none of them. Moving trees into it without carrying those over is how an export
+     quietly comes back in longitude and latitude, which is exactly the fault that
+     put lat/long in the X and Y columns of the first real report table. */
+  const from = {};
+  selected.forEach(t=>{ const p = projectOf(t); if(p && p !== name) from[p] = (from[p]||0)+1; });
+  const src = Object.keys(from).sort((a,b)=>from[b]-from[a])[0] || "";
+  const carry = [];
+  if(src){
+    if(!crsFor(name) && crsFor(src))           carry.push("the coordinate system");
+    if(isTPP(name) !== isTPP(src))             carry.push(isTPP(src) ? "the tree protection plan setting" : "");
+    if(valueModeFor(name) !== valueModeFor(src)) carry.push("which value column the report prints");
+  }
+  const note = carry.filter(Boolean).length
+    ? `\n\n${src ? '"'+src+'"' : "The old project"} settings will be carried over: ` +
+      carry.filter(Boolean).join(", ") + "."
+    : "";
+  if(!confirm(`Assign ${selected.length} tree(s) to "${name}"?\n\nThey will re-sync with the new project.${note}`)) return;
   /* Through bulkApply like every other bulk change, so moving a block of trees to
      the wrong job is as undoable as anything else. It used to write PROJECT straight
      onto the records with nothing recorded. */
   const n = bulkApply("Project \u2192 " + name, selected, ()=>({ PROJECT: name }));
+  if(src){
+    const rec = projCRS[src];
+    if(rec && rec.wkt && !crsFor(name)) rememberCRS(name, rec.wkt);
+    if(isTPP(src) && !isTPP(name)) setTPP(name, true);
+    if(valueModeFor(name) !== valueModeFor(src)) setValueMode(name, valueModeFor(src));
+  }
   updateProjBtn();
   toast(n ? `${n} tree(s) moved to ${name}` : `They were all in ${name} already`);
 }
@@ -12866,6 +13006,9 @@ function showHelp(){
     <p><b>Two values, and the document picks one</b><br>Every tree carries two money figures, because they answer different questions. <b>Tree value</b> is what the tree is worth, by the trunk formula: the replacement cost of a nursery tree spread over its trunk area gives a rate per cm², and that rate is applied to this tree's trunk area and adjusted for condition, species and location. It grows smoothly with diameter. <b>Offsetting value</b> is what it costs to offset removing it — replacement plantings from the Region's table × one cost, so it steps: a 29 cm and a 34 cm tree are both size class C and both come out the same. On a real job the appraisal ran several times the offsetting on big trees and lower on small ones, so they are kept separate rather than reconciled. Which one the report prints is chosen in <i>Assemble the document → Value column</i> — offsetting, appraisal, both, or none — and remembered per project. The appraisal rate and its condition factors are in <i>Settings</i>; a condition left blank produces <b>no</b> value rather than a guessed one, because a plausible figure in a submitted report is worse than an obvious gap.</p>
     <p><b>York Region tree removal offsetting</b><br>Follows the Region's <b>May 2025</b> table, which replaced the older calculation the app used before. It is a lookup rather than a formula: a <b>size class</b> from the DBH (A to E), a <b>species classification</b> (desirable, less desirable, or exempt — ash, Tree-of-Heaven, European alder, Russian olive and buckthorn are exempt outright), and a <b>condition class</b> (Good and Satisfactory are healthy; potential trouble and declining are poor; death imminent and dead are exempt). Those three read the number of replacement trees straight off the Region's table, and the offsetting value is that number times one replacement cost — <b>$1,290</b> as at May 2025, with no deciduous or coniferous split any more. The rate and its year are in <i>Settings</i>, because the Region reviews the figure. The tree form shows all three classes beside the answer so you can check it against the Region's own workbook without doing any arithmetic, and <i>Menu → Get data out → York Region compensation table</i> produces the CSV in their column order.</p>
     <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
+    <p><b>Every file says what its coordinates are</b><br>Two numbers headed <b>X</b> and <b>Y</b> look identical whether they are metres or degrees, so every table now names its frame. A caption sits over the two columns giving the coordinate system and its EPSG code — green when it is already NAD83 UTM zone 17N and nothing needs doing, orange when it is not — the headings carry the full instructions as a hover note, and the same text prints as a grey block two rows under the last tree, because a note is easy to miss and does not print. The wording changes with what the file actually holds: “reproject to 26917” is right for a file in degrees and wrong for one already in 26917. On the Sheet, a <b>Read me — coordinates</b> tab lists every project, what its exports come out in and what to do with them, and carries the <i>.prj</i> text to paste in for NAD83 UTM 17N. It is rebuilt each time a package is built, and from <i>Tree Tools</i> on demand.</p>
+    <p><b>Splitting a job into a plan for one section</b><br>A large job is often reported a section at a time, and a section is usually "the trees this person recorded in these weeks" rather than a shape on a map. <i>Menu → Showing</i> narrows to exactly that — project, recorder and date range — and then <i>Menu → Select everything showing</i> hands that set to the bulk sheet, which names the count and the filter it came from so nothing moves on the strength of a filter nobody could see. From there <b>Assign them to this project</b> stamps them with a new project, existing or typed in on the spot, and everything follows: the map, the statistics, Schedule A, the compensation tables, the map sheets and the assembled document all report on the new project alone. The move goes through the same undo as every other bulk change, so a wrong tap on two hundred trees is one tap to put back.</p>
+    <p><b>What a new project inherits</b><br>Several things are kept <i>per project</i> — the coordinate system the data arrived in, whether the project is a tree protection plan, and which value column the report prints — and a project invented thirty seconds ago has none of them. Moving trees in carries them over from the project they came from, and the confirmation says which; anything the new project has already been given is left alone. Without that a section plan would export in longitude and latitude while the job it came out of exported in UTM, and the two would not overlay. <b>Tree numbers are per project too</b>, which is a real benefit here: trees whose numbers clashed with another set in the big job become unambiguous the moment they are their own project, and a new tree recorded in the section carries on from the section's own highest number.</p>
     <p><b>Two Excel files, and they are not versions of each other</b><br>The package built on the Sheet sends both, named apart in the email so there is nothing to work out. <b>REPORT TABLE</b> is the Arborist Report's own inventory table: eighteen columns in report order, under their report names — <i>Canopy Radius</i>, <i>Tree Preservation Zone</i>, <i>Potential Construction Impact</i> — sorted by tree number, on a black banner with 16 pt headings, the value as whole dollars, the zone to one decimal, and the <b>Page</b> column left blank in yellow for pagination. That is the one that goes in the document. <b>ALL DATA</b> is the database behind it: around sixty columns in Sheet order under the field names (DBH, TPZ_M, CROWN_RAD), unformatted, because it is meant for a GIS or a spreadsheet to work on rather than to be read. The CSV beside it is the same thing again for anything that will not open .xlsx, and <i>Attachments</i> is a four-column match table for the ArcGIS Add Attachments tool, not an inventory at all. A shrub prints a dash in the protection zone column and a value of nothing, which is the report's own convention.</p>
     <p><b>Protection zones and canopy as polygons</b><br>The package built on the Sheet — <i>Tree Tools → Email me the data</i>, and <i>Menu → Download the data + photos</i> — now carries two more shapefiles beside the tree points: the <b>tree protection zones</b>, each a circle at that tree's own <b>TPZ_M</b> radius, and the <b>canopy</b>, each a circle at its <b>crown radius</b>. Both radii were already in the point layer, but only as numbers somebody had to buffer by hand once per job; and a protection zone that exists only as a radius cannot be intersected with a grading limit or a building envelope, which is most of what a zone is for. Each polygon carries its radius, its area in square metres, the tree number, species, DBH and condition — and, on the zones, the <b>recommended treatment</b>, so a zone drawn round a tree that is coming down can be filtered out in your GIS rather than left out here: which trees are actually being protected is the arborist's call. The canopy carries the <b>crown basis</b>, so a cover figure taken off it cannot be mistaken for measurement. A tree with no protection zone — a shrub, or anything with no DBH to derive one from — is simply not in that layer, and a tree with no coordinates is in neither, though it stays in the table. Both go out in the project's own frame with its <i>.prj</i>, so they sit exactly on the points and on your air photo.</p>
     <p><b>X, Y and the tree value in the Sheet's own exports</b><br><i>Tree Tools → Email me the data</i> and <i>Menu → Download the data + photos</i> both build their files on the <b>Sheet</b>, from every tree in the project rather than the ones this phone happens to hold — which is what a client handover wants. Those files now carry <b>X</b>, <b>Y</b> and <b>TREE_VAL</b> alongside everything else, in the Excel, the CSV, the shapefile and the GeoJSON. They could not before, because the two things they need were kept on whichever device did the import: the <b>.prj</b> the project's data arrived in, and the <b>replacement costs</b>. Both now live on the Sheet — the coordinate system in a column on the <b>Projects</b> tab, the trunk-formula figures on a <b>Settings</b> tab — and the app sends its own up whenever you change them. Both are plain cells you can read and edit, so a rate the Region has reviewed can be corrected in the Sheet, and a project set up on a device that never saw the client's file can have its <i>.prj</i> pasted in by hand. <b>X and Y are not stored on a tree</b>, deliberately: they are its latitude and longitude expressed in the project's frame, so they are worked out when the file is written and change if the frame does. The same goes for the value, which moves whenever the replacement cost is reviewed.</p>
