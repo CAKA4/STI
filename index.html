@@ -276,6 +276,85 @@
      figure large enough to read at arm's length, the controls under it. */
   .repobar.measbar.show{ display:block }
   .repobar.measbar{ border-color:#00BCD4 }      /* the tool's own colour, as on the map */
+
+  /* ---------- the standard-drawing library ----------
+     Chosen by LOOKING, which is the whole point: a list of file names cannot tell
+     one barrier detail from another.
+
+     EVERY COLOUR HERE IS EXPLICIT. This grid lives inside a sheet, and a sheet is a
+     LIGHT panel over a dark app — text colour is overridden for the handful of
+     selectors the sheets already use and inherited from the dark theme everywhere
+     else. Styling these cards like the map furniture put near-black names on a
+     near-black card: the drawings were there and their names were not. */
+  .dgroup{ margin-bottom:16px }
+  .dgh{ font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+        color:#2c4638; padding:4px 0 6px; border-bottom:1px solid #d5ded8 }
+  .dgh span{ color:#7b8f83; font-weight:600 }
+  .dgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(146px,1fr)); gap:10px; padding-top:10px }
+  .dcard{ border:1px solid #cfdad3; border-radius:10px; overflow:hidden; background:#fff;
+          display:flex; flex-direction:column }
+  .dcard.on{ border-color:#2f9d59; box-shadow:0 0 0 1px #2f9d59 inset; background:#f2faf5 }
+  .dthumb{ position:relative; height:112px; background:#fff; border-bottom:1px solid #e4ebe6;
+           display:flex; align-items:center; justify-content:center; cursor:zoom-in; overflow:hidden }
+  .dthumb img{ max-width:100%; max-height:100%; object-fit:contain; display:block }
+  .dpg{ position:absolute; right:4px; bottom:4px; background:rgba(18,32,26,.82); color:#e6f2ea;
+        font-size:10px; padding:1px 5px; border-radius:4px }
+  /* The name sets the card's height, so a row of cards lines up whatever the names do. */
+  .dpick{ display:flex; gap:7px; align-items:flex-start; padding:8px 8px 4px;
+          font-size:11.5px; line-height:1.3; color:#17291f; font-weight:600; flex:1;
+          cursor:pointer; text-transform:none; letter-spacing:0 }
+  .dpick input{ margin:1px 0 0; flex:0 0 auto; width:17px; height:17px; accent-color:#2f9d59 }
+  .dact{ display:flex; gap:12px; padding:2px 9px 8px; font-size:10.5px }
+  .dact a{ color:#3c7a55; text-decoration:underline }
+
+  /* the ordered list of what this project will print */
+  .prow{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; padding:9px 0;
+         border-bottom:1px solid #e0e7e3 }
+  .prow .pn{ width:16px; text-align:right; color:#7b8f83; font-size:11px; font-weight:800; padding-top:8px }
+  .prow .pth{ width:34px; height:44px; object-fit:contain; background:#fff; border:1px solid #dde5e0;
+              border-radius:4px; flex:0 0 34px }
+  .prow .pnm{ font-size:12.5px; font-weight:700; color:#17291f; line-height:1.25 }
+  .prow .pnm .mini{ font-weight:500 }
+  .prow .pcap{ width:100%; margin-top:4px; padding:5px 7px; font-size:11px; border-radius:6px;
+               border:1px solid #c3d0c8; background:#fff; color:#17291f; box-sizing:border-box }
+  /* THE CONTROLS GO ON THEIR OWN LINE. Sharing a line with the name left the name
+     about sixty pixels wide on a phone — "Tree protection barrier — 1.2 m orange on
+     T-posts" came out one word per line and the drawing could not be identified,
+     which is the one thing this list has to do. */
+  .prow .pnw{ flex:1 1 150px; min-width:0 }
+  .prow .pctl{ flex:1 1 100%; display:flex; gap:6px; justify-content:flex-end;
+               align-items:center; margin:6px 0 0 58px }
+  .prow .pwh{ flex:0 0 108px; padding:6px 24px 6px 8px !important; font-size:11.5px;
+              background-position:right 8px center !important }
+  .prow .pmv{ padding:6px 10px; font-size:11.5px; flex:0 0 auto; line-height:1.1 }
+  .prow .pmv:disabled{ opacity:.3 }
+
+  /* the layer colour picker */
+  .swatches{ display:flex; flex-wrap:wrap; gap:7px }
+  .swatches .swb{ width:34px; height:34px; border-radius:8px; border:2px solid rgba(255,255,255,.35);
+                  cursor:pointer; padding:0 }
+  .swatches .swb.on{ border-color:#fff; box-shadow:0 0 0 2px #2f9d59 }
+  .sheet-inner .swatches .swb{ border-color:rgba(0,0,0,.18) }
+  .sheet-inner .swatches .swb.on{ border-color:#12301f; box-shadow:0 0 0 2px #2f9d59 }
+  .chk{ display:flex; align-items:center; gap:9px; text-transform:none; letter-spacing:0;
+        font-size:13.5px; font-weight:500; cursor:pointer }
+  .chk input{ width:19px; height:19px; accent-color:#2f9d59; flex:0 0 auto }
+
+  /* the treatment ticks on the tree form */
+  .treats{ display:flex; flex-direction:column; gap:1px }
+  .treats label{ display:flex; align-items:center; gap:10px; padding:9px 10px; cursor:pointer;
+                 border:1px solid var(--line2); background:var(--surface2); font-size:13.5px;
+                 text-transform:none; letter-spacing:0; color:var(--text); margin:0 }
+  .treats label:first-child{ border-radius:9px 9px 0 0 }
+  .treats label:last-child{ border-radius:0 0 9px 9px }
+  .treats label + label{ border-top:none }
+  .treats label.on{ background:#1d4a31; border-color:#3f8e5c; color:#e8f7ed; font-weight:600 }
+  .treats input{ width:19px; height:19px; flex:0 0 auto; accent-color:#4cc079 }
+  .treats .tw{ flex:1 }
+  .treats .tw i{ display:block; font-style:normal; font-size:11px; color:#8fb59c; font-weight:400 }
+  .sheet-inner .treats label{ background:#eef3f0; border-color:#cfdad3; color:#17291f }
+  .sheet-inner .treats label.on{ background:#dff0e6; border-color:#3f8e5c; color:#12301f }
+  .sheet-inner .treats .tw i{ color:#5a7365 }
   .measbar .readout{ margin-bottom:8px }
   .measbar .big{ font-size:21px; font-weight:800; color:#7fe9dc; letter-spacing:.01em;
                  font-variant-numeric:tabular-nums }
@@ -568,6 +647,11 @@
           <div class="picker" onclick="openMulti('IMPACT_POT')"><span class="val empty" id="vIMPACT_POT">Tap to choose</span><span style="color:var(--faint)">▸</span></div>
           <input id="fIMPACT_POT" type="hidden">
         </div>
+        <div class="fld">
+          <label>Treatments <span class="mini" id="treatCount" style="text-transform:none;letter-spacing:0">none</span></label>
+          <div class="treats" id="treatBox"></div>
+          <div class="mini">Tick every one that applies — a tree often gets more than one. Each is its own column, so they can be counted and filtered rather than read out of a sentence.</div>
+        </div>
         <div class="fld"><label>Future prognosis</label><select id="fPROGNOSIS"></select></div>
         <div class="fld">
           <label>Recommended action</label>
@@ -678,11 +762,13 @@
         <button class="menuitem" onclick="document.getElementById('sitePdfInput').click()">Load the site plan (georeferenced PDF)</button>
         <button class="menuitem" onclick="startFence()">Draw the tree protection fence</button>
         <button class="menuitem" onclick="startPlanting()">Place proposed plantings</button>
+        <button class="menuitem" onclick="document.getElementById('lineInput').click()">Fences &amp; protection lines from a layer</button>
         <div class="mini" style="padding:10px 4px 8px">Report tables</div>
         <button class="menuitem" onclick="exportScheduleA()">Schedule A — tree inventory table</button>
         <button class="menuitem" onclick="exportSpeciesByLocation()">Table 1 — species by location</button>
         <button class="menuitem" onclick="exportPlantList()">Landscaping plant list</button>
         <button class="menuitem" onclick="exportYRCompensation()">York Region compensation table</button>
+        <button class="menuitem" onclick="exportTreatments()">Tree protection treatments — counts &amp; list</button>
         <button class="menuitem" onclick="exportFeatsShapefile()">Fences &amp; plantings (shapefile)</button>
         <button class="menuitem" onclick="exportFeatsGeoJSON()">Fences &amp; plantings (GeoJSON)</button>
         <div class="mini" style="padding:10px 4px 8px">The document</div>
@@ -1198,16 +1284,27 @@
   <div class="sheet-inner">
     <div class="grab"></div>
     <h2>Standard detail drawings</h2>
-    <div class="hint">Added once and kept on this device. Ticked drawings are appended to the map PDF as full pages. Municipalities differ, so use whichever yours requires.</div>
-    <div id="detailList"></div>
-    <div class="mini" id="detailCount" style="margin:8px 0">None selected</div>
-    <div class="btnrow">
-      <button class="primary" onclick="document.getElementById('detailInput').click()">Add drawings</button>
-      <button onclick="document.getElementById('detailSheet').classList.remove('show')">Done</button>
+    <div class="hint">The library is shared — added once, on every device, for every future job. Each page of a PDF becomes its own drawing. Tick the ones this project's document should carry.</div>
+    <div class="mini" id="detailNote" style="color:#e0a33a"></div>
+
+    <div class="btnrow" style="margin-top:10px">
+      <button class="primary" onclick="document.getElementById('detailInput').click()">＋ Add drawings (PDF or image)</button>
+      <select id="detailMuni" onchange="setDetailFilter(this.value)" style="flex:1"></select>
+    </div>
+    <div class="mini" id="detailBusy" style="display:none;margin:8px 0;color:#7fe9dc"></div>
+
+    <div id="detailGrid" style="margin-top:12px"></div>
+
+    <h3 style="margin:18px 0 4px;font-size:14px">In this project's document</h3>
+    <div class="mini" id="detailCount" style="margin-bottom:8px">None chosen</div>
+    <div id="detailPicks"></div>
+
+    <div class="btnrow" style="margin-top:14px">
+      <button onclick="closeDetails()">Done</button>
     </div>
   </div>
 </div>
-<input id="detailInput" type="file" accept="image/*" multiple style="display:none">
+<input id="detailInput" type="file" accept=".pdf,application/pdf,image/*" multiple style="display:none">
 
 <!-- ===== multi-select ===== -->
 <div class="sheet" id="multiSheet">
@@ -1222,6 +1319,69 @@
 
 <!-- ===== tree tools ===== -->
 <!-- ===== what is actually wrong ===== -->
+<!-- ===== fences and protection lines from a layer ===== -->
+<!-- ===== naming and styling a layer ===== -->
+<div class="sheet" id="layerStyleSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Layer name &amp; legend</h2>
+    <div class="mini" id="lsHint">—</div>
+    <div class="fld" style="margin-top:12px">
+      <label>Name — this is what the legend prints</label>
+      <input id="lsName" type="text" autocomplete="off" placeholder="e.g. Limit of grading">
+    </div>
+    <div class="fld">
+      <label>Colour</label>
+      <div class="swatches" id="lsSwatch"></div>
+      <input id="lsHex" type="text" autocomplete="off" placeholder="#RRGGBB" style="margin-top:8px">
+    </div>
+    <div class="row2">
+      <div class="fld">
+        <label>Line weight</label>
+        <select id="lsWeight">
+          <option value="1">1 — hairline</option><option value="2">2</option>
+          <option value="3">3 — default</option><option value="4">4</option>
+          <option value="5">5</option><option value="6">6 — heavy</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Legend symbol</label>
+        <select id="lsKind"></select>
+      </div>
+    </div>
+    <div class="fld">
+      <label>Dashed</label>
+      <label class="chk"><input id="lsDash" type="checkbox"> Draw this layer dashed, on the map and on the plan</label>
+    </div>
+    <div class="fld">
+      <label>In the legend</label>
+      <label class="chk"><input id="lsLegend" type="checkbox"> Show this layer in the legend</label>
+      <div class="mini">Turn it off for base information that belongs on the drawing but not in the key.</div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" onclick="saveLayerStyle()">Save</button>
+      <button onclick="closeLayerStyle()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="lineSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Lines from a layer</h2>
+    <div class="idline" id="lineCount">—</div>
+    <div class="mini">Each line becomes a protection-plan line on this project, drawn on the map and on the site plan, exported with the fences and sent to the Sheet. Lengths are re-measured from the geometry.</div>
+    <div class="fld" style="margin-top:12px">
+      <label>What are these lines?</label>
+      <select id="lineType"></select>
+    </div>
+    <div class="btnrow">
+      <button class="primary" onclick="confirmLineImport()">Add them</button>
+      <button onclick="cancelLineImport()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="sheet" id="diagSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
@@ -1491,6 +1651,7 @@
 
 <input id="pointsInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <input id="updInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx,.xlsx" style="display:none">
+<input id="lineInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <input id="sitePdfInput" type="file" accept=".pdf,application/pdf" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <div class="repobar" id="drawBar">
@@ -1552,7 +1713,15 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-24 · v139";  // bump alongside the service-worker cache version
+const APP_BUILD  = "2026-09-25 · v142";
+/* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
+   itself changes, which is not every build.
+
+   Comparing the Sheet's GS_BUILD against APP_BUILD was wrong: the app moves far more
+   often than the backend does, so every app-only release would have told him the
+   deployment was behind when it was perfectly current. Nagging somebody to redeploy
+   for nothing is how a real "you need to deploy this" gets ignored. */
+const GS_EXPECTED = "2026-09-25 · v141";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -1711,6 +1880,24 @@ const FIELDS = [
   {k:"PROP_ACT", t:"C", w:254}, {k:"LT_IMPACT", t:"C", w:60}, {k:"COMP_INCL", t:"C", w:3},
   // Construction impact assessment. Each may hold several values, semicolon-separated.
   {k:"IMPACT_POT", t:"C", w:160}, {k:"PROGNOSIS", t:"C", w:60}, {k:"REC_ACT", t:"C", w:200},
+  /* THE TREATMENTS, ONE COLUMN EACH.
+
+     Kathleen: "some trees will receive multiple types of treatments, and it will be
+     easier to count and filter and produce reports or tables based on these fields
+     rather than as a description in a text."
+
+     That is exactly right, and it is why these are five separate Yes/No columns
+     rather than one multi-value field. In the 158-tree subset, 16 trees carry both
+     TPZ fencing AND root-sensitive excavation; as free text that is a phrase to parse
+     differently every time somebody types it, and as one semicolon-separated column
+     it is a string to split before it can be counted. As five columns it is a filter
+     and a COUNTIF.
+
+     THE FIELD NAME IS CAN_PRUNE, not CAN_PRUN. The covering email says CAN_PRUN and
+     the shapefile says CAN_PRUNE; the file is what the data is actually in, and it
+     is nine characters so it fits a .dbf name. Both spellings are accepted coming in. */
+  {k:"TPZ_FENC", t:"C", w:3}, {k:"ROOT_EXC", t:"C", w:3}, {k:"TREE_REM", t:"C", w:3},
+  {k:"CAN_PRUNE", t:"C", w:3}, {k:"ELV_RISK", t:"C", w:3},
   {k:"SHEET_NO", t:"N", w:4, d:0},
   // York Region compensation, alongside the Richmond Hill REPL_REQ above.
   {k:"COND_PCT", t:"N", w:4, d:2}, {k:"YR_EXEMPT", t:"C", w:3},
@@ -2119,6 +2306,8 @@ function persistRefLayers(){
   refLayers.forEach(l=>{
     idbPutLayer({ id:l.id, name:l.name, color:l.color, visible:l.visible,
                   role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
+                  legend:l.legend !== false, legendKind:l.legendKind || "auto",
+                  dashed: !!l.dashed, weight: l.weight || 3,
                   features:l.features })
       .catch(()=>toast("Could not save "+l.name+" to this device",true));
   });
@@ -2682,11 +2871,13 @@ function drawRefLayers(){
         wire(L.circleMarker([g.c[1],g.c[0]],{radius:6,color:"#fff",weight:1.2,fillColor:L2.color,
           fillOpacity:.9,renderer:refRenderer,pane:"refPane"}));
       } else if(g.t==="ln"){
-        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:3,opacity:.9,
+        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:layerWeight(L2),opacity:.9,
+          dashArray: layerDash(L2) ? "9 6" : null,
           renderer:refRenderer,pane:"refPane"})));
       } else {
         eachPoly(g.c, rings=>wire(L.polygon(rings.map(r=>r.map(c=>[c[1],c[0]])),
-          {color:L2.color,weight:2,fillOpacity:.10,smoothFactor:2,
+          {color:L2.color,weight:Math.max(1,layerWeight(L2)-1),fillOpacity:.10,smoothFactor:2,
+           dashArray: layerDash(L2) ? "9 6" : null,
            renderer:refRenderer,pane:"refPane"})));
       }
     });
@@ -2730,6 +2921,91 @@ async function importRefLayer(file){
     // useful once we know which column holds the address.
     setTimeout(()=>openRole(id), 600);
   }catch(e){ toast("Could not read that file",true); }
+}
+
+/* ---- naming and styling a reference layer --------------------------------- *
+
+   Chris: "I will also be uploading various construction drawing lines and polygons
+   that represent construction features that should be illustrated on the site plan.
+   It would be helpful to have an option to rename these layers for proper wording in
+   the legend or any other layers that are illustrated in the legend."
+
+   A layer arrives called whatever the file was called — "Prop_SWM_Pond_rev3",
+   "Grading_Limits_2026-09-22" — and that string went straight onto the legend of a
+   plan that goes to a municipality. There was no way to change it, no way to choose
+   its colour (the palette assigned one by position, so the order the files happened
+   to be loaded in decided what colour the retaining wall was), and no way to keep a
+   layer on the map but off the legend.
+
+   THE NAME IS THE LEGEND WORDING. One name, used on the layer list, the legend on
+   screen and the legend on the plan sheet — rather than a name and a separate caption
+   that can disagree with each other.
+
+   THE SYMBOL IS SET, NOT GUESSED. It used to be drawn as a square unless the layer
+   had been given the "street" role, so every construction line came out as a filled
+   box in the legend. A line reads as a line. */
+const LAYER_SWATCHES = [
+  "#E53935","#FB8C00","#FDD835","#43A047","#00ACC1","#1E88E5",
+  "#5E35B1","#8E24AA","#D81B60","#6D4C41","#546E7A","#212121"
+];
+const LEGEND_KINDS = [["auto","Work it out from the shapes"],["line","Line"],
+                      ["square","Area / hatch"],["dot","Point"]];
+let styleId = "";
+function layerKindGuess(L2){
+  /* What the layer actually holds decides it: a construction line layer is a line
+     whatever role it was given. */
+  const f = (L2 && L2.features) || [];
+  const t = {};
+  f.slice(0, 200).forEach(x => { if(x && x.geom) t[x.geom.t] = (t[x.geom.t] || 0) + 1; });
+  if((t.ln || 0) >= (t.pg || 0) && (t.ln || 0) >= (t.pt || 0)) return t.ln ? "line" : (t.pg ? "square" : "dot");
+  return (t.pg || 0) >= (t.pt || 0) ? "square" : "dot";
+}
+function layerLegendKind(L2){
+  const k = L2 && L2.legendKind;
+  return (k && k !== "auto") ? k : layerKindGuess(L2);
+}
+function layerInLegend(L2){ return L2 && L2.legend !== false; }
+function layerDash(L2){ return !!(L2 && L2.dashed); }
+function layerWeight(L2){ const w = Number(L2 && L2.weight); return isFinite(w) && w > 0 ? w : 3; }
+
+function openLayerStyle(id){
+  const L2 = refLayerById(id); if(!L2) return;
+  styleId = id;
+  $("lsName").value = L2.name || "";
+  $("lsLegend").checked = layerInLegend(L2);
+  $("lsDash").checked = layerDash(L2);
+  $("lsWeight").value = String(layerWeight(L2));
+  $("lsKind").innerHTML = LEGEND_KINDS.map(([v,l]) =>
+    `<option value="${v}"${(L2.legendKind||"auto")===v?" selected":""}>${esc(l)}</option>`).join("");
+  $("lsSwatch").innerHTML = LAYER_SWATCHES.map(c =>
+    `<button type="button" class="swb${c.toLowerCase()===String(L2.color||"").toLowerCase()?" on":""}"
+       style="background:${c}" onclick="pickLayerColor('${c}')"></button>`).join("");
+  $("lsHex").value = L2.color || "";
+  $("lsHint").textContent = `${L2.features.length} feature(s) · mostly ${
+    { line:"lines", square:"areas", dot:"points" }[layerKindGuess(L2)] }`;
+  $("layerStyleSheet").classList.add("show");
+}
+function pickLayerColor(c){
+  $("lsHex").value = c;
+  Array.prototype.forEach.call($("lsSwatch").querySelectorAll(".swb"), b =>
+    b.classList.toggle("on", (b.style.background || "").toLowerCase().indexOf(c.slice(1).toLowerCase()) >= 0));
+}
+function closeLayerStyle(){ $("layerStyleSheet").classList.remove("show"); }
+function saveLayerStyle(){
+  const L2 = refLayerById(styleId); if(!L2) return;
+  const nm = normText($("lsName").value).slice(0, 60);
+  if(!nm){ toast("A layer needs a name — it is what the legend prints", true); return; }
+  const hex = String($("lsHex").value || "").trim();
+  L2.name = nm;
+  if(/^#[0-9a-fA-F]{6}$/.test(hex)) L2.color = hex;
+  L2.legend = !!$("lsLegend").checked;
+  L2.legendKind = $("lsKind").value || "auto";
+  L2.dashed = !!$("lsDash").checked;
+  L2.weight = Math.max(1, Math.min(8, Number($("lsWeight").value) || 3));
+  persistRefLayers();
+  drawRefLayers(); renderLayerList(); buildLegend();
+  closeLayerStyle();
+  toast(`“${nm}” updated`);
 }
 
 function zoomToRef(id){
@@ -2816,6 +3092,7 @@ function renderLayerList(){
       <span class="nm">${esc(L2.name)}<br><span class="ct">${L2.features.length} features · ${withLbl(L2.id)}</span></span>
       <button class="${L2.visible?"on":""}" onclick="toggleRef('${L2.id}')">${L2.visible?"ON":"OFF"}</button>
       <button onclick="zoomToRef('${L2.id}')">⤢</button>
+      <button onclick="openLayerStyle('${L2.id}')" title="Name, colour and legend">✎</button>
       <button onclick="openLabels('${L2.id}')">🏷</button>
       <button onclick="openXfer('${L2.id}')">⇥</button>
       <button onclick="openLayerExport('${L2.id}')" title="Export">⬇</button>
@@ -4609,14 +4886,21 @@ function buildLegend(){
   if(tpzOn) h += `<div class="lr"><span class="sw" style="background:rgba(255,213,79,.25);border-color:#FFD54F"></span>dashed circle = tree protection zone</div>`;
   // Name the fence and the plantings when there are any, on screen as on the sheet.
   const onMap = (typeof featsIn==="function") ? featsIn() : [];
-  if(onMap.some(f=>f.kind==="fence"))
-    h += `<div class="lr"><span class="sw" style="background:#FF6D00"></span>tree protection fence</div>`;
+  if(onMap.some(f=>f.kind==="fence" && !isRootExc(f)))
+    h += `<div class="lr"><span class="sw" style="background:${FENCE_COLOR}"></span>tree protection fence</div>`;
+  if(onMap.some(f=>f.kind==="fence" && isRootExc(f)))
+    h += `<div class="lr"><span class="sw" style="background:${ROOTEXC_COLOR}"></span>root-sensitive excavation</div>`;
   if(onMap.some(f=>f.kind==="planting"))
     h += `<div class="lr"><span class="sw" style="background:#66BB6A;border-color:#1B5E20"></span>proposed planting</div>`;
-  const vis = refLayers.filter(l=>l.visible);
+  const vis = refLayers.filter(l=>l.visible && layerInLegend(l));
   if(vis.length){
-    h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>
-      `<div class="lr"><span class="sw sq" style="background:${l.color}"></span>${esc(l.name)}</div>`).join("");
+    h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>{
+      const k = layerLegendKind(l);
+      const sw = k === "line"
+        ? `<span class="sw" style="background:transparent;border:none;border-top:3px ${layerDash(l)?"dashed":"solid"} ${l.color};height:0;border-radius:0"></span>`
+        : `<span class="sw${k==="square"?" sq":""}" style="background:${l.color}"></span>`;
+      return `<div class="lr">${sw}${esc(l.name)}</div>`;
+    }).join("");
   }
   $("legend").innerHTML = h;
 }
@@ -5315,6 +5599,28 @@ function domainLabel(field, code){
   const hit = d.find(p=>p[0]===code);
   return hit ? hit[1] : code;
 }
+/* ---- the tree protection treatments ---------------------------------------- *
+
+   Five independent yes/no answers, because a tree commonly gets more than one: in
+   the section Kathleen assessed, 16 of the 42 treated trees carry both fencing and
+   root-sensitive excavation. Stored as "Yes" or blank — blank, not "No", so a column
+   nobody has been through yet is visibly unanswered rather than looking like a
+   considered no. Everything that counts them treats blank as not applicable. */
+const TREAT_FIELDS = [
+  ["TPZ_FENC",  "TPZ fencing",                "Protective fencing at the tree protection zone"],
+  ["ROOT_EXC",  "Root-sensitive excavation",  "Hand or hydro excavation within the root zone"],
+  ["TREE_REM",  "Tree removal",               "The tree is to be removed"],
+  ["CAN_PRUNE", "Canopy clearance pruning",   "Pruning to clear the works"],
+  ["ELV_RISK",  "Elevated tree risk",         "Carries a raised risk that the works must account for"]
+];
+const TREAT_KEYS = TREAT_FIELDS.map(f => f[0]);
+function treatLabel(k){ const h = TREAT_FIELDS.find(f => f[0] === k); return h ? h[1] : k; }
+/* "YES", "yes", "Y", "TRUE", "1" and a ticked box all mean the same thing, because
+   this arrives from a GIS, from a spreadsheet and from the form. */
+function treatOn(v){ return /^(y|yes|true|1|x)$/i.test(String(v == null ? "" : v).trim()); }
+function treatVal(on){ return on ? "Yes" : ""; }
+function treatsOn(t){ return TREAT_KEYS.filter(k => treatOn(t[k])); }
+
 const DBH_MAX = 249, STEMS_MAX = 200;
 
 /* Aurora seeds a new tree with the healthy baseline, so the crew only touches the
@@ -5352,6 +5658,38 @@ function buildPickers(){
     el.innerHTML = domainOptions(f);
     el.onchange = ()=>onDomainChange(f);
   });
+}
+
+/* Built once; painted from the tree each time the form opens. Kept as real
+   checkboxes rather than a pick list because the answer is genuinely five
+   independent yes/nos and a crew taps them with a thumb in the rain. */
+function buildTreatBox(){
+  const box = $("treatBox"); if(!box) return;
+  box.innerHTML = TREAT_FIELDS.map(([k,label,why]) =>
+    `<label id="tl${k}"><input type="checkbox" id="f${k}" onchange="treatChanged()">
+       <span class="tw">${esc(label)}<i>${esc(why)}</i></span></label>`).join("");
+}
+function paintTreats(t){
+  TREAT_FIELDS.forEach(([k]) => {
+    const el = $("f"+k), row = $("tl"+k);
+    if(!el) return;
+    el.checked = treatOn(t && t[k]);
+    if(row) row.classList.toggle("on", el.checked);
+  });
+  treatChanged();
+}
+function treatChanged(){
+  let n = 0;
+  TREAT_FIELDS.forEach(([k]) => {
+    const el = $("f"+k), row = $("tl"+k);
+    if(el && el.checked){ n++; if(row) row.classList.add("on"); }
+    else if(row) row.classList.remove("on");
+  });
+  const c = $("treatCount");
+  if(c) c.textContent = n ? `${n} chosen` : "none";
+}
+function readTreats(t){
+  TREAT_FIELDS.forEach(([k]) => { const el = $("f"+k); if(el) t[k] = treatVal(el.checked); });
 }
 
 function buildHealthChips(){
@@ -5441,6 +5779,7 @@ function openTree(i){
     $("fIMPACT_POT").value = t.IMPACT_POT || "";
     $("fREC_ACT").value    = t.REC_ACT || "";
     paintMulti("IMPACT_POT"); paintMulti("REC_ACT");
+    paintTreats(t);
     /* Open, always. It used to open only for a tree that already carried something,
        which on a tree protection job is backwards: the protection fields are the
        point of the exercise and a collapsed section is a section that gets skipped.
@@ -5658,6 +5997,9 @@ function saveTree(){
   if($("fYR_EXEMPT") && isTPP(projectOf(t))) t.YR_EXEMPT = $("fYR_EXEMPT").value;
   if($("fIMPACT_POT")) t.IMPACT_POT = normText($("fIMPACT_POT").value);
   if($("fREC_ACT"))    t.REC_ACT    = normText($("fREC_ACT").value);
+  /* Only on a protection job — the ticks are not on screen otherwise, and reading
+     absent checkboxes would clear whatever the Sheet already held. */
+  if(isTPP(projectOf(t))) readTreats(t);
   t.TPZ_M = tpzFor(t.DBH);
   // The figure the DBH earns, recorded on every tree; COMP_INCL decides the total.
   t.REPL_REQ = replacementFor(t.DBH);
@@ -6144,7 +6486,7 @@ function fetchSpecies(){
  * ================================================================== */
 const HAS_IDB = !!window.indexedDB;
 const PHOTO_DB="st_photos_db", PHOTO_STORE="photos", LAYER_STORE="layers";
-const TILE_STORE="tiles", AREA_STORE="areas";
+const TILE_STORE="tiles", AREA_STORE="areas", DETAIL_STORE="details";
 let pendingMem=[];
 
 /* OPENING THE DATABASE CAN HANG FOR EVER, AND DID.
@@ -6169,12 +6511,17 @@ let idbTrouble = "";                     // the last reason, for the photo messa
 function idbOpen(){ return new Promise((res,rej)=>{
   let settled = false;
   const fail = why => { if(settled) return; settled = true; idbTrouble = why; rej(new Error(why)); };
-  const r = indexedDB.open(PHOTO_DB,3);
+  /* VERSION 4 adds the detail-drawing store. A version bump is exactly what makes
+     open() fire `blocked` when another tab holds the old version — which is the fault
+     that hid the photographs on Windows — so the handler added in v139 is what makes
+     this safe to do at all. */
+  const r = indexedDB.open(PHOTO_DB,4);
   r.onupgradeneeded=()=>{ const db=r.result;
     if(!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE,{keyPath:"filename"});
     if(!db.objectStoreNames.contains(LAYER_STORE)) db.createObjectStore(LAYER_STORE,{keyPath:"id"});
     if(!db.objectStoreNames.contains(TILE_STORE))  db.createObjectStore(TILE_STORE,{keyPath:"k"});
-    if(!db.objectStoreNames.contains(AREA_STORE))  db.createObjectStore(AREA_STORE,{keyPath:"id"}); };
+    if(!db.objectStoreNames.contains(AREA_STORE))  db.createObjectStore(AREA_STORE,{keyPath:"id"});
+    if(!db.objectStoreNames.contains(DETAIL_STORE)) db.createObjectStore(DETAIL_STORE,{keyPath:"id"}); };
   r.onsuccess=()=>{
     // It answered after we had given up: close it rather than leak the handle.
     if(settled){ try{ r.result.close(); }catch(e){} return; }
@@ -7124,15 +7471,23 @@ async function readTableFile(file){
 async function readUpdateGeo(file){
   const gj = await readGeoFile(file);
   const recs = [];
+  let skipped = 0;
   (Array.isArray(gj) ? gj : [gj]).forEach(fc => ((fc && fc.features) || []).forEach(f => {
     const g = f.geometry;
-    let lat = null, lon = null, c = g && g.coordinates;
-    if(g && (g.type === "Point" || g.type === "MultiPoint") && c){
+    /* POINTS ONLY. A zip commonly holds the whole handover — the tree points AND the
+       fence and excavation lines beside them — and shpjs returns all of it. Counting
+       two dozen lines as rows that matched no tree is a frightening report for a
+       delivery that is actually perfect, so they are skipped and counted instead.
+       Lines have their own screen. */
+    if(!g || (g.type !== "Point" && g.type !== "MultiPoint")){ skipped++; return; }
+    let lat = null, lon = null, c = g.coordinates;
+    if(c){
       while(Array.isArray(c[0])) c = c[0];
       if(typeof c[0] === "number"){ lon = c[0]; lat = c[1]; }
     }
     recs.push({ props: f.properties || {}, lat:lat, lon:lon });
   }));
+  if(skipped) toast(`${skipped} line or area feature(s) ignored — bring those in under “Fences & protection lines from a layer”`);
   const cols = [];
   recs.slice(0, 500).forEach(r => { for(const k in r.props) if(cols.indexOf(k) < 0) cols.push(k); });
   return { cols:cols, recs:recs };
@@ -7193,6 +7548,13 @@ const UPD_ALIASES = {
   COMMENTS:   ["Notes"],
   SHEET_NO:   ["TPP Page", "Map Sheet", "Sheet"],
   IMPACT_POT: ["Potential Construction Impact"],
+  /* The covering email named this CAN_PRUN; the shapefile calls it CAN_PRUNE. Both
+     are accepted, because the next file could carry either. */
+  CAN_PRUNE:  ["CAN_PRUN", "Canopy clearance pruning", "Canopy pruning"],
+  TPZ_FENC:   ["TPZ_FENCE", "TPZ fencing", "Protective fencing"],
+  ROOT_EXC:   ["ROOT_EXCA", "Root-sensitive excavation", "Root sensitive excavation"],
+  TREE_REM:   ["Tree removal"],
+  ELV_RISK:   ["Elevated tree risk", "Elevated risk"],
   PROP_ACT:   ["Proposed Action"],
   LT_IMPACT:  ["Potential long term impact"],
   RECOTREA:   ["Recommended Treatment"],
@@ -7239,6 +7601,10 @@ function updGuessPos(cols, hasGeom){
 function updValue(f, raw){
   const s = String(raw == null ? "" : raw).trim();
   if(s === "") return null;
+  /* A GIS writes "YES", a spreadsheet writes "Y" or TRUE, the form writes "Yes".
+     Normalised on the way in so a column does not end up holding three spellings of
+     the same answer, which is what makes it uncountable. */
+  if(TREAT_KEYS.indexOf(f) >= 0) return treatVal(treatOn(s));
   if(f === "SPECIES") return matchSpecies(normText(s));
   if(f === "HEALTH")  return matchHealth(s);
   const spec = FIELDS.find(x => x.k === f);
@@ -7825,8 +8191,18 @@ function settingsKey(p){ return p.project ? ("prj:" + String(p.project).toLowerC
 function queueSettings(payload){
   if(!payload) return;
   const k = settingsKey(payload);
-  pendingSettings = pendingSettings.filter(x => settingsKey(x) !== k);
-  pendingSettings.push(payload);
+  const at = pendingSettings.findIndex(x => settingsKey(x) === k);
+  /* MERGED, not replaced.
+
+     One project can have two different things waiting to go up at once — the
+     coordinate system a shapefile arrived in, and the list of standard drawings its
+     document uses — and this used to throw the queued one away when the second
+     arrived. One entry per project is still right, because re-importing a frame
+     should not queue a second write; but the entry has to accumulate, not overwrite.
+     A .prj lost this way would not show up until an export landed a metre out, weeks
+     later, with nothing to connect it to. */
+  if(at >= 0) pendingSettings[at] = Object.assign({}, pendingSettings[at], payload);
+  else pendingSettings.push(payload);
   persistPendSettings();
   flushSettings();
 }
@@ -8331,8 +8707,17 @@ function featsOnSheet(b){
 }
 // What the current sheet actually carries, so the PDF legend can name them.
 let sheetFeats = { fences:0, plantings:0 };
+/* ROOT-SENSITIVE EXCAVATION IS A LINE, NOT A FENCE, but it lives in the same record:
+   both are linear works annotations drawn on the protection plan, both carry a type,
+   a length and a project, and both already flow through the Sheet, the shapefile
+   export, the plan sheet and the legend. Giving it a type rather than a new kind
+   means it arrives complete instead of arriving in four of the seven places. What it
+   does need is its own COLOUR and its own line in the legend and the length totals,
+   so nobody reads nine excavation runs as nine extra fences. */
+const ROOT_EXC_TYPE = "Root-sensitive excavation";
 const FENCE_D = [
   ["Tree protection fence — 1.2 m orange plastic on T-posts at 2.5 m","Standard barrier — 1.2 m orange on T-posts"],
+  [ROOT_EXC_TYPE,"Root-sensitive excavation — hand or hydro dig"],
   ["Solid hoarding — 3/8 in plywood on a 2x4 frame","Solid hoarding"],
   ["Tree protection fence with silt fencing","Barrier combined with silt fencing"],
   ["Root zone compaction protection","Root zone compaction protection"],
@@ -8347,6 +8732,12 @@ const STOCK_D = [
   ["1 gal","1 gallon potted"],
   ["Bare root","Bare root"]
 ];
+
+const FENCE_COLOR = "#FF6D00", ROOTEXC_COLOR = "#9C27B0";
+function fenceColor(f){
+  return String((f && f.type) || "") === ROOT_EXC_TYPE ? ROOTEXC_COLOR : FENCE_COLOR;
+}
+function isRootExc(f){ return String((f && f.type) || "") === ROOT_EXC_TYPE; }
 
 let drawMode = null, drawPts = [], drawLine = null, drawMarks = [];
 function startFence(){
@@ -8721,7 +9112,14 @@ function runDiag(){
         "every phone stops syncing."));
       $("diagOut").innerHTML = out.join(""); return;
     }
-    out.push(diagLine("ok", "The Sheet", esc(r.build)));
+    /* Behind, level, or ahead of what this app needs — three different answers, and
+       only the first is a problem. */
+    const behind = String(r.build || "") !== GS_EXPECTED;
+    out.push(diagLine(behind ? "bad" : "ok", "The Sheet", esc(r.build) +
+      (behind ? ` — this app was built against <b>${esc(GS_EXPECTED)}</b>. ` +
+                `Paste the Code.gs from this package in and do <b>Deploy → Manage deployments → ` +
+                `pencil → New version</b>.`
+              : " — up to date with this app")));
     const nf = Number(r.folders || 0);
     /* getFoldersByName RETURNS TRASHED FOLDERS and picks whichever it likes when
        there is more than one. A second folder of the same name anywhere in the Drive
@@ -8759,6 +9157,84 @@ function runDiag(){
       $("diagOut").innerHTML = out.join("");
     }).catch(()=>{ $("diagOut").innerHTML = out.join(""); });
   }, 30000);
+}
+
+/* ---- bringing fences and protection lines in from a layer ------------------ *
+
+   Kathleen drew the TPZ fencing and the root-sensitive excavation in ArcGIS: 15 runs
+   and 9. Redrawing those by tapping a phone screen is both a waste of an afternoon
+   and less accurate than what she has already produced, so they come in as they are.
+
+   They become FENCE records carrying a type, which is what puts them on the map, on
+   the plan sheet, in the legend, in the Fences shapefile and on the Sheet's Fences
+   tab without a single one of those having to learn a new kind.
+
+   The length is RE-MEASURED from the geometry rather than taken from any column,
+   with the same local-Transverse-Mercator arithmetic the measuring tool uses, so a
+   run's length on the plan is the length of the line on the plan. */
+let lineImport = null;
+$("lineInput").addEventListener("change", e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if(f) importLines(f);
+});
+async function importLines(file){
+  closeMenu();
+  toast("Reading…");
+  try{
+    const gj = await readGeoFile(file);
+    const runs = [];
+    (Array.isArray(gj) ? gj : [gj]).forEach(fc => ((fc && fc.features) || []).forEach(f => {
+      const g = f.geometry; if(!g) return;
+      const add = cs => {
+        const pts = (cs || []).filter(c => Array.isArray(c) && isFinite(c[0]) && isFinite(c[1]))
+                              .map(c => [c[1], c[0]]);
+        if(pts.length > 1) runs.push({ pts: pts, props: f.properties || {} });
+      };
+      if(g.type === "LineString") add(g.coordinates);
+      else if(g.type === "MultiLineString") (g.coordinates || []).forEach(add);
+      /* A polygon boundary is a perfectly good fence line — a protection zone drawn
+         as an area is how some consultants hand it over. */
+      else if(g.type === "Polygon") (g.coordinates || []).forEach(add);
+      else if(g.type === "MultiPolygon") (g.coordinates || []).forEach(p => (p || []).forEach(add));
+    }));
+    if(!runs.length){
+      toast("No lines in that file — tree points go in under Import tree points", true);
+      return;
+    }
+    lineImport = { runs: runs, name: file.name };
+    $("lineCount").textContent =
+      `${runs.length} line(s) from ${file.name} · ${measureLength([].concat.apply([], runs.map(r => r.pts))) > 0 ? "" : ""}` +
+      `${Math.round(runs.reduce((m, r) => m + measureLength(r.pts), 0))} m in total`;
+    const sel = $("lineType");
+    sel.innerHTML = FENCE_D.map(p => `<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
+    /* Guessed from the file name, because these arrive named for what they are and
+       choosing the wrong type puts an excavation run in the fence totals. */
+    if(/root|exca|dig/i.test(file.name)) sel.value = ROOT_EXC_TYPE;
+    $("lineSheet").classList.add("show");
+  }catch(err){
+    toast("Could not read that file", true);
+  }
+}
+function cancelLineImport(){ lineImport = null; $("lineSheet").classList.remove("show"); }
+function confirmLineImport(){
+  if(!lineImport) return;
+  const type = $("lineType").value || FENCE_D[0][0];
+  const project = currentProject() || settings.project || "";
+  let n = 0, m = 0;
+  lineImport.runs.forEach(r => {
+    const len = measureLength(r.pts);
+    feats.push({ id:"F" + Date.now().toString(36).toUpperCase() + (n++).toString(36),
+                 kind:"fence", project: project, pts: r.pts, type: type,
+                 length_m: Math.round(len * 10) / 10,
+                 address:"", notes: "imported from " + lineImport.name,
+                 by: settings.cruiser || "", date: nowStr(), _sent:false, _imp:1 });
+    m += len;
+  });
+  lineImport = null;
+  $("lineSheet").classList.remove("show");
+  persistFeats(); renderFeats(); updateSubLine();
+  setTimeout(syncFeats, 600);
+  toast(`${n} line(s) added · ${Math.round(m)} m`);
 }
 
 /* A planting is a point with a species from the same list the trees use, so the
@@ -8887,7 +9363,7 @@ function renderFeats(){
   const shapes = [];
   featsIn().forEach(f=>{
     if(f.kind==="fence" && f.pts.length>1){
-      shapes.push(L.polyline(f.pts,{color:"#FF6D00",weight:4,pane:"refPane"})
+      shapes.push(L.polyline(f.pts,{color:fenceColor(f),weight:4,pane:"refPane"})
         .bindPopup(`<b>Tree protection fence</b><br>${esc(f.type||"")}<br>${f.length_m} m` +
                    (f.address?`<br>${esc(f.address)}`:"") + (f.notes?`<br>${esc(f.notes)}`:"") +
                    `<br><button onclick="editFeatById('${f.id}')">Edit</button>`));
@@ -9335,6 +9811,89 @@ function exportSpeciesByLocation(){
   toast(`${rows.length-2} species · ${list.length} trees` + (unplaced?` · ${unplaced} with no location`:""));
 }
 
+/* ---------- Table — tree protection treatments ---------------------------- *
+
+   The reason the five columns exist, made into the thing they exist for. Kathleen:
+   "it will be easier to count and filter and produce reports or tables based on
+   these fields rather than as a description in a text."
+
+   TWO TABLES IN ONE FILE, because two questions get asked of this data and they are
+   not the same question:
+
+     HOW MANY of each treatment, which is what goes in the covering letter and the
+     contractor's scope — and how many trees carry more than one, which is the
+     figure that catches people out. In the first section, 42 trees carry a
+     treatment and 16 of them carry two, so "29 fencing + 16 excavation + 12
+     removal + 1 risk" is 58 treatments on 42 trees. A table that only totalled the
+     treatments would be read as 58 trees.
+
+     WHICH TREES, one row each, a tick under each column — the list the crew works
+     from and the one that gets checked on site.
+
+   Blank is not "no", it is "nothing recorded", and the tables say so rather than
+   quietly counting an unvisited tree as needing nothing. */
+function treatmentRows(list){
+  const rows = [];
+  const trees = (list || []).slice();
+  const withAny = trees.filter(t => treatsOn(t).length);
+  const counts = {};
+  TREAT_KEYS.forEach(k => counts[k] = trees.filter(t => treatOn(t[k])).length);
+  const totalTreatments = TREAT_KEYS.reduce((n,k) => n + counts[k], 0);
+
+  rows.push(["Tree protection treatments", "", "", ""]);
+  rows.push([scopeLabel(), "", "", ""]);
+  rows.push([]);
+  rows.push(["Treatment", "Trees", "% of trees assessed", "Field"]);
+  TREAT_FIELDS.forEach(([k, label]) => {
+    const n = counts[k];
+    rows.push([label, n, trees.length ? (n / trees.length * 100).toFixed(1) + "%" : "", k]);
+  });
+  rows.push([]);
+  rows.push(["Trees with at least one treatment", withAny.length, "", ""]);
+  rows.push(["Trees with more than one", withAny.filter(t => treatsOn(t).length > 1).length, "", ""]);
+  rows.push(["Trees with none recorded", trees.length - withAny.length, "", ""]);
+  /* Named, because the difference between this and the tree count is the thing a
+     reader gets wrong. */
+  rows.push(["Treatments in total (a tree may carry several)", totalTreatments, "", ""]);
+  rows.push(["Trees assessed", trees.length, "", ""]);
+
+  // Which combinations actually occur, biggest first — the contractor's scope.
+  const combo = {};
+  withAny.forEach(t => {
+    const key = treatsOn(t).map(treatLabel).join(" + ");
+    combo[key] = (combo[key] || 0) + 1;
+  });
+  const keys = Object.keys(combo).sort((a,b) => combo[b] - combo[a] || (a < b ? -1 : 1));
+  if(keys.length){
+    rows.push([]);
+    rows.push(["Combination", "Trees", "", ""]);
+    keys.forEach(k => rows.push([k, combo[k], "", ""]));
+  }
+
+  // And the trees themselves.
+  rows.push([]);
+  rows.push(["Tree #", "Tag #", "Address", "Common Name", "DBH (cm)"]
+              .concat(TREAT_FIELDS.map(f => f[1])));
+  const ordered = geoOrder(withAny);
+  ordered.forEach((t, i) => {
+    rows.push([treeNoFor(t, i + 1), t.TAG_NO || "NT", (t.ADDRESS || "").toUpperCase(),
+               t.SPECIES || "", t.DBH || ""]
+              .concat(TREAT_KEYS.map(k => treatOn(t[k]) ? "Y" : "")));
+  });
+  return rows;
+}
+function exportTreatments(){
+  closeMenu();
+  const list = reportTrees();
+  if(!list.length){ toast("No trees in view", true); return; }
+  const rows = treatmentRows(list);
+  downloadText(rows.map(r => r.map(csvCell).join(",")).join("\n"),
+    `TreeProtectionTreatments_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
+  const n = list.filter(t => treatsOn(t).length).length;
+  toast(n ? `${n} of ${list.length} tree(s) carry a treatment`
+          : "No treatments recorded on the trees in view");
+}
+
 /* ---------- species codes ----------
    The code that labels a planting spot on the site plan and heads the plant list:
    the genus initial in capitals plus the first letter of the species, so
@@ -9590,8 +10149,18 @@ function pdfToPages(file, onProgress){
 }
 
 function docSections(){
-  try{ return JSON.parse(STORE&&STORE.getItem("st_doc")) || defaultSections(); }
-  catch(e){ return defaultSections(); }
+  let l = null;
+  try{ l = JSON.parse(STORE && STORE.getItem("st_doc")); }catch(e){ l = null; }
+  if(!Array.isArray(l) || !l.length) return defaultSections();
+  /* A SECTION ADDED IN A LATER BUILD would otherwise never appear for anybody who
+     has opened this screen once: the saved list wins, and it was written before the
+     new section existed. So new ones are appended — the saved order and the saved
+     ticks are kept, and the Appendix added in v140 turns up for everybody rather
+     than only on a phone that has never assembled a document. */
+  const have = {};
+  l.forEach(d => { if(d && d.id) have[d.id] = 1; });
+  defaultSections().forEach(d => { if(!have[d.id]) l.push(d); });
+  return l;
 }
 function docSave(l){ if(STORE){ try{ STORE.setItem("st_doc", JSON.stringify(l)); }catch(e){} } }
 function defaultSections(){
@@ -9602,7 +10171,8 @@ function defaultSections(){
     {id:"table1",    name:"Table 1 — List of trees by species and location", kind:"table", on:true},
     {id:"landscape", name:"Landscaping plan",              kind:"landscape", on:true},
     {id:"details",   name:"Standard details",               kind:"details",on:true},
-    {id:"schedB",    name:"Schedule B — Tree Photographs",   kind:"photos", on:true}
+    {id:"schedB",    name:"Schedule B — Tree Photographs",   kind:"photos", on:true},
+    {id:"appendix",  name:"Appendix — Standard drawings",    kind:"appendix", on:true}
   ];
 }
 function openDoc(){
@@ -9833,10 +10403,11 @@ async function docBlocks(W, H){
         const arr  = rec && rec.data ? JSON.parse(rec.data) : [];
         if(arr.length) out.push({ name:dsec.name, lay:"2up", pages:arr, upload:true });
 
-      } else if(dsec.kind === "details"){
+      } else if(dsec.kind === "details" || dsec.kind === "appendix"){
         /* ONE BLOCK PER DRAWING, so the contents can name each detail the way the
-           sample names them rather than lumping them as "standard details". */
-        const chosen = detailList().filter(x => x.on);
+           sample names them rather than lumping them as "standard details". The
+           order is the order the project set, not the order they were uploaded. */
+        const chosen = chosenDetails(dsec.kind === "appendix" ? "appendix" : "details");
         for(const det of chosen){
           const pg = await detailPagesReady(slots[0].w, slots[0].h, M, [det]);
           if(pg.length) out.push({ name: det.name || "Standard detail", lay:"2up",
@@ -10377,91 +10948,542 @@ function setImagery(id){
   toast(imagerySource().name);
 }
 
-/* ---------- standard detail drawings appended to the map PDF ---------- */
-/* Municipalities each have their own approved details, so these are not baked into
-   the app: the user adds the images once and they are kept on the device. Selected
-   ones are appended as full pages after the map sheets. */
-function detailList(){
-  try{ return JSON.parse(STORE&&STORE.getItem("st_details")) || []; }catch(e){ return []; }
+/* ---------- the drawings the OLD version left on this device ----------------- *
+
+   Before v140 the details were base64 JPEGs in localStorage: device-only, untagged,
+   and capped at about 5 MB. Anything already there is carried into the shared
+   library rather than dropped — with no municipality, because the old version never
+   asked for one, so they land in the "untagged" group where they are obvious and one
+   Edit each fixes them. Run once and the old key is cleared. */
+const DMIGRATED = "st_detailsmoved";
+function migrateOldDetails(){
+  if(!STORE) return Promise.resolve(0);
+  let old = [];
+  try{ old = JSON.parse(STORE.getItem("st_details")) || []; }catch(e){ old = []; }
+  if(!old.length){ try{ STORE.setItem(DMIGRATED, "1"); }catch(e){} return Promise.resolve(0); }
+  if(STORE.getItem(DMIGRATED)) return Promise.resolve(0);
+  return loadDetailLib().then(async ()=>{
+    let n = 0;
+    for(const o of old){
+      if(!o || !o.data) continue;
+      const im = await imgFrom(o.data);
+      const rec = { id:"D" + Date.now().toString(36) + (n++) .toString(36),
+                    name: String(o.name || "Standard detail").slice(0,80), muni:"", caption:"",
+                    src:"(added before v140)", page:1, pages:1,
+                    w: o.w || (im ? im.width : 0), h: o.h || (im ? im.height : 0),
+                    kb: Math.round(String(o.data).length * 0.75 / 1024),
+                    thumb: im ? canvasOf(im, DTHUMB_PX).toDataURL("image/jpeg", 0.62) : "",
+                    added: nowStr().slice(0,10), by: settings.cruiser || "" };
+      detailLib.push(rec);
+      await idbPutDetail({ id:"detail:" + rec.id, data:o.data }).catch(()=>{});
+      /* Ticked before means ticked for the job being worked on now — that is the
+         only project it could have meant. */
+      if(o.on) togglePick(rec.id, true);
+      if(connected && !isOffline()){ try{ await uploadDetail(rec, o.data); }catch(e){} }
+    }
+    await saveDetailLib();
+    try{ STORE.setItem(DMIGRATED, "1"); STORE.removeItem("st_details"); }catch(e){}
+    if(n) toast(`${n} standard drawing(s) moved into the shared library`);
+    return n;
+  }).catch(()=>0);
 }
-function detailSave(list){ if(STORE){ try{ STORE.setItem("st_details", JSON.stringify(list)); }catch(e){} } }
+
+/* ================================================================== *
+ *  THE STANDARD DETAIL DRAWING LIBRARY
+ * ================================================================== *
+
+   Chris: "the ability for the user to upload PDF images of drawings, such as the
+   tree protection fence, tree planting details… they would tag them by the
+   municipality from which they were obtained… the user would have the ability to
+   pick which images they want to include in the drawings section, or appendix…
+   made visible to the user so they can see the detail and identify what they need…
+   these documents would remain available in the app for future projects."
+
+   WHAT WAS THERE BEFORE, AND WHY IT HAD TO GO. The old version took IMAGES ONLY (a
+   municipality publishes PDFs), had no municipality on it, showed a list of
+   FILENAMES with no picture — so picking the right barrier detail out of four meant
+   remembering which file was which — and kept the whole lot as base64 JPEGs in
+   localStorage, which caps out around 5 MB. Four scanned details and the next save
+   fails; on iOS it fails SILENTLY and the drawings simply are not there next time.
+
+   HOW IT WORKS NOW:
+
+     THE LIBRARY IS SHARED. Drawings go to Drive and the Details tab, so the phone
+     that downloaded the PDF and the office machine that assembles the document see
+     the same library, and it is still there on the next job and the next device.
+
+     ONE ENTRY PER PAGE. A municipal standards PDF is twelve pages of which three
+     are the drawings you want. Each page becomes its own entry, so you take the
+     three.
+
+     THE PICKER SHOWS THE DRAWINGS. Thumbnails come down WITH the list — that is why
+     they live in the Details tab rather than only on Drive — so the whole library
+     arrives in one request and you choose by looking, which is what was asked for.
+
+     THE CHOICE BELONGS TO THE PROJECT, not to the library. Forty drawings across
+     six municipalities, all ticked at once, is not a choice. The selection rides on
+     the Projects tab beside the coordinate system, so re-assembling a job in a year
+     gives the same drawings in the same order.
+
+   FULL PAGES ARE NOT KEPT ON THE PHONE unless they have been used. A library at
+   print resolution is hundreds of megabytes; the grid needs 8 kB a drawing. */
+
+const DLIB_KEY = "detail:index";
+const DTHUMB_PX = 200;            // the picker grid
+const DFULL_PX  = 2200;           // print: 150 dpi on a 14 in sheet, near enough
+let detailLib = [];               // metadata + thumb, never the full page
+let detailLibAt = 0;
+
+function idbPutDetail(rec){ return new Promise((res,rej)=>{ idbOpen().then(db=>{
+  const tx=db.transaction(DETAIL_STORE,"readwrite"); tx.objectStore(DETAIL_STORE).put(rec);
+  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();rej(tx.error);}; }).catch(rej); }); }
+function idbGetDetail(id){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(DETAIL_STORE,"readonly"), g=tx.objectStore(DETAIL_STORE).get(id);
+  g.onsuccess=()=>{db.close();res(g.result||null);}; g.onerror=()=>{db.close();res(null);}; }).catch(()=>res(null)); }); }
+function idbDelDetail(id){ return new Promise(res=>{ idbOpen().then(db=>{
+  const tx=db.transaction(DETAIL_STORE,"readwrite"); tx.objectStore(DETAIL_STORE).delete(id);
+  tx.oncomplete=()=>{db.close();res();}; tx.onerror=()=>{db.close();res();}; }).catch(()=>res()); }); }
+
+/* The index is cached so the picker opens instantly and works with no signal; Drive
+   is then asked and the cache replaced. A library somebody else added to shows up on
+   the second look rather than not at all. */
+function loadDetailLib(){
+  return idbGetDetail(DLIB_KEY).then(r=>{
+    if(r && r.items) detailLib = r.items;
+    return detailLib;
+  }).catch(()=>detailLib);
+}
+function saveDetailLib(){
+  return idbPutDetail({ id:DLIB_KEY, items:detailLib, at:Date.now() }).catch(()=>{});
+}
+function refreshDetailLib(){
+  return new Promise(res=>{
+    if(!connected || isOffline()) return res({ ok:false, why:"offline" });
+    jsonpGet("detaillist", {}, r=>{
+      if(!r) return res({ ok:false, why:"slow" });
+      // An action this deployment has never heard of lands on doGet's own index.
+      if(r.service || !Array.isArray(r.items)) return res({ ok:false, why:"stale" });
+      detailLib = r.items;
+      detailLibAt = Date.now();
+      saveDetailLib();
+      res({ ok:true, n:detailLib.length });
+    }, 45000);
+  });
+}
+/* The full page: this device first, then Drive, then kept — unlike a photograph,
+   because a drawing chosen for a job is about to be drawn into a PDF and may be
+   drawn again every time that document is rebuilt. */
+function detailFull(id){
+  return idbGetDetail("detail:" + id).then(r=>{
+    if(r && r.data) return r.data;
+    return new Promise(res=>{
+      if(!connected || isOffline()) return res(null);
+      jsonpGet("detailget", { id:id }, x=>{
+        if(!x || !x.ok || !x.data) return res(null);
+        idbPutDetail({ id:"detail:" + id, data:x.data }).catch(()=>{});
+        res(x.data);
+      }, 60000);
+    });
+  }).catch(()=>null);
+}
+
+/* ---- which drawings THIS PROJECT uses ------------------------------------- */
+const DPICK_KEY = "st_detailpicks";
+let detailPicks = {};
+try{ detailPicks = JSON.parse((STORE && STORE.getItem(DPICK_KEY)) || "{}") || {}; }catch(e){ detailPicks = {}; }
+function persistDetailPicks(){ if(STORE){ try{ STORE.setItem(DPICK_KEY, JSON.stringify(detailPicks)); }catch(e){} } }
+function pickKey(p){ return String(p || "").trim().toLowerCase(); }
+/* The project the picks belong to is the one being RECORDED to, not the Showing
+   filter: a document is assembled for a job, and Showing is a view. */
+function detailProject(){ return settings.project || currentProject() || ""; }
+function picksFor(project){
+  const k = pickKey(project || detailProject());
+  return Array.isArray(detailPicks[k]) ? detailPicks[k] : [];
+}
+function setPicks(list, project){
+  const p = project || detailProject();
+  detailPicks[pickKey(p)] = list;
+  persistDetailPicks();
+  // Rides the same queue the coordinate system uses, so it reaches the Sheet once.
+  queueSettings({ project: String(p || "").trim(), details: list });
+}
+function pickIndex(id, project){ return picksFor(project).findIndex(x => x.id === id); }
+function togglePick(id, on){
+  const list = picksFor().slice();
+  const at = list.findIndex(x => x.id === id);
+  if(on && at < 0) list.push({ id:id, where:"details", cap:"" });
+  else if(!on && at >= 0) list.splice(at, 1);
+  else return;
+  setPicks(list);
+}
+function movePick(i, d){
+  const list = picksFor().slice();
+  const j = i + d;
+  if(i < 0 || j < 0 || i >= list.length || j >= list.length) return;
+  const t = list[i]; list[i] = list[j]; list[j] = t;
+  setPicks(list);
+}
+function setPickWhere(i, where){
+  const list = picksFor().slice();
+  if(!list[i]) return;
+  list[i].where = where === "appendix" ? "appendix" : "details";
+  setPicks(list);
+}
+/* A CAPTION ONLY IF IT IS WANTED. Chris: "I would like to have the ability to add
+   that if necessary. Sometimes the drawing already has the caption on it." Blank
+   prints nothing at all — no empty strip, no default made up from the file name. */
+function setPickCaption(i, txt){
+  const list = picksFor().slice();
+  if(!list[i]) return;
+  list[i].cap = normCaption(txt).slice(0, 160);
+  setPicks(list);
+}
+/* NOT normText. That is for field data — it turns an en or em dash into a hyphen and
+   an ellipsis into three dots, which is right for a dictated comment and wrong for a
+   line printed under a drawing in a client's report. "Detail 3 — barrier at the drip
+   line" should keep its dash. The parts that are always right are kept: a non-
+   breaking space pasted from a municipal PDF becomes a real one, and runs of
+   whitespace collapse. */
+function normCaption(v){
+  return String(v == null ? "" : v)
+    .replace(/[\u2018\u2019\u201b]/g, "'")
+    .replace(/[\u201c\u201d\u201f]/g, '"')
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function detailById(id){ return detailLib.find(d => d.id === id) || null; }
+/* The chosen drawings, in order, for one section, with the caption resolved: the
+   project's override if it set one, otherwise the library's, otherwise none. */
+function chosenDetails(where){
+  return picksFor()
+    .filter(p => (where ? (p.where || "details") === where : true))
+    .map(p => {
+      const d = detailById(p.id);
+      if(!d) return null;                       // removed from the library since
+      return Object.assign({}, d, { cap: p.cap || d.caption || "", where: p.where || "details" });
+    })
+    .filter(Boolean);
+}
+
+/* ---- adding drawings ------------------------------------------------------ *
+
+   A PDF becomes ONE ENTRY PER PAGE. A municipality publishes "Tree Protection
+   Standards" as twelve pages of which three are the drawings that belong in a
+   report, so the unit has to be the page or the picker cannot offer the three.
+
+   Two sizes are made from each page and both are kept for a reason: a 200 px
+   thumbnail that travels WITH the library so the grid can show what each drawing is,
+   and a 2200 px page that goes to Drive and is fetched only when it is used. */
+let detailAddMuni = "";
+function detailMunis(){
+  const seen = {};
+  detailLib.forEach(d => { const m = String(d.muni || "").trim(); if(m) seen[m] = 1; });
+  return Object.keys(seen).sort((a,b)=>a.toLowerCase()<b.toLowerCase()?-1:1);
+}
+function canvasOf(img, max){
+  const sc = Math.min(1, max / Math.max(img.width, img.height));
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.round(img.width * sc));
+  cv.height = Math.max(1, Math.round(img.height * sc));
+  const g = cv.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0,0,cv.width,cv.height);   // a transparent PNG is not white
+  g.drawImage(img, 0, 0, cv.width, cv.height);
+  return cv;
+}
+function imgFrom(src){
+  return new Promise(res=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=src; });
+}
+/* Every page of every file, as {full, thumb, w, h, src, page, pages}. */
+async function detailPagesFromFile(f, onStep){
+  const out = [];
+  const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+  if(isPdf){
+    await loadPdfJs();
+    const buf = await f.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data:new Uint8Array(buf) }).promise;
+    for(let i = 1; i <= pdf.numPages; i++){
+      if(onStep) onStep(f.name, i, pdf.numPages);
+      const page = await pdf.getPage(i);
+      const vp0 = page.getViewport({ scale:1 });
+      const sc = Math.min(4, Math.max(1, DFULL_PX / Math.max(vp0.width, vp0.height)));
+      const vp = page.getViewport({ scale:sc });
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      const g = cv.getContext("2d");
+      g.fillStyle = "#ffffff"; g.fillRect(0,0,cv.width,cv.height);
+      await page.render({ canvasContext:g, viewport:vp }).promise;
+      const full = cv.toDataURL("image/jpeg", 0.9);
+      const im = await imgFrom(full);
+      out.push({ full:full, thumb: im ? canvasOf(im, DTHUMB_PX).toDataURL("image/jpeg", 0.62) : "",
+                 w:cv.width, h:cv.height, src:f.name, page:i, pages:pdf.numPages });
+      cv.width = 0; cv.height = 0;
+    }
+    return out;
+  }
+  if(onStep) onStep(f.name, 1, 1);
+  const url = await new Promise(res=>{ const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(null); r.readAsDataURL(f); });
+  const im = url ? await imgFrom(url) : null;
+  if(!im) return out;
+  const big = canvasOf(im, DFULL_PX);
+  out.push({ full: big.toDataURL("image/jpeg", 0.9),
+             thumb: canvasOf(im, DTHUMB_PX).toDataURL("image/jpeg", 0.62),
+             w: big.width, h: big.height, src: f.name, page:1, pages:1 });
+  return out;
+}
+function prettyDetailName(src, page, pages){
+  const base = String(src || "drawing").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 56);
+  return pages > 1 ? `${base} — p${page}` : base;
+}
+/* Sent to Drive in chunks, like a layer. 64 kB of base64 a part keeps every request
+   well inside what a phone on one bar can push, and a part that never lands is named
+   rather than leaving a half-written file. */
+const DETAIL_CHUNK = 64 * 1024;
+function postJson(body){
+  return fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+    headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+}
+async function uploadDetail(rec, fullDataUrl){
+  const b64 = String(fullDataUrl).slice(String(fullDataUrl).indexOf(",") + 1);
+  const parts = Math.max(1, Math.ceil(b64.length / DETAIL_CHUNK));
+  const uploadId = rec.id + "_" + Date.now().toString(36);
+  for(let i = 0; i < parts; i++){
+    await postJson({ _action:"detail", uploadId:uploadId, part:i, parts:parts,
+      data: b64.slice(i * DETAIL_CHUNK, (i + 1) * DETAIL_CHUNK),
+      id:rec.id, name:rec.name, muni:rec.muni, caption:rec.caption, src:rec.src,
+      page:rec.page, pages:rec.pages, w:rec.w, h:rec.h, thumb:rec.thumb,
+      by: settings.cruiser || "" });
+  }
+}
+let detailBusy = false;
+async function addDetailFiles(files){
+  if(detailBusy){ toast("Still adding the last lot", true); return; }
+  const list = Array.from(files || []);
+  if(!list.length) return;
+  const muni = normText(prompt(
+    "Which municipality are these drawings from?\n\nThey are filed under this name so " +
+    "the right set is easy to find on the next job in that municipality.",
+    detailAddMuni || currentMuniGuess()) || "");
+  if(!muni){ toast("Not added — a municipality is needed", true); return; }
+  detailAddMuni = muni;
+  detailBusy = true;
+  $("detailBusy").style.display = "block";
+  let made = 0, sent = 0, failed = 0;
+  try{
+    for(const f of list){
+      let pages = [];
+      try{
+        pages = await detailPagesFromFile(f, (nm,i,n)=>{
+          $("detailBusy").textContent = `Reading ${nm} — page ${i} of ${n}…`;
+        });
+      }catch(e){ failed++; continue; }
+      for(const pg of pages){
+        const rec = { id: "D" + Date.now().toString(36) + Math.floor(Math.random()*4096).toString(36),
+                      name: prettyDetailName(pg.src, pg.page, pg.pages), muni: muni, caption: "",
+                      src: pg.src, page: pg.page, pages: pg.pages, w: pg.w, h: pg.h,
+                      kb: Math.round(pg.full.length * 0.75 / 1024), thumb: pg.thumb,
+                      added: nowStr().slice(0,10), by: settings.cruiser || "" };
+        /* KEPT HERE FIRST, sent second. A drawing added on site with no signal is in
+           the library straight away and goes up on the next connection, rather than
+           being lost because Drive could not be reached. */
+        detailLib.push(rec);
+        made++;
+        await idbPutDetail({ id:"detail:" + rec.id, data: pg.full }).catch(()=>{});
+        await saveDetailLib();
+        renderDetails();
+        if(connected && !isOffline()){
+          $("detailBusy").textContent = `Sending ${rec.name} to Drive…`;
+          try{ await uploadDetail(rec, pg.full); sent++; }
+          catch(e){ failed++; }
+        }
+      }
+    }
+  } finally {
+    detailBusy = false;
+    $("detailBusy").style.display = "none";
+    renderDetails();
+  }
+  toast(`${made} drawing(s) added` +
+        (sent ? ` · ${sent} on Drive` : (connected && !isOffline() ? "" : " · on this device until you reconnect")) +
+        (failed ? ` · ${failed} problem(s)` : ""));
+}
+/* A first guess at the municipality, from the job rather than from nothing: the
+   project name usually carries it, and the last one used otherwise. */
+function currentMuniGuess(){
+  const p = String(detailProject() || "");
+  const hit = detailMunis().find(m => p.toLowerCase().indexOf(m.toLowerCase()) >= 0);
+  return hit || "";
+}
+
+/* ---- the library screen ---------------------------------------------------- */
+let detailFilter = "";
 function openDetails(){
   closeMenu();
-  renderDetails();
   $("detailSheet").classList.add("show");
+  loadDetailLib().then(()=>{
+    renderDetails();
+    refreshDetailLib().then(r=>{
+      if(r.ok){ renderDetails(); return; }
+      if(r.why === "stale") $("detailNote").innerHTML =
+        `<b>The Sheet is running an older Code.gs</b> — the shared library needs it. ` +
+        `Apps Script → Deploy → Manage deployments → pencil → New version. ` +
+        `Drawings added here stay on this device until then.`;
+      else if(r.why === "offline") $("detailNote").textContent =
+        "Offline — showing what this device already holds.";
+      else $("detailNote").textContent = "Could not reach the Sheet just now.";
+    });
+  });
 }
+function closeDetails(){ $("detailSheet").classList.remove("show"); }
+function setDetailFilter(v){ detailFilter = v; renderDetails(); }
 function renderDetails(){
-  const list = detailList();
-  $("detailList").innerHTML = list.length ? list.map((d,i)=>
-    `<div class="statrow" style="gap:10px">
-       <label style="flex:1;display:flex;align-items:center;gap:8px">
-         <input type="checkbox" ${d.on?"checked":""} onchange="detailToggle(${i},this.checked)">
-         <span>${esc(d.name)}</span></label>
-       <button class="alt" style="padding:4px 10px" onclick="detailRemove(${i})">Remove</button>
-     </div>`).join("")
-    : `<div class="mini">No drawings yet. Add the ones your municipality requires — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details.</div>`;
-  const on = list.filter(d=>d.on).length;
-  $("detailCount").textContent = on ? `${on} will be appended to the map PDF` : "None selected";
+  const munis = detailMunis();
+  const sel = $("detailMuni");
+  if(sel){
+    sel.innerHTML = `<option value="">All municipalities</option>` +
+      munis.map(m=>`<option value="${esc(m)}"${detailFilter===m?" selected":""}>${esc(m)}</option>`).join("");
+  }
+  const shown = detailLib.filter(d => !detailFilter || d.muni === detailFilter);
+  const grid = $("detailGrid");
+  if(!detailLib.length){
+    grid.innerHTML = `<div class="mini">No drawings yet. Add the PDFs your municipalities require — ` +
+      `barrier detail, signage, root zone protection, stem protection, planting details. ` +
+      `Each page of a PDF becomes its own drawing, and they stay here for every future job.</div>`;
+  } else {
+    /* Grouped by municipality, because that is how they are chosen: you are working
+       in one town and want that town's set. */
+    const groups = {};
+    shown.forEach(d => { const m = d.muni || "— untagged —"; (groups[m] = groups[m] || []).push(d); });
+    grid.innerHTML = Object.keys(groups).sort().map(m =>
+      `<div class="dgroup"><div class="dgh">${esc(m)} <span>${groups[m].length}</span></div>
+       <div class="dgrid">` + groups[m].map(d => {
+        const on = pickIndex(d.id) >= 0;
+        return `<div class="dcard${on?" on":""}">
+          <div class="dthumb" onclick="detailZoom('${esc(jsq(d.id))}')">
+            ${d.thumb ? `<img src="${d.thumb}" alt="${esc(d.name)}">` : `<span class="mini">no preview</span>`}
+            ${d.pages > 1 ? `<span class="dpg">p${d.page}/${d.pages}</span>` : ""}
+          </div>
+          <label class="dpick"><input type="checkbox" ${on?"checked":""}
+             onchange="togglePick('${esc(jsq(d.id))}',this.checked);renderDetails()">
+            <span>${esc(d.name)}</span></label>
+          <div class="dact">
+            <a href="javascript:void(0)" onclick="detailEdit('${esc(jsq(d.id))}')">Edit</a>
+            <a href="javascript:void(0)" onclick="detailDelete('${esc(jsq(d.id))}')">Remove</a>
+          </div>
+        </div>`; }).join("") + `</div></div>`).join("");
+  }
+  renderPicks();
 }
-function detailToggle(i,on){ const l=detailList(); if(l[i]){ l[i].on=!!on; detailSave(l); renderDetails(); } }
-function detailRemove(i){ const l=detailList(); l.splice(i,1); detailSave(l); renderDetails(); }
-function addDetailFiles(files){
-  const l = detailList();
-  let done = 0, tooBig = 0;
-  const next = ()=>{ if(done+tooBig===files.length){ detailSave(l); renderDetails();
-      toast(tooBig ? `${tooBig} image(s) too large` : `${files.length} drawing(s) added`); } };
-  Array.from(files).forEach(f=>{
-    const r = new FileReader();
-    r.onload = ()=>{
-      const img = new Image();
-      img.onload = ()=>{
-        // Re-encoded to a sensible page size: a 5 MB scan would blow the storage cap
-        // and print no better than this.
-        const max = 2200, sc = Math.min(1, max/Math.max(img.width,img.height));
-        const cv = document.createElement("canvas");
-        cv.width = Math.round(img.width*sc); cv.height = Math.round(img.height*sc);
-        cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-        l.push({ name: f.name.replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").slice(0,60),
-                 data: cv.toDataURL("image/jpeg",0.88), w:cv.width, h:cv.height, on:true });
-        done++; next();
-      };
-      img.onerror = ()=>{ tooBig++; next(); };
-      img.src = r.result;
-    };
-    r.onerror = ()=>{ tooBig++; next(); };
-    r.readAsDataURL(f);
+/* The chosen ones, in the order they will print, with the two things that are
+   decided per job: which section, and whether a caption is wanted. */
+function renderPicks(){
+  const picks = picksFor();
+  $("detailPicks").innerHTML = !picks.length
+    ? `<div class="mini">Nothing chosen for <b>${esc(detailProject() || "this project")}</b> yet. Tick a drawing above.</div>`
+    : picks.map((p,i) => {
+        const d = detailById(p.id);
+        const nm = d ? d.name : "(no longer in the library)";
+        const where = p.where || "details";
+        return `<div class="prow">
+          <span class="pn">${i+1}</span>
+          ${d && d.thumb ? `<img class="pth" src="${d.thumb}" alt="">` : `<span class="pth"></span>`}
+          <div class="pnw">
+            <div class="pnm">${esc(nm)}${d && d.muni ? ` <span class="mini">· ${esc(d.muni)}</span>` : ""}</div>
+            <input class="pcap" type="text" placeholder="Caption (optional — leave blank if the drawing has one)"
+                   value="${esc(p.cap || "")}" onchange="setPickCaption(${i}, this.value)">
+          </div>
+          <div class="pctl">
+            <select class="pwh" onchange="setPickWhere(${i}, this.value)">
+              <option value="details"${where==="details"?" selected":""}>Details</option>
+              <option value="appendix"${where==="appendix"?" selected":""}>Appendix</option>
+            </select>
+            <button class="alt pmv" onclick="movePick(${i},-1);renderDetails()" ${i===0?"disabled":""}>↑ Up</button>
+            <button class="alt pmv" onclick="movePick(${i},1);renderDetails()" ${i===picks.length-1?"disabled":""}>↓ Down</button>
+          </div>
+        </div>`;
+      }).join("");
+  const n = picks.length, ap = picks.filter(p=>p.where==="appendix").length;
+  $("detailCount").textContent = n
+    ? `${n} chosen for ${detailProject() || "this project"} · ${n-ap} in Standard details, ${ap} in the Appendix`
+    : "None chosen";
+}
+function detailZoom(id){
+  const d = detailById(id); if(!d) return;
+  $("lbCap").textContent = d.name + (d.muni ? " · " + d.muni : "");
+  $("lbDrive").style.display = "none";
+  $("lbImg").src = d.thumb || "";
+  $("lightbox").classList.add("show");
+  // The full page is worth waiting for here: this is the screen where you decide.
+  detailFull(id).then(src => { if(src && $("lightbox").classList.contains("show")) $("lbImg").src = src; });
+}
+function detailEdit(id){
+  const d = detailById(id); if(!d) return;
+  const name = prompt("Name of this drawing:", d.name);
+  if(name === null) return;
+  const muni = prompt("Municipality it came from:", d.muni || "");
+  if(muni === null) return;
+  const cap = prompt(
+    "Caption printed under it in the document.\n\nLeave blank if the drawing already " +
+    "carries its own title — nothing is printed then.", d.caption || "");
+  if(cap === null) return;
+  d.name = normText(name).slice(0,80);
+  d.muni = normText(muni).slice(0,60);
+  d.caption = normText(cap).slice(0,160);
+  saveDetailLib(); renderDetails();
+  if(connected && !isOffline())
+    postJson({ _action:"detailmeta", id:id, name:d.name, muni:d.muni, caption:d.caption })
+      .then(()=>toast("Saved")).catch(()=>toast("Saved here; the Sheet did not take it", true));
+  else toast("Saved on this device");
+}
+function detailDelete(id){
+  const d = detailById(id); if(!d) return;
+  if(!confirm(`Remove "${d.name}" from the library?\n\nIt goes out of every future ` +
+              `project, and the file is moved to the Drive trash.`)) return;
+  detailLib = detailLib.filter(x => x.id !== id);
+  Object.keys(detailPicks).forEach(k => {
+    detailPicks[k] = (detailPicks[k] || []).filter(p => p.id !== id);
   });
+  persistDetailPicks();
+  saveDetailLib(); idbDelDetail("detail:" + id); renderDetails();
+  if(connected && !isOffline()) postJson({ _action:"detaildel", id:id }).catch(()=>{});
+  toast("Removed");
 }
-/* Rendered onto the same sheet size as the map pages so the PDF stays one size. */
-function detailPages(W,H,M){
-  const chosen = detailList().filter(d=>d.on);
-  return chosen.map(d=>{
-    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-    const g=cv.getContext("2d");
-    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
-    const boxW=W-M*2, boxH=H-M*2;
-    const sc=Math.min(boxW/d.w, boxH/d.h);
-    const iw=d.w*sc, ih=d.h*sc;
-    const im=new Image(); im.src=d.data;
-    try{ g.drawImage(im, M+(boxW-iw)/2, M+(boxH-ih)/2, iw, ih); }catch(e){}
-    return {data:cv.toDataURL("image/jpeg",0.92), w:W, h:H, _src:d.data, _name:d.name};
-  });
-}
-// Images must be decoded before they can be drawn, so warm them first.
-function detailPagesReady(W,H,M,only){
-  const chosen = only || detailList().filter(d=>d.on);
-  if(!chosen.length) return Promise.resolve([]);
-  return Promise.all(chosen.map(d=>new Promise(res=>{
-    const im=new Image(); im.onload=()=>res({d,im}); im.onerror=()=>res(null); im.src=d.data;
-  }))).then(loaded=>loaded.filter(Boolean).map(({d,im})=>{
-    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-    const g=cv.getContext("2d");
-    g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
-    const boxW=W-M*2, boxH=H-M*2;
-    const sc=Math.min(boxW/d.w, boxH/d.h);
-    g.drawImage(im, M+(boxW-d.w*sc)/2, M+(boxH-d.h*sc)/2, d.w*sc, d.h*sc);
-    return {data:cv.toDataURL("image/jpeg",0.92), w:W, h:H};
-  }));
+
+/* A CAPTION ONLY IF THERE IS ONE. Chris: "sometimes the drawing already has the
+   caption on it." A blank caption prints nothing — no strip, no rule, no name made
+   up from the file — and the drawing gets the whole page. */
+const DCAP_PT = 0.17;
+async function detailPagesReady(W,H,M,only){
+  const chosen = only || chosenDetails("details");
+  if(!chosen.length) return [];
+  const out = [];
+  for(const d of chosen){
+    /* The full page lives on Drive; this device keeps a copy once it has been used,
+       so rebuilding the same document does not fetch it again. */
+    const src = d.data || await detailFull(d.id);
+    if(!src) continue;
+    const im = await imgFrom(src);
+    if(!im) continue;
+    const cap = String(d.cap == null ? (d.caption || "") : d.cap).trim();
+    const capH = cap ? Math.round(PDF_DPI * DCAP_PT * 1.7) : 0;
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const g = cv.getContext("2d");
+    g.fillStyle = "#ffffff"; g.fillRect(0,0,W,H);
+    const boxW = W - M*2, boxH = H - M*2 - capH;
+    const sc = Math.min(boxW/im.width, boxH/im.height);
+    const iw = im.width*sc, ih = im.height*sc;
+    g.drawImage(im, M + (boxW-iw)/2, M + (boxH-ih)/2, iw, ih);
+    if(cap){
+      g.fillStyle = "#12201a";
+      g.font = `600 ${Math.round(PDF_DPI*DCAP_PT)}px sans-serif`;
+      g.textAlign = "center";
+      g.fillText(cap, W/2, H - M - Math.round(PDF_DPI*DCAP_PT*0.4), boxW);
+      g.textAlign = "left";
+    }
+    out.push({ data: cv.toDataURL("image/jpeg", 0.92), w:W, h:H });
+    cv.width = 0; cv.height = 0;
+  }
+  return out;
 }
 
 /* ---------- Schedule A — Tree Inventory Table ---------- */
@@ -11016,6 +12038,11 @@ const QUERY_FIELDS = [
   ["PROP_ACT",   "Proposed action",        "list"],
   ["LT_IMPACT",  "Potential long term impact", "list"],
   ["IMPACT_POT", "Potential construction impact", "text"],
+  ["TPZ_FENC",   "TPZ fencing",            "yesno"],
+  ["ROOT_EXC",   "Root-sensitive excavation", "yesno"],
+  ["TREE_REM",   "Tree removal",           "yesno"],
+  ["CAN_PRUNE",  "Canopy clearance pruning", "yesno"],
+  ["ELV_RISK",   "Elevated tree risk",     "yesno"],
   ["SITELOCA",   "Site location",          "list"],
   ["STRUDEFE",   "Structural defect",      "list"],
   ["WOUNCANK",   "Wound / canker",         "list"],
@@ -11058,6 +12085,16 @@ function queryFieldLabel(f){
    because "Dead" typed in a box and "dead" off a pick list are the same tree. */
 function queryMatch(t, c){
   const raw = t[c.f];
+  /* A TREATMENT IS A TICK, and the Sheet has held "Yes", "YES" and "Y" for one at
+     different times — from the form, from Kathleen's shapefile and from a bulk edit.
+     Normalised before it is compared, so "TPZ fencing is Yes" finds all of them. */
+  if(TREAT_KEYS.indexOf(c.f) >= 0){
+    const on = treatOn(raw), wantOn = treatOn(c.v);
+    if(c.op === "blank")  return !on;
+    if(c.op === "filled") return on;
+    if(c.op === "not")    return on !== wantOn;
+    return on === wantOn;
+  }
   const s = String(raw==null ? "" : raw).trim();
   const want = String(c.v==null ? "" : c.v).trim();
   if(c.op === "blank")  return s === "";
@@ -11104,6 +12141,8 @@ function setQueryField(i, f){
   const k = queryKind(f);
   if((k==="num") && ["has"].indexOf(queryRows[i].op)>=0) queryRows[i].op = "is";
   if((k!=="num") && ["ge","le"].indexOf(queryRows[i].op)>=0) queryRows[i].op = "is";
+  if(k==="yesno" && ["is","not"].indexOf(queryRows[i].op)<0) queryRows[i].op = "is";
+  if(k==="yesno") queryRows[i].v = "Yes";      // the question is almost always "which ones are"
   renderQueryRows();
 }
 function setQueryOp(i, op){ queryRows[i].op = op; renderQueryRows(); }
@@ -11118,6 +12157,7 @@ function queryValues(f){
   const seen = {};
   visibleTrees().forEach(t=>{ const v = String(t[f]==null?"":t[f]).trim(); if(v) seen[v]=1; });
   const present = Object.keys(seen).sort((a,b)=>a.localeCompare(b));
+  if(k === "yesno")   return ["Yes", "No"];     // a tick has two answers, always both
   if(k === "user")    return present.length ? present : users.map(u=>u.name).filter(Boolean);
   if(k === "species") return present;
   if(k === "list"){
@@ -11137,6 +12177,7 @@ function renderQueryRows(){
   box.innerHTML = queryRows.map((c,i)=>{
     const k = queryKind(c.f);
     const ops = QUERY_OPS.filter(o=>{
+      if(k === "yesno") return o[0]==="is" || o[0]==="not";   // it is ticked or it is not
       if(o[0]==="ge" || o[0]==="le") return k==="num";
       if(o[0]==="has") return k!=="num";
       return true;
@@ -11292,13 +12333,23 @@ const BULK_FIELDS = [
   ["ADDRESS",   "Address"],
   ["STREET",    "Street"],
   ["PARK",      "Park"],
-  ["COMMENTS",  "Comments"]
+  ["COMMENTS",  "Comments"],
+  ["TPZ_FENC",  "TPZ fencing"],
+  ["ROOT_EXC",  "Root-sensitive excavation"],
+  ["TREE_REM",  "Tree removal"],
+  ["CAN_PRUNE", "Canopy clearance pruning"],
+  ["ELV_RISK",  "Elevated tree risk"]
 ];
+/* Yes or blank, and BLANK IS OFFERED AS A REAL CHOICE rather than as "clear the
+   field" — on a treatment column, empty is the answer "not this one", and somebody
+   correcting a mis-ticked tree has to be able to say so. */
+const YESNO_D = [["Yes","Yes"],["","No / not applicable"]];
 const COMP_INCL_D = [["","Follow the proposed action"],["Y","Yes — include this tree"],["N","No — exclude this tree"]];
 const YR_EXEMPT_D = [["","Work it out from the species"],["Y","Exempt"],["N","Not exempt"]];
 
 // The pick list for a field, or null when it is free text.
 function bulkValues(field){
+  if(TREAT_KEYS.indexOf(field) >= 0) return YESNO_D;
   if(field === "HEALTH")    return HEALTH_D;
   if(field === "COMP_INCL") return COMP_INCL_D;
   if(field === "YR_EXEMPT") return YR_EXEMPT_D;
@@ -12239,7 +13290,12 @@ async function runSingleExport(opt){
 
   refLayers.forEach(L2=>{
     if(!L2.visible) return;
-    g.strokeStyle=L2.color; g.lineWidth=3; g.fillStyle=L2.color+"22";
+    /* The weight is scaled to the SHEET, not to the screen: 3 px on a 2200 px plan is
+       a third of a millimetre on paper and disappears. */
+    const lw = Math.max(2, Math.round(PDF_DPI * 0.012 * layerWeight(L2)));
+    g.strokeStyle=L2.color; g.lineWidth=lw; g.fillStyle=L2.color+"22";
+    g.lineJoin="round"; g.lineCap="round";
+    g.setLineDash(layerDash(L2) ? [lw*3, lw*2] : []);
     L2.features.forEach(f=>{
       const bb=featureBBox(f);
       if(bb && (bb.s>b.getNorth()||bb.n<b.getSouth()||bb.w>b.getEast()||bb.e<b.getWest())) return;
@@ -12248,6 +13304,7 @@ async function runSingleExport(opt){
       if(f.geom.t==="ln") eachRing(f.geom.c, r=>{ path(r); g.stroke(); });
       else if(f.geom.t==="pg") eachPoly(f.geom.c, rings=>rings.forEach(r=>{ path(r); g.closePath(); g.fill(); g.stroke(); }));
     });
+    g.setLineDash([]);
   });
 
   /* THE FENCE AND THE PLANTINGS GO ON THE PLAN. Drawing a tree protection fence is
@@ -12258,19 +13315,25 @@ async function runSingleExport(opt){
      never hide a pin. */
   const sheetF = featsOnSheet(b);
   const sheetPlants = sheetF.filter(f=>f.kind==="planting");
-  sheetFeats = { fences: sheetF.filter(f=>f.kind==="fence").length,
+  sheetFeats = { fences: sheetF.filter(f=>f.kind==="fence" && !isRootExc(f)).length,
+                 rootexc: sheetF.filter(f=>f.kind==="fence" && isRootExc(f)).length,
                  plantings: sheetPlants.length,
                  caliper: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))!=="sapling").length,
                  sapling: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))==="sapling").length };
   const fenceW = Math.max(3, Math.round(PDF_DPI*0.035));
   sheetF.filter(f=>f.kind==="fence" && f.pts.length>1).forEach(f=>{
-    g.strokeStyle="#FF6D00"; g.lineWidth=fenceW; g.lineJoin="round"; g.lineCap="round";
+    g.strokeStyle=fenceColor(f); g.lineWidth=fenceW; g.lineJoin="round"; g.lineCap="round";
+    /* An excavation line is dashed on the plan as well as a different colour — a
+       drawing gets printed in black and white often enough that colour alone is not
+       a distinction you can rely on. */
+    g.setLineDash(isRootExc(f) ? [fenceW*3, fenceW*2] : []);
     g.beginPath();
     f.pts.forEach((pt,i)=>{ const p=P(+pt[0],+pt[1]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); });
     // A white casing under the orange, so the line still reads over dark imagery —
     // the same reason the north arrow and scale bar sit on white blocks.
-    g.save(); g.strokeStyle="rgba(255,255,255,.85)"; g.lineWidth=fenceW*1.9; g.stroke(); g.restore();
+    g.save(); g.strokeStyle="rgba(255,255,255,.85)"; g.lineWidth=fenceW*1.9; g.setLineDash([]); g.stroke(); g.restore();
     g.stroke();
+    g.setLineDash([]);
   });
 
   const shown = opt.bounds ? seriesTrees().filter(t=>{
@@ -13587,11 +14650,15 @@ function sheetLegendRows(shown){
     return true;
   }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
   if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
-  if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:"#FF6D00", kind:"line"});
+  if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:FENCE_COLOR, kind:"line"});
+  if(sheetFeats.rootexc)   present.push({label:"Root-sensitive excavation", color:ROOTEXC_COLOR, kind:"line", dashed:true});
   if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
   if(sheetFeats.sapling) present.push({label:"Proposed sapling, within the woodlot", color:"#66BB6A", kind:"dot"});
-  refLayers.filter(l=>l.visible).forEach(l=>
-    present.push({label:l.name, color:l.color, kind:(l.role==="street"?"line":"square")}));
+  /* A LAYER CAN BE ON THE MAP AND OFF THE LEGEND. Base information — a parcel
+     fabric, an aerial index — belongs on the drawing and not in the key, and a legend
+     with twelve rows nobody needs is a legend nobody reads. */
+  refLayers.filter(l => l.visible && layerInLegend(l)).forEach(l =>
+    present.push({ label:l.name, color:l.color, kind:layerLegendKind(l), dashed:layerDash(l) }));
   if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
   return present;
 }
@@ -13697,7 +14764,11 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
       g.fillStyle=r.color; g.fillRect(px2+8-rr, cy-rr, rr*2, rr*2); g.strokeRect(px2+8-rr, cy-rr, rr*2, rr*2);
     } else if(r.kind==="line"){
       g.strokeStyle=r.color; g.lineWidth=Math.round(PDF_DPI*0.03);
+      /* A dashed line in the drawing is a dashed line in the key, or the key does not
+         identify it — which is the whole job of a key. */
+      if(r.dashed) g.setLineDash([Math.round(PDF_DPI*0.05), Math.round(PDF_DPI*0.035)]);
       g.beginPath(); g.moveTo(px2+8-rr, cy); g.lineTo(px2+8+rr, cy); g.stroke();
+      g.setLineDash([]);
     } else if(r.kind==="circle"){
       g.strokeStyle=r.color; g.lineWidth=2; g.setLineDash([5,4]);
       g.beginPath(); g.arc(px2+8, cy, rr, 0, 7); g.stroke(); g.setLineDash([]);
@@ -14506,6 +15577,14 @@ function showHelp(){
     <p><b>Red halo</b><br>A tree with a red halo has been opened, checked and saved by someone in the field. Imported trees have no halo until you visit them, so on a street loaded from an existing layer you can see at a glance how much is left. The statistics panel counts them as "field checked".</p>
     <p><b>Labels</b><br>The tag button turns labels on and off without losing the attributes you picked. Hold it, or use Menu → Label settings, to change which fields show.</p>
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
+    <p><b>Naming a layer for the legend</b><br>The <b>✎</b> button on any layer in <i>Layers &amp; reference files</i> sets what that layer is called, and <b>the name is the legend wording</b> — one string on the layer list, the legend on screen and the legend on the plan sheet, so they cannot disagree. A layer arrives called whatever the file was called; <i>Prop_SWM_Pond_rev3</i> is not what should print on a drawing going to a municipality.<br><br>The same screen sets the <b>colour</b> (twelve to pick from, or type a hex code), the <b>line weight</b>, whether it draws <b>dashed</b> — on the map and on the plan, and dashed in the key too, or the key does not identify it — and the <b>legend symbol</b>, which is otherwise taken from what the layer actually holds: a line layer gets a line, an area layer a hatch box, a point layer a dot. <b>In the legend</b> can be turned off for base information that belongs on the drawing but not in the key.</p>
+
+    <p><b>Tree protection treatments</b><br>Five ticks on the tree form — <i>TPZ fencing</i>, <i>Root-sensitive excavation</i>, <i>Tree removal</i>, <i>Canopy clearance pruning</i>, <i>Elevated tree risk</i> — because a tree commonly gets more than one and a sentence describing them cannot be counted. Each is its own column, so <i>Find trees by attribute</i> filters on them, the bulk edit sets them on a whole selection, and they go out in the CSV, the shapefile and the Excel. A tick is stored as <i>Yes</i>; an unticked box is left <b>blank rather than "No"</b>, so a tree nobody has been through yet looks unanswered instead of looking like a considered no.<br><br><i>Menu → Tree protection &amp; reporting → Tree protection treatments</i> gives the table: how many trees carry each treatment, <b>how many carry more than one</b>, which combinations occur, and then the trees themselves with a tick under each column. The two totals are printed separately on purpose — a job with 42 treated trees can easily carry 58 treatments, and the second read as the first is a scope priced half again too high.</p>
+
+    <p><b>Fences &amp; protection lines from a layer</b><br><i>Menu → Tree protection &amp; reporting → Fences &amp; protection lines from a layer</i> reads a line shapefile (or GeoJSON) and turns each run into a protection-plan line on this project, so fencing laid out in a GIS does not have to be redrawn by thumb. Choose what the lines are — the type list includes <b>root-sensitive excavation</b>, which draws in a different colour and dashed on the plan so it still reads in black and white, and is counted separately from fencing in the legend. Lengths are re-measured from the geometry rather than taken from a column, so the length on the plan is the length of the line on the plan. A protection zone handed over as a polygon is accepted too — its boundary becomes the line.</p>
+
+    <p><b>Standard detail drawings</b><br><i>Menu → Tree protection &amp; reporting → Standard detail drawings</i>. Upload the <b>PDFs</b> a municipality publishes — barrier detail, signage, root zone protection, stem protection, planting details — and tag them with the municipality they came from. <b>Each page of a PDF becomes its own drawing</b>, so a twelve-page standards document gives you the three drawings that belong in a report rather than all twelve.<br><br>The library is <b>shared and permanent</b>: it goes to Drive, so the phone that downloaded the PDF and the machine that assembles the document see the same drawings, and they are still there on the next job and the next device. Adding one with no signal keeps it on the device and sends it on the next connection.<br><br>You <b>choose by looking</b>. The drawings are shown as thumbnails grouped by municipality — tap one to see it full size, tick the ones this job needs. The choice belongs to the <b>project</b>, not the library: ticking Richmond Hill's barrier detail does not tick it for the Aurora job you open next week, and re-assembling the same document in a year gives the same drawings in the same order.<br><br>Under the grid, the chosen ones are listed in the order they will print. Move them with <b>↑ Up</b> and <b>↓ Down</b>, send each one to either <b>Standard details</b> or the <b>Appendix</b>, and add a <b>caption</b> if it needs one — <i>leave it blank if the drawing already carries its own title</i> and nothing is printed under it. <i>Edit</i> renames, retags or captions a drawing for everybody; <i>Remove</i> takes it out of the library, out of every project that had chosen it, and to the Drive trash.</p>
+
     <p><b>Sheet &amp; photo check</b><br><i>Menu → Sync &amp; the Sheet → Sheet &amp; photo check</i>, or the <i>check</i> link beside a photograph that would not load. It asks the Sheet the things the app cannot see from the outside and prints the answers: <b>which Code.gs the Sheet is actually running</b>, how many folders answer to the name <i>Street Tree Photos</i> and which one is being used, whether one named photograph is there and how it was found, and how many photographs on this device have never reached Drive. It settles a stale deployment <b>without the Sheet being updated first</b>: an action a deployment has never heard of falls through to its own index, and a reply of that shape is proof the Sheet is behind.</p>
 
     <p><b>When a photograph will not show</b><br>The popup lays out a <b>slot for each photograph the moment it opens</b>, so a tree with photographs never looks like one without any while they are being fetched, and a slot that cannot be filled is marked and <b>says why</b> — four things used to look identical and only one of them is about the photograph. <i>No photographs on this tree</i> means exactly that. <i>The photo store is open in another tab or window</i> is the one to know about on a desktop: close the other tabs showing this app and reload. <i>No connection</i> and <i>not found on Drive</i> are the other two. <b>Try again</b> beside the message forgets the failure and re-asks, which matters when a photograph is still being backed up from somebody's phone. The same message appears under the strip in the edit form and in the full-size viewer.</p>
@@ -14563,7 +15642,6 @@ function showHelp(){
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
     <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. If one shows blank, pan to your site and tap <b>Test these over this view</b> — the app asks each service for a real tile there and keeps whatever settings work. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
-    <p><b>Standard detail drawings</b><br><i>Menu → Standard detail drawings</i> keeps your municipality's approved details on the device — TPZ barrier, signage, protection notes, root zone compaction, stem protection, planting details. Tick the ones you want and the map export appends them as full pages. They are added by you rather than built in, since every municipality has its own.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
     <p><b>Map sheet number</b><br>Producing a map series stamps each tree with the sheet it falls on, so the inventory table can say where to find it. The column appears in Schedule A once a series has been made.</p>
     <p><b>Protection zones on the map</b><br>The 🛡 button draws each tree's protection zone as a dashed circle at its true size on the ground — 2.4 m up to 24 cm DBH, then DBH ÷ 10 — so you can see at a glance where zones overlap and where works would encroach. A tree with no DBH yet gets no circle. They sit under the pins and cannot take a tap meant for a tree, and the setting is remembered.</p>
@@ -14627,6 +15705,7 @@ window.addEventListener("offline", netDot);
   window.addEventListener("resize", syncBarHeight);
   window.addEventListener("orientationchange", ()=>setTimeout(syncBarHeight,250));
   buildHealthChips();
+  buildTreatBox();
   buildPickers();
   $("btnGo").classList.add("nofix");
   wireChangeTracking();
@@ -14648,6 +15727,9 @@ window.addEventListener("offline", netDot);
   flushDomains();
   backfillCRSPush();
   flushSettings();
+  /* The library index, so the picker opens instantly; and anything the pre-v140
+     version left in localStorage, carried across once. */
+  loadDetailLib().then(migrateOldDetails);
   /* Fences, plantings and their deletions queue on the phone exactly as the trees do,
      so anything drawn with no signal goes up on the next launch. Without this they
      were sent only in the 600 ms after a save: a fence drawn offline, with nothing
