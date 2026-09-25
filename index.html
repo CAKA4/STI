@@ -1495,6 +1495,14 @@
       <div class="mini" id="filPhaseCount" style="margin-top:6px">—</div>
     </div>
 
+    <div class="fld">
+      <label>Trees already removed</label>
+      <label class="chk"><input id="filHideRemoved" type="checkbox" onchange="filRemovedCount()">
+        Hide trees recorded as <b>Removed</b></label>
+      <div class="mini" id="filRemovedCount">—</div>
+      <div class="mini">A tree that is already gone is not on the plan, is not numbered and is not in the table. Everything follows this one switch, so they cannot disagree.</div>
+    </div>
+
     <div class="mini">Only what is on this phone is listed. Use “Load trees from Sheet” to bring another project down first.</div>
     <div class="btnrow">
       <button class="primary" onclick="applyFilter()">Show these</button>
@@ -1713,7 +1721,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-25 · v143";
+const APP_BUILD  = "2026-09-25 · v145";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -1721,7 +1729,7 @@ const APP_BUILD  = "2026-09-25 · v143";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-25 · v143";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-25 · v144";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2088,14 +2096,43 @@ try{ showAllProjects = (STORE&&STORE.getItem("st_showall"))==="1"; }catch(e){}
 let filterProject = "", filterCruiser = "";
 /* The phase being reported on, as YYYY-MM-DD, either end optional. */
 let filterFrom = "", filterTo = "";
+/* A TREE THAT IS ALREADY GONE IS NOT ON THE PLAN.
+
+   Chris: "filter the trees to this phase of the project and show all trees,
+   excluding those with health of removed… then renumber the trees for the plan and
+   labeling. The report table will not include trees that have a health of removed."
+
+   Applied HERE, with the project, the recorder and the phase, rather than in each
+   export — which is the same reason the phase filter lives here. One answer to "which
+   trees is this report about", so the map, the numbering, Schedule A, Table 1, the
+   compensation table and the photographs cannot disagree. Hiding removed trees in the
+   table but numbering them on the plan is exactly the kind of disagreement that ends
+   up on a drawing. */
+const HIDE_HEALTH = ["Removed"];
+let hideRemoved = false;
 try{ filterProject = (STORE&&STORE.getItem("st_fproj")) || ""; }catch(e){}
 try{ filterCruiser = (STORE&&STORE.getItem("st_fcru")) || ""; }catch(e){}
 try{ filterFrom = (STORE&&STORE.getItem("st_ffrom")) || ""; }catch(e){}
 try{ filterTo   = (STORE&&STORE.getItem("st_fto"))   || ""; }catch(e){}
+try{ hideRemoved = (STORE&&STORE.getItem("st_fhide")) === "1"; }catch(e){}
+function isHiddenHealth(t){
+  return HIDE_HEALTH.indexOf(String((t && t.HEALTH) || "").trim()) >= 0;
+}
+/* Would this tree be showing if the removed filter were off? Asked by turning the
+   filter off and putting the tree through the SAME function everything else uses,
+   rather than re-implementing the project, recorder and phase tests here — two
+   copies of that logic drifting apart is how a report ends up on the wrong trees. */
+function wouldShowButForHealth(t){
+  if(!hideRemoved || !isHiddenHealth(t)) return false;
+  hideRemoved = false;
+  try { return inCurrentProject(t); }
+  finally { hideRemoved = true; }
+}
 function persistFilters(){
   if(!STORE) return;
   try{ STORE.setItem("st_fproj", filterProject); STORE.setItem("st_fcru", filterCruiser);
-       STORE.setItem("st_ffrom", filterFrom);    STORE.setItem("st_fto", filterTo); }catch(e){}
+       STORE.setItem("st_ffrom", filterFrom);    STORE.setItem("st_fto", filterTo);
+       STORE.setItem("st_fhide", hideRemoved ? "1" : "0"); }catch(e){}
 }
 function projectOf(t){ return String(t.PROJECT||"").trim(); }
 /* WHEN a tree was last recorded, as YYYY-MM-DD. DATE is stamped on every save, so
@@ -2103,6 +2140,7 @@ function projectOf(t){ return String(t.PROJECT||"").trim(); }
 function treeDay(t){ return String(t.DATE||"").slice(0,10); }
 
 function inCurrentProject(t){
+  if(hideRemoved && isHiddenHealth(t)) return false;
   if(filterCruiser && String(t.CRUISER||"").toLowerCase() !== filterCruiser.toLowerCase()) return false;
   /* THE PHASE FILTER. A job of seven hundred trees is reported on in phases, and a
      phase is the run of trees visited between two dates. Applied HERE rather than in
@@ -2132,6 +2170,9 @@ function scopeLabel(){
   if(filterFrom && filterTo) bits.push(filterFrom === filterTo ? filterFrom : filterFrom + " to " + filterTo);
   else if(filterFrom) bits.push("from " + filterFrom);
   else if(filterTo)   bits.push("to " + filterTo);
+  /* A filter that is on but invisible is how a report gets built on the wrong trees.
+     This one hides trees, so it says so. */
+  if(hideRemoved) bits.push("no removed");
   return bits.join(" · ");
 }
 function visibleTrees(){ return trees.filter(inCurrentProject); }
@@ -3736,16 +3777,33 @@ function renumberProject(){
   if(!list.length){ toast("Nothing is showing to renumber",true); return; }
 
   const rest = whole.filter(t=>list.indexOf(t) < 0);
+
+  /* THE REMOVED TREES GO ON THE END, and this is the whole reason the health filter
+     and the renumber have to know about each other.
+
+     Hide the removed trees, renumber the rest 1 to N, and those removed trees are
+     still sitting on numbers inside 1..N — two trees on one number, which is the
+     exact problem renumbering exists to solve. Leaving them out and refusing would
+     block the thing Chris actually asked for. So a tree that is out of the list ONLY
+     because it is recorded as Removed is renumbered too, AFTER the ones on the plan:
+     the plan and the table read 1 to N with no gaps, every number stays unique, and
+     a tree that is already gone keeps a number for the record rather than losing one.
+
+     A tree left out for any other reason — another recorder, another phase — is not
+     touched, and still blocks a clash the way it always did. */
+  const tail = rest.filter(wouldShowButForHealth);
+  const other = rest.filter(t => tail.indexOf(t) < 0);
+  const span = list.length + tail.length;
   const scope = scopeLabel();
-  const partial = rest.length > 0;
+  const partial = other.length > 0;
 
   /* The numbers about to be handed out, checked against the trees this is NOT
      touching. Naming them matters: "renumber the whole project instead" is only
      obviously right once you can see what is in the way. */
   if(partial){
-    const clash = rest.filter(t=>{ const n = parseInt(t.TREE_NO,10); return n>0 && n<=list.length; });
+    const clash = other.filter(t=>{ const n = parseInt(t.TREE_NO,10); return n>0 && n<=span; });
     if(clash.length){
-      alert(`Cannot renumber these ${list.length} tree(s) as 1 to ${list.length}.\n\n` +
+      alert(`Cannot renumber these ${span} tree(s) as 1 to ${span}.\n\n` +
         `${clash.length} other tree(s) in "${p}" already use numbers in that range, so this ` +
         `would put two trees on the same number — which is the problem it is meant to solve.\n\n` +
         `Either clear the Showing filter and renumber the whole project, or move these ` +
@@ -3761,7 +3819,10 @@ function renumberProject(){
     `Showing: ${scope}\n` +
     `Order: ${dir} — NOT the order they were collected in, which is not always the ` +
     `order they stand in.\n` +
-    (partial ? `This is ${list.length} of the ${whole.length} tree(s) in "${p}". The other ${rest.length} keep their numbers.\n` : "") +
+    (tail.length ? `\n${tail.length} tree(s) recorded as Removed are hidden, so they are not on the ` +
+                   `plan and not in the table. They are numbered ${list.length+1} to ${span} ` +
+                   `after the rest, so no two trees share a number.\n` : "") +
+    (partial ? `\nThis is ${span} of the ${whole.length} tree(s) in "${p}". The other ${other.length} keep their numbers.\n` : "") +
     `\n${have} already carry a number, which will change. Anything already printed or tagged will no longer match.\n\n` +
     `Only the tree NUMBER changes. The tree's record id (TREE_ID) is untouched, so nothing in the Sheet is duplicated or lost.`)) return;
 
@@ -3770,8 +3831,14 @@ function renumberProject(){
      never touch it, or a renumber would become a second copy of every tree. */
   const ordered = geoOrder(list);
   ordered.forEach((t,i)=>{ if(String(t.TREE_NO)!==String(i+1)){ t.TREE_NO=i+1; t._sent=false; } });
+  // The removed ones, in their own geographic order, on the end.
+  geoOrder(tail).forEach((t,i)=>{
+    const n = ordered.length + i + 1;
+    if(String(t.TREE_NO)!==String(n)){ t.TREE_NO=n; t._sent=false; }
+  });
   persistTrees(); renderPins(); renderLabels();
-  toast(`Renumbered ${ordered.length} tree(s) 1–${ordered.length} · ${dir}`);
+  toast(`Renumbered ${ordered.length} tree(s) 1–${ordered.length} · ${dir}` +
+        (tail.length ? ` · ${tail.length} removed tree(s) put after them` : ""));
   setTimeout(syncNow, 600);
 }
 
@@ -5091,27 +5158,51 @@ function retryPopupPhotos(i){
 }
 /* Full-size viewer. Reads from the device archive so it works with no signal;
    the Drive link is offered alongside when there is one. */
+let lbToken = 0;
 function openLightbox(i,k){
   const t = trees[i]; if(!t) return;
   const names = String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
   const links = String(t.PHOTO_LINK||"").split(";").map(x=>x.trim());
   const fn = names[k]; if(!fn) return;
+  const mine = ++lbToken;
+
+  /* OPEN IMMEDIATELY ON THE THUMBNAIL. A full-size photograph off Drive takes real
+     seconds on a machine that did not take it, and a viewer that shows nothing at all
+     while it waits is indistinguishable from one that has failed — which is exactly
+     how this looked before. Show what is already in hand, say the full size is
+     coming, and swap it in when it lands. */
+  const d0 = $("lbDrive");
+  if(links[k]){ d0.href = links[k]; d0.style.display = "inline-block"; } else d0.style.display = "none";
+  const cap = `${t.TREE_ID} · photo ${k+1} of ${names.length}`;
+  $("lbCap").textContent = cap;
+  $("lightbox").classList.add("show");
+  const held = driveThumbs.get(fn);
+  if(held){ $("lbImg").src = held; $("lbCap").textContent = cap + " · loading full size…"; }
+  else {
+    photoThumbInfo(fn).then(r => {
+      if(mine !== lbToken || !r.src || !$("lightbox").classList.contains("show")) return;
+      if(!$("lbImg").src || $("lbImg").src === held) $("lbImg").src = r.src;
+    }).catch(()=>{});
+    $("lbCap").textContent = cap + " · loading…";
+  }
+
   photoFull(fn).then(src=>{
+    if(mine !== lbToken) return;              // another photo was opened meanwhile
+    $("lbCap").textContent = cap;
     if(!src){
       /* Says WHICH of them it is. "Not on this phone" was the only message, and on an
          office machine that is true of every photograph and explains none of them.
          The store failing to open is now named separately, because that one is fixed
          by closing another tab rather than by looking on Drive. */
       const why = !connected ? "nolink" : isOffline() ? "offline" : (idbTrouble || "missing");
+      /* The thumbnail is still on screen, so this is "you are looking at the small
+         one", not "there is nothing here". */
+      $("lbCap").textContent = cap + ($("lbImg").src ? " · full size unavailable" : "");
       toast("That photo is " + (PHOTO_WHY[why] || PHOTO_WHY.missing), true);
       return;
     }
     $("lbImg").src = src;
-    $("lbCap").textContent = `${t.TREE_ID} · photo ${k+1} of ${names.length}`;
-    const d = $("lbDrive");
-    if(links[k]){ d.href = links[k]; d.style.display = "inline-block"; } else d.style.display = "none";
-    $("lightbox").classList.add("show");
-  }).catch(()=>{});
+  }).catch(()=>{ if(mine === lbToken) $("lbCap").textContent = cap; });
 }
 function closeLightbox(e, force){
   // Tapping the image itself should not close it — only the backdrop or the button.
@@ -13855,7 +13946,7 @@ async function runSeriesExport(){
    photographs are already on the device — so the pile-up only ever happened on the
    machine the report is written on. */
 let drivePhotoQ = Promise.resolve();
-const PHOTO_FETCH_MS = 25000;
+const PHOTO_FETCH_MS = 30000, PHOTO_FULL_MS = 60000;
 /* WHAT THE SHEET ACTUALLY SAID, rather than merely whether a photograph arrived.
 
    Four replies are possible and they mean entirely different things:
@@ -13876,19 +13967,31 @@ const PHOTO_FETCH_MS = 25000;
    it away. */
 function readPhotoReply(r){
   if(!r) return { data:null, why:"slow" };
-  if(r.ok && r.data) return { data:r.data };
+  if(r.ok && r.data) return { data:r.data, thumb: !!r.thumb, bytes: Number(r.bytes) || 0 };
   // An action this deployment has never heard of lands on doGet's own index.
   if(r.service || Array.isArray(r.actions)) return { data:null, why:"stale", note:r.build || "" };
   return { data:null, why:"missing", note: String(r.error || "").slice(0,200) };
 }
-function photoFromDrive(name){
+/* ASK FOR A THUMBNAIL WHEN A THUMBNAIL IS WHAT IS BEING DRAWN.
+
+   A picture 46 pixels across was being served as the full-size photograph: half a
+   megabyte off Drive, a third bigger again as base64, handed over as a <script> for
+   the browser to parse. On the machine the report is written on — the only one that
+   has to fetch at all — that regularly ran past the wait and came back "timed out".
+   Drive keeps a thumbnail of every image it holds; it is about a hundredth of the
+   bytes and needs no encoding. The full image is still fetched for the viewer and
+   for Schedule B, where the wait is expected and there is a progress line for it. */
+function photoFromDrive(name, wantThumb){
   const run = () => new Promise(res=>{
     if(!connected) return res({ data:null, why:"nolink" });
     if(isOffline()) return res({ data:null, why:"offline" });
-    /* NOT the 90-second default. That is right for a tool the crew starts and waits
-       on; it is not right for a thumbnail, where a minute and a half of blank space
-       is indistinguishable from the feature being broken. */
-    jsonpGet("photo", { name:name }, r => res(readPhotoReply(r)), PHOTO_FETCH_MS);
+    const q = { name:name };
+    if(wantThumb) q.thumb = "1";
+    /* NOT the 90-second default, which is right for a tool the crew starts and waits
+       on. A thumbnail gets 30 seconds; a full image, which is genuinely large, gets
+       twice that rather than being cut off just as it arrives. */
+    jsonpGet("photo", q, r => res(readPhotoReply(r)),
+             wantThumb ? PHOTO_FETCH_MS : PHOTO_FULL_MS);
   });
   const p = drivePhotoQ.then(run, run);
   drivePhotoQ = p.then(()=>{}, ()=>{});
@@ -13935,7 +14038,8 @@ const PHOTO_WHY = {
   offline:  "on Drive \u2014 this device has no connection",
   nolink:   "no Sheet to fetch it from",
   missing:  "not on this device, and not found on Drive",
-  slow:     "Drive did not answer in time \u2014 tap to try again",
+  slow:     "Drive did not answer in time \u2014 tap to try again. If it keeps happening, " +
+            "the Drive button opens the photograph directly.",
   /* NOT A PHOTOGRAPH PROBLEM. The Sheet is running an older Code.gs that has no
      photo action at all, so no photograph can ever be fetched on any device that
      did not take it. */
@@ -13954,7 +14058,7 @@ async function photoThumbInfo(name){
      and are never remembered — plug the machine back in and it works. */
   if(!connected)  return { src:null, why:"nolink" };
   if(isOffline()) return { src:null, why:"offline" };
-  const got = await photoFromDrive(name);
+  const got = await photoFromDrive(name, true);
   if(!got.data){
     /* The Sheet's own answer wins over the local store's, because "the deployment is
        behind" and "the Drive folder does not have it" are both actionable and
@@ -13966,10 +14070,14 @@ async function photoThumbInfo(name){
   }
   const full = got.data;
   let small = full;
-  try{
-    const im = await loadImg(full);
-    if(im) small = renderThumbJpeg(im);
-  }catch(e){}
+  /* Drive's own thumbnail is already small — re-encoding it only upscales a 128 px
+     picture to 200 and loses a little of it. Only a full image needs shrinking. */
+  if(!got.thumb){
+    try{
+      const im = await loadImg(full);
+      if(im) small = renderThumbJpeg(im);
+    }catch(e){}
+  }
   if(driveThumbs.size >= DRIVE_THUMB_MAX) driveThumbs.delete(driveThumbs.keys().next().value);
   driveThumbs.set(name, small);
   return { src: small };
@@ -15165,11 +15273,25 @@ function openFilter(){
   $("filStats").textContent = `${trees.length} trees on this phone · ${Object.keys(pj).length} project(s) · ${Object.keys(cr).length} recorder(s)`;
   $("filFrom").value = filterFrom;
   $("filTo").value   = filterTo;
-  filPhaseCount();
+  if($("filHideRemoved")) $("filHideRemoved").checked = hideRemoved;
+  filPhaseCount(); filRemovedCount();
   $("filFrom").onchange = filPhaseCount;
   $("filTo").onchange   = filPhaseCount;
   $("filterSheet").classList.add("show");
 }
+/* How many it would take out, before it is switched on. */
+function filRemovedCount(){
+  const el = $("filRemovedCount"); if(!el) return;
+  const scope = trees.filter(t => {
+    if(filterProject) return projectOf(t).toLowerCase() === filterProject.toLowerCase();
+    if(showAllProjects || !settings.project) return true;
+    return projectOf(t).toLowerCase() === settings.project.toLowerCase();
+  });
+  const n = scope.filter(isHiddenHealth).length;
+  el.textContent = n ? `${n} of the ${scope.length} tree(s) in view are recorded as Removed`
+                     : "None of the trees in view are recorded as Removed";
+}
+
 /* The count BEFORE committing to it. "230 trees" or "0 trees" is the difference
    between the right phase and a wasted afternoon building a report on nothing. */
 function filPhaseCount(){
@@ -15201,6 +15323,7 @@ function applyFilter(){
   filterCruiser = $("filCruiser").value==="__none__" ? "" : $("filCruiser").value;
   filterFrom = String($("filFrom").value||"").slice(0,10);
   filterTo   = String($("filTo").value||"").slice(0,10);
+  hideRemoved = !!($("filHideRemoved") && $("filHideRemoved").checked);
   // Entered the wrong way round is a mistake, not an empty result.
   if(filterFrom && filterTo && filterFrom > filterTo){ const x=filterFrom; filterFrom=filterTo; filterTo=x; }
   showAllProjects = !filterProject;
@@ -15232,7 +15355,7 @@ function applyFilter(){
   if(n) fitTrees();
 }
 function clearFilter(){
-  filterProject=""; filterCruiser=""; filterFrom=""; filterTo="";
+  filterProject=""; filterCruiser=""; filterFrom=""; filterTo=""; hideRemoved=false;
   showAllProjects=true; persistFilters();
   renderPins(); updateProjBtn(); closeFilter(); toast("Showing everything");
 }
@@ -15604,6 +15727,8 @@ function showHelp(){
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
     <p><b>Naming a layer for the legend</b><br>The <b>✎</b> button on any layer in <i>Layers &amp; reference files</i> sets what that layer is called, and <b>the name is the legend wording</b> — one string on the layer list, the legend on screen and the legend on the plan sheet, so they cannot disagree. A layer arrives called whatever the file was called; <i>Prop_SWM_Pond_rev3</i> is not what should print on a drawing going to a municipality.<br><br>The same screen sets the <b>colour</b> (twelve to pick from, or type a hex code), the <b>line weight</b>, whether it draws <b>dashed</b> — on the map and on the plan, and dashed in the key too, or the key does not identify it — and the <b>legend symbol</b>, which is otherwise taken from what the layer actually holds: a line layer gets a line, an area layer a hatch box, a point layer a dot. <b>In the legend</b> can be turned off for base information that belongs on the drawing but not in the key.</p>
 
+    <p><b>Leaving out the trees that are already gone</b><br>In <i>Showing</i>, tick <b>Hide trees recorded as Removed</b>. It sits with the project, the recorder and the phase for a reason: everything downstream reads one answer to <i>which trees is this report about</i>, so the map, the labels, the numbering, Schedule A, Table 1, the compensation table, the photographs and the plan sheet cannot disagree. The button says <i>no removed</i> while it is on, because a filter that hides trees and does not admit it is how a report gets built on the wrong set.<br><br><b>Renumbering knows about it.</b> Number the showing trees 1 to N with removed trees hidden and those hidden trees would still be sitting on numbers inside 1 to N — two trees on one number, which is the problem renumbering exists to solve. So a tree left out <i>only</i> because it is Removed is renumbered too, immediately after the rest: the plan and the table read 1 to N with no gaps, every number stays unique, and a tree that is already gone keeps a number for the record. A tree left out for any other reason — another recorder, another phase — is not touched, and still stops a renumber that would collide with it.</p>
+
     <p><b>Tree protection treatments</b><br>Five ticks on the tree form — <i>TPZ fencing</i>, <i>Root-sensitive excavation</i>, <i>Tree removal</i>, <i>Canopy clearance pruning</i>, <i>Elevated tree risk</i> — because a tree commonly gets more than one and a sentence describing them cannot be counted. Each is its own column, so <i>Find trees by attribute</i> filters on them, the bulk edit sets them on a whole selection, and they go out in the CSV, the shapefile and the Excel. A tick is stored as <i>Yes</i>; an unticked box is left <b>blank rather than "No"</b>, so a tree nobody has been through yet looks unanswered instead of looking like a considered no.<br><br><i>Menu → Tree protection &amp; reporting → Tree protection treatments</i> gives the table: how many trees carry each treatment, <b>how many carry more than one</b>, which combinations occur, and then the trees themselves with a tick under each column. The two totals are printed separately on purpose — a job with 42 treated trees can easily carry 58 treatments, and the second read as the first is a scope priced half again too high.</p>
 
     <p><b>Fences &amp; protection lines from a layer</b><br><i>Menu → Tree protection &amp; reporting → Fences &amp; protection lines from a layer</i> reads a line shapefile (or GeoJSON) and turns each run into a protection-plan line on this project, so fencing laid out in a GIS does not have to be redrawn by thumb. Choose what the lines are — the type list includes <b>root-sensitive excavation</b>, which draws in a different colour and dashed on the plan so it still reads in black and white, and is counted separately from fencing in the legend. Lengths are re-measured from the geometry rather than taken from a column, so the length on the plan is the length of the line on the plan. A protection zone handed over as a polygon is accepted too — its boundary becomes the line.</p>
@@ -15611,6 +15736,8 @@ function showHelp(){
     <p><b>Standard detail drawings</b><br><i>Menu → Tree protection &amp; reporting → Standard detail drawings</i>. Upload the <b>PDFs</b> a municipality publishes — barrier detail, signage, root zone protection, stem protection, planting details — and tag them with the municipality they came from. <b>Each page of a PDF becomes its own drawing</b>, so a twelve-page standards document gives you the three drawings that belong in a report rather than all twelve.<br><br>The library is <b>shared and permanent</b>: it goes to Drive, so the phone that downloaded the PDF and the machine that assembles the document see the same drawings, and they are still there on the next job and the next device. Adding one with no signal keeps it on the device and sends it on the next connection.<br><br>You <b>choose by looking</b>. The drawings are shown as thumbnails grouped by municipality — tap one to see it full size, tick the ones this job needs. The choice belongs to the <b>project</b>, not the library: ticking Richmond Hill's barrier detail does not tick it for the Aurora job you open next week, and re-assembling the same document in a year gives the same drawings in the same order.<br><br>Under the grid, the chosen ones are listed in the order they will print. Move them with <b>↑ Up</b> and <b>↓ Down</b>, send each one to either <b>Standard details</b> or the <b>Appendix</b>, and add a <b>caption</b> if it needs one — <i>leave it blank if the drawing already carries its own title</i> and nothing is printed under it. <i>Edit</i> renames, retags or captions a drawing for everybody; <i>Remove</i> takes it out of the library, out of every project that had chosen it, and to the Drive trash.</p>
 
     <p><b>Sheet &amp; photo check</b><br><i>Menu → Sync &amp; the Sheet → Sheet &amp; photo check</i>, or the <i>check</i> link beside a photograph that would not load. It asks the Sheet the things the app cannot see from the outside and prints the answers: <b>which Code.gs the Sheet is actually running</b>, how many folders answer to the name <i>Street Tree Photos</i> and which one is being used, whether one named photograph is there and how it was found, and how many photographs on this device have never reached Drive. It settles a stale deployment <b>without the Sheet being updated first</b>: an action a deployment has never heard of falls through to its own index, and a reply of that shape is proof the Sheet is behind.</p>
+
+    <p><b>Why a photograph is slow on a machine that did not take it</b><br>The phone that took a photograph has it in its own store and never asks for it. Every other machine has to fetch it from Drive, and what it fetches now is <b>Drive's own thumbnail</b> — about a hundredth of the bytes — rather than the full-size photograph. Before that, a picture 46 pixels across was being served as half a megabyte of image, a third bigger again once encoded, and handed over for the browser to parse; on the desktop that regularly ran past the wait and came back <i>timed out</i>. The full image is still fetched when you open one full size, and for Schedule B, where the wait is expected. The viewer opens on the thumbnail straight away and swaps the full size in when it lands, so it never sits blank looking broken. The <b>Drive</b> button beside <i>Edit</i> opens the original in Drive if you would rather not wait at all.</p>
 
     <p><b>When a photograph will not show</b><br>The popup lays out a <b>slot for each photograph the moment it opens</b>, so a tree with photographs never looks like one without any while they are being fetched, and a slot that cannot be filled is marked and <b>says why</b> — four things used to look identical and only one of them is about the photograph. <i>No photographs on this tree</i> means exactly that. <i>The photo store is open in another tab or window</i> is the one to know about on a desktop: close the other tabs showing this app and reload. <i>No connection</i> and <i>not found on Drive</i> are the other two. <b>Try again</b> beside the message forgets the failure and re-asks, which matters when a photograph is still being backed up from somebody's phone. The same message appears under the strip in the edit form and in the full-size viewer.</p>
 
