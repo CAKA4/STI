@@ -128,7 +128,11 @@
   .sheet-inner .btnrow button.primary{ background:#1d7a45; color:#fff; border-color:#155e34 }
   .sheet-inner .btnrow button.danger{ background:#fdecea; color:#8c2318; border-color:#e0a79f }
   .sheet-inner .quick button.sel, .sheet-inner .fieldchip.on{ background:#1d7a45; color:#fff; border-color:#155e34 }
-  .sheet-inner .preview{ background:#f6f8f6; border-color:#9fb0a5 }
+  /* HALF DARK, HALF LIGHT. A label is judged against the imagery it will sit on, and
+     a preview on one background cannot show you whether black text survives a dark
+     aerial or white text survives a pale one. Both, side by side, answers it. */
+  .sheet-inner .preview{ border-color:#9fb0a5;
+    background:linear-gradient(90deg,#2b3a2e 0 50%,#c9d3c4 50% 100%) }
   /* Aurora marks touched controls in its field yellow so you can see, at a glance,
      exactly what you changed before saving. */
   .sheet-inner .changed, .sheet-inner select.changed, .sheet-inner textarea.changed,
@@ -451,6 +455,20 @@
   .ptlabel.s{ font-size:9px } .ptlabel.m{ font-size:10.5px } .ptlabel.l{ font-size:13px }
   .ptlabel .k{ color:#a8c9b4; font-weight:400 }
   .ptlabel.box{ background:rgba(10,20,14,.62); border-radius:4px; padding:1px 4px }
+  /* Ink, and the halo that goes with it. Dark ink over a dark aerial with a dark halo
+     is unreadable, so the halo is chosen by the ink rather than offered as a setting. */
+  .ptlabel.bold{ font-weight:800 }
+  .ptlabel.ink-white{ color:#ffffff }
+  .ptlabel.ink-black{ color:#111111 } .ptlabel.ink-red{ color:#D50000 }
+  .ptlabel.ink-blue{ color:#1565C0 }  .ptlabel.ink-green{ color:#1B5E20 }
+  .ptlabel.ink-pink{ color:#FF2D9B }
+  .ptlabel.ink-black, .ptlabel.ink-red, .ptlabel.ink-blue,
+  .ptlabel.ink-green, .ptlabel.ink-pink{
+    text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 5px #fff,0 0 2px #fff }
+  .ptlabel.ink-black .k, .ptlabel.ink-red .k, .ptlabel.ink-blue .k,
+  .ptlabel.ink-green .k, .ptlabel.ink-pink .k{ color:#4a5b50 }
+  .ptlabel.box.ink-black, .ptlabel.box.ink-red, .ptlabel.box.ink-blue,
+  .ptlabel.box.ink-green, .ptlabel.box.ink-pink{ background:rgba(255,255,255,.78) }
 
   /* The prune / remove marks, drawn over the tree point. Sized so the pin's health
      colour still shows as a ring around the glyph — the mark says what happens to
@@ -469,7 +487,7 @@
   .fieldchip.on{ background:#24493a; border-color:var(--accent); color:#dff3e5 }
   .fieldchip .ord{ position:absolute; top:-7px; right:-7px; width:18px; height:18px; border-radius:50%;
     background:var(--accent); color:#0d1a12; font:700 10px/18px var(--sans); text-align:center }
-  .preview{ background:#0a1410; border:1px dashed var(--line2); border-radius:9px; padding:12px; min-height:46px;
+  .preview{ background:linear-gradient(90deg,#16231b 0 50%,#b9c4b0 50% 100%); border:1px dashed var(--line2); border-radius:9px; padding:12px; min-height:46px;
     display:flex; align-items:center; justify-content:center }
 
   .legend{ display:none; position:fixed; left:12px; bottom:calc(104px + env(safe-area-inset-bottom)); z-index:813;
@@ -1052,12 +1070,39 @@
         <select id="labelZoom" onchange="labelPreview()"></select>
       </div>
     </div>
-    <div class="fld">
-      <label>Backing</label>
-      <select id="labelBox" onchange="labelPreview()">
-        <option value="0">None (outline only)</option><option value="1">Dark panel</option>
-      </select>
+    <div class="row2">
+      <div class="fld">
+        <label>Text colour</label>
+        <select id="labelInk" onchange="labelPreview()">
+          <option value="white">White</option><option value="black">Black</option>
+          <option value="red">Red</option><option value="blue">Blue</option>
+          <option value="green">Green</option><option value="pink">Pink</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Weight</label>
+        <select id="labelBold" onchange="labelPreview()">
+          <option value="0">Normal</option><option value="1">Bold</option>
+        </select>
+      </div>
     </div>
+    <div class="row2">
+      <div class="fld">
+        <label>Backing</label>
+        <select id="labelBox" onchange="labelPreview()">
+          <option value="0">None (outline only)</option><option value="1">Panel</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Units</label>
+        <select id="labelUnits" onchange="labelPreview()">
+          <option value="1">Show — 2.4 m, 30 cm</option><option value="0">Numbers only</option>
+        </select>
+      </div>
+    </div>
+    <div class="mini">The outline behind the text follows the colour — dark behind light
+      text, light behind dark — so a label reads over an aerial either way. Units are
+      added to the fields that are measurements, and never to a tree number.</div>
     <div class="fld">
       <label>Preview</label>
       <div class="preview" id="labelPreviewBox"><span style="color:var(--faint);font-size:12px">Choose one or more fields</span></div>
@@ -1373,6 +1418,19 @@
         <select id="lsKind"></select>
       </div>
     </div>
+    <div class="row2">
+      <div class="fld">
+        <label>Line opacity</label>
+        <select id="lsOpacity"></select>
+      </div>
+      <div class="fld">
+        <label>Fill opacity</label>
+        <select id="lsFill"></select>
+      </div>
+    </div>
+    <div class="mini">Two numbers, not one: a servicing line wants a solid edge over a
+      barely-there fill, a grass restoration area wants the reverse. Both carry through
+      to the plan sheet. Fill applies to polygons only.</div>
     <div class="fld">
       <label>Dashed</label>
       <label class="chk"><input id="lsDash" type="checkbox"> Draw this layer dashed, on the map and on the plan</label>
@@ -1605,7 +1663,13 @@
     <div class="fld" style="margin-top:14px">
       <label>Ownership from the map</label>
       <button type="button" class="primary" onclick="bulkOwnership()" id="btnBulkOwn">🗺 Work it out from the parcels</button>
-      <div class="mini">A tree inside a parcel takes that property; the road allowance has no polygon, so a tree in none is public. Trees with no position, or with no parcel layer to test against, are left alone.</div>
+      <div class="mini">A tree in no parcel is in the road allowance, so it is <b>Public</b>; a tree inside one is on private land, so it is <b>Private</b>. <b>Shared ownership</b> is never guessed — a boundary tree is a judgement about a stem straddling a line, and a parcel fabric is not accurate enough to make a claim about somebody's property. Trees with no position, or with no parcel layer to test against, are left alone.</div>
+    </div>
+
+    <div class="fld" style="margin-top:14px">
+      <label>Ownership recorded under the old five values</label>
+      <button type="button" class="alt" onclick="bulkLocationMigrate()" id="btnLocMig">↳ Bring them to Public / Private / Shared</button>
+      <div class="mini">Subject property and adjacent property are both <b>private land</b>, so both become Private; road allowance becomes Public; shared / boundary becomes Shared ownership. Only trees still carrying an old value are touched, it goes on the undo stack, and you can change any of them afterwards.</div>
     </div>
 
     <div class="fld" style="margin-top:14px">
@@ -1745,7 +1809,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-25 · v149";
+const APP_BUILD  = "2026-09-25 · v151";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2390,7 +2454,13 @@ let refGroup=null, legendOn=false;
 /* ---------- label configuration ----------
    One config per layer ("trees", or a reference layer id). fields[] is ordered by the
    sequence the user tapped them, which is what makes a multi-attribute label readable. */
-const LBL_DEFAULT = { fields:[], sep:"NL", size:"m", names:0, box:0, minZoom:17, on:true };
+/* `ink` is the text colour and `bold` its weight; `units` appends m / cm / $ to the
+   fields that are measurements. The HALO IS NOT A SETTING — it is derived from the
+   ink, because the one combination that must never happen is dark text with a dark
+   halo, which is invisible on a dark aerial and looks like a fault rather than a
+   choice. Light ink gets a dark halo, dark ink a light one. */
+const LBL_DEFAULT = { fields:[], sep:"NL", size:"m", names:0, box:0, minZoom:17, on:true,
+                      ink:"white", bold:0, units:1 };
 let labelCfg = { trees: Object.assign({}, LBL_DEFAULT) };
 try{ const c=JSON.parse(STORE&&STORE.getItem("st_labelcfg")); if(c&&typeof c==="object") labelCfg=c; }catch(e){}
 function cfgFor(id){ if(!labelCfg[id]) labelCfg[id]=Object.assign({},LBL_DEFAULT); return labelCfg[id]; }
@@ -2880,7 +2950,7 @@ const LABEL_MAX = 90;
    TREE_NO prints as T1, T2 — the number on the tag and in Schedule A — in every
    one of the three, which it did not before: the screen showed a bare 8 while the
    plan showed T8. */
-function treeLabelValue(t, f, seq){
+function treeLabelValue(t, f, seq, units){
   if(f === "HLTH_CODE") return healthCode(t.HEALTH);
   if(f === "TREE_NO"){
     /* seq is the export's north-to-south position, the same fallback Schedule A
@@ -2896,7 +2966,37 @@ function treeLabelValue(t, f, seq){
     const v = (isFinite(r) && r > 0) ? r : tpzFor(t.DBH);
     return (v > 0) ? (Math.round(v*10)/10) + " m" : "";
   }
-  return t[f];
+  return withUnits(f, t[f], units);
+}
+
+/* ---- UNITS ON THE NUMBERS ------------------------------------------------ *
+ *
+ *  "2.4" beside a tree on a drawing is not a specification; "2.4 m" is. A protection
+ *  zone printed as a bare number is the one a contractor has to ask about, and the
+ *  answer is not on the sheet.
+ *
+ *  [prefix, suffix] because money goes in front and metres go behind. Only the fields
+ *  that ARE a measurement are listed — a tree number, a health code and a year take
+ *  no units, and adding them to everything numeric is how "T12 cm" happens.
+ * -------------------------------------------------------------------------- */
+const FIELD_UNITS = {
+  DBH:       ["", " cm"],
+  CROWN_RAD: ["", " m"],  CROWN_DIA: ["", " m"],
+  HEIGHT:    ["", " m"],  TPZ_M:     ["", " m"],
+  ADDR_DIST: ["", " m"],  STREET_M:  ["", " m"],
+  TREE_VAL:  ["$", ""],   YR_VALUE:  ["$", ""]
+};
+function withUnits(f, v, on){
+  if(on === false) return v;
+  const u = FIELD_UNITS[f];
+  if(!u) return v;
+  const s = String(v == null ? "" : v).trim();
+  if(s === "") return v;
+  // Only a bare number takes units. A value somebody has already typed "2.4 m" into
+  // must not come out "2.4 m m", and a dash in the protection-zone column of a shrub
+  // is the report's own convention for "none" — leave both alone.
+  if(!/^-?\d+(\.\d+)?$/.test(s)) return v;
+  return u[0] + s + u[1];
 }
 
 // Build one label from an ordered list of fields. Blank fields are skipped rather than
@@ -2909,8 +3009,31 @@ function labelHtml(cfg, get){
     parts.push(cfg.names ? `<span class="k">${esc(prettyField(f))}:</span> ${esc(v)}` : esc(v));
   });
   if(!parts.length) return "";
-  const cls = `ptlabel ${cfg.size||"m"}${cfg.box?" box":""}`;
+  const cls = `ptlabel ${cfg.size||"m"} ink-${labelInk(cfg)}` +
+              (cfg.bold ? " bold" : "") + (cfg.box ? " box" : "");
   return `<div class="${cls}">${parts.join(isStacked(cfg.sep) ? "<br>" : esc(cfg.sep))}</div>`;
+}
+/* One ink list, read by the screen, the plan sheet and the preview, so a label cannot
+   look one way on the map and another on the paper. [css name, hex, halo]. */
+const LABEL_INKS = [
+  ["white", "#ffffff", "dark"],
+  ["black", "#111111", "light"],
+  ["red",   "#D50000", "light"],
+  ["blue",  "#1565C0", "light"],
+  ["green", "#1B5E20", "light"],
+  ["pink",  "#FF2D9B", "light"]
+];
+function labelInk(cfg){
+  const k = String((cfg && cfg.ink) || "white");
+  return LABEL_INKS.some(x => x[0] === k) ? k : "white";
+}
+function labelInkHex(cfg){
+  const k = labelInk(cfg);
+  return (LABEL_INKS.find(x => x[0] === k) || LABEL_INKS[0])[1];
+}
+function labelHaloDark(cfg){
+  const k = labelInk(cfg);
+  return (LABEL_INKS.find(x => x[0] === k) || LABEL_INKS[0])[2] === "dark";
 }
 // Tree columns get proper names; a reference layer's own columns are title-cased.
 const FIELD_LABELS = {
@@ -2958,7 +3081,7 @@ function renderLabels(){
       if(!inCurrentProject(t)) continue;
       const lat=num(t.LAT), lon=num(t.LON);
       if(lat==null||lon==null||!bb.contains([lat,lon])) continue;
-      const html = labelHtml(tc, f => treeLabelValue(t, f));
+      const html = labelHtml(tc, f => treeLabelValue(t, f, 0, tc.units !== 0));
       if(!html) continue;
       L.marker([lat,lon],{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
       n++;
@@ -3096,14 +3219,17 @@ function drawRefLayers(){
         .bindPopup(()=>refPopupHtml(L2.id,fi), opts);
       if(g.t==="pt"){
         wire(L.circleMarker([g.c[1],g.c[0]],{radius:6,color:"#fff",weight:1.2,fillColor:L2.color,
-          fillOpacity:.9,renderer:refRenderer,pane:"refPane"}));
+          opacity:layerOpacity(L2), fillOpacity:layerOpacity(L2),
+          renderer:refRenderer,pane:"refPane"}));
       } else if(g.t==="ln"){
-        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:layerWeight(L2),opacity:.9,
+        eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:layerWeight(L2),
+          opacity:layerOpacity(L2),
           dashArray: layerDash(L2) ? "9 6" : null,
           renderer:refRenderer,pane:"refPane"})));
       } else {
         eachPoly(g.c, rings=>wire(L.polygon(rings.map(r=>r.map(c=>[c[1],c[0]])),
-          {color:L2.color,weight:Math.max(1,layerWeight(L2)-1),fillOpacity:.10,smoothFactor:2,
+          {color:L2.color,weight:Math.max(1,layerWeight(L2)-1),
+           opacity:layerOpacity(L2), fillOpacity:layerFill(L2), smoothFactor:2,
            dashArray: layerDash(L2) ? "9 6" : null,
            renderer:refRenderer,pane:"refPane"})));
       }
@@ -3194,14 +3320,49 @@ function layerLegendKind(L2){
 function layerInLegend(L2){ return L2 && L2.legend !== false; }
 function layerDash(L2){ return !!(L2 && L2.dashed); }
 function layerWeight(L2){ const w = Number(L2 && L2.weight); return isFinite(w) && w > 0 ? w : 3; }
+/* TRANSPARENCY, as two numbers rather than one. A servicing layer wants a solid line
+   over a barely-there fill; a grass restoration area wants the opposite. One slider
+   for both would force a compromise on every layer that has an inside and an edge.
+   Stored 0–100 so the saved settings read as percentages. */
+const OPACITY_STEPS = [0,10,20,30,40,50,60,70,80,90,100];
+function layerOpacity(L2){
+  const v = Number(L2 && L2.opacity);
+  return isFinite(v) ? Math.max(0, Math.min(100, v))/100 : 0.90;
+}
+function layerFill(L2){
+  const v = Number(L2 && L2.fill);
+  return isFinite(v) ? Math.max(0, Math.min(100, v))/100 : 0.10;
+}
+/* A hex colour with an alpha pair appended, for the canvas, which has no fillOpacity.
+   FULLY OPAQUE COMES BACK UNCHANGED rather than as "#RRGGBBff" — the two paint the
+   same, but one of them is the colour the layer is set to and the other is a string
+   nothing else in the app will match. */
+function hexA(hex, a){
+  const h = /^#[0-9a-fA-F]{6}$/.test(String(hex||"")) ? hex : "#888888";
+  const v = Math.max(0, Math.min(1, a));
+  if(v >= 0.999) return h;
+  const n = Math.round(v * 255);
+  return h + (n < 16 ? "0" : "") + n.toString(16);
+}
 
+/* THE SAME SHEET EDITS BOTH, because they are the same job. A reference layer and the
+   fence are both a named line with a colour on a drawing; giving them two screens
+   would mean two ideas of what "dashed" or "60 %" means. A `feat:` id routes to the
+   fence styles, anything else to a reference layer. */
+function isFeatStyleId(id){ return String(id||"").indexOf("feat:") === 0; }
+function featStyleTarget(id){ return featStyle[String(id).slice(5)] || null; }
 function openLayerStyle(id){
+  if(isFeatStyleId(id)) return openFeatStyle(id);
   const L2 = refLayerById(id); if(!L2) return;
   styleId = id;
   $("lsName").value = L2.name || "";
   $("lsLegend").checked = layerInLegend(L2);
   $("lsDash").checked = layerDash(L2);
   $("lsWeight").value = String(layerWeight(L2));
+  const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
+      `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
+  pct("lsOpacity", Math.round(layerOpacity(L2)*100));
+  pct("lsFill",    Math.round(layerFill(L2)*100));
   $("lsKind").innerHTML = LEGEND_KINDS.map(([v,l]) =>
     `<option value="${v}"${(L2.legendKind||"auto")===v?" selected":""}>${esc(l)}</option>`).join("");
   $("lsSwatch").innerHTML = LAYER_SWATCHES.map(c =>
@@ -3210,7 +3371,54 @@ function openLayerStyle(id){
   $("lsHex").value = L2.color || "";
   $("lsHint").textContent = `${L2.features.length} feature(s) · mostly ${
     { line:"lines", square:"areas", dot:"points" }[layerKindGuess(L2)] }`;
+  featStyleFields(true);
   $("layerStyleSheet").classList.add("show");
+}
+/* The fence and the excavation line in the same sheet. The legend tick and the legend
+   symbol are hidden for these two: they are always lines and they are always in the
+   key — a protection fence drawn on a plan and left out of the legend is a line the
+   Town has to ask about. */
+function openFeatStyle(id){
+  const F = featStyleTarget(id); if(!F) return;
+  styleId = id;
+  $("lsName").value = F.name || "";
+  $("lsDash").checked = !!F.dashed;
+  $("lsWeight").value = String(Number(F.weight) || 4);
+  const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
+      `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
+  pct("lsOpacity", isFinite(Number(F.opacity)) ? Number(F.opacity) : 100);
+  pct("lsFill", 0);
+  $("lsSwatch").innerHTML = LAYER_SWATCHES.map(c =>
+    `<button type="button" class="swb${c.toLowerCase()===String(F.color||"").toLowerCase()?" on":""}"
+       style="background:${c}" onclick="pickLayerColor('${c}')"></button>`).join("");
+  $("lsHex").value = F.color || "";
+  const k = String(id).slice(5);
+  const n = (typeof featsIn === "function" ? featsIn() : [])
+              .filter(f => f.kind === "fence" && featKindOf(f) === k).length;
+  $("lsHint").textContent = `${n} line(s) drawn · always a line, always in the legend`;
+  featStyleFields(false);
+  $("layerStyleSheet").classList.add("show");
+}
+/* Shown for a reference layer, hidden for the fence. Kept in one function so the two
+   paths cannot leave the sheet half-configured for the other. */
+function featStyleFields(show){
+  const box = id => { const e=$(id); return e && e.closest ? e.closest(".fld") : null; };
+  [box("lsKind"), box("lsLegend"), box("lsFill")].forEach(e=>{ if(e) e.style.display = show ? "" : "none"; });
+}
+function saveFeatStyle(){
+  const F = featStyleTarget(styleId); if(!F) return;
+  const nm = normText($("lsName").value).slice(0, 60);
+  if(!nm){ toast("It needs a name — it is what the legend prints", true); return; }
+  const hex = String($("lsHex").value || "").trim();
+  F.name = nm;
+  if(/^#[0-9a-fA-F]{6}$/.test(hex)) F.color = hex;
+  F.dashed  = $("lsDash").checked ? 1 : 0;
+  F.weight  = Math.max(1, Math.min(8, Number($("lsWeight").value) || 4));
+  F.opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
+  persistFeatStyle();
+  renderFeats(); renderLayerList(); buildLegend();
+  closeLayerStyle();
+  toast(`“${nm}” updated`);
 }
 function pickLayerColor(c){
   $("lsHex").value = c;
@@ -3219,6 +3427,7 @@ function pickLayerColor(c){
 }
 function closeLayerStyle(){ $("layerStyleSheet").classList.remove("show"); }
 function saveLayerStyle(){
+  if(isFeatStyleId(styleId)) return saveFeatStyle();
   const L2 = refLayerById(styleId); if(!L2) return;
   const nm = normText($("lsName").value).slice(0, 60);
   if(!nm){ toast("A layer needs a name — it is what the legend prints", true); return; }
@@ -3229,6 +3438,8 @@ function saveLayerStyle(){
   L2.legendKind = $("lsKind").value || "auto";
   L2.dashed = !!$("lsDash").checked;
   L2.weight = Math.max(1, Math.min(8, Number($("lsWeight").value) || 3));
+  L2.opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
+  L2.fill    = Math.max(0, Math.min(100, parseInt($("lsFill").value,10)));
   persistRefLayers();
   drawRefLayers(); renderLayerList(); buildLegend();
   closeLayerStyle();
@@ -3326,6 +3537,29 @@ function renderLayerList(){
       <button onclick="openRole('${L2.id}')" title="Role">${L2.role&&L2.role!=="reference"?"★":"☆"}</button>
       <button onclick="removeRef('${L2.id}')">✕</button>
     </div>`).join("");
+  /* THE FENCE AND THE EXCAVATION LINE, listed where every other drawn thing is listed,
+     with the same ✎ that names and styles a reference layer. Only shown once lines of
+     that kind exist — a style row for something not on the drawing is a setting for
+     nothing. There is no ✕: these are field records, removed one line at a time on the
+     map, not swept away from a list. */
+  {
+    const on = (typeof featsIn === "function") ? featsIn() : [];
+    const rows = Object.keys(FEAT_STYLE_DEF)
+      .map(k => [k, on.filter(f => f.kind === "fence" && featKindOf(f) === k)])
+      .filter(([k, list]) => list.length);
+    if(rows.length){
+      h += `<div class="stath" style="margin:14px 0 7px">Protection lines</div>`;
+      h += rows.map(([k, list])=>{
+        const F = featStyle[k], m = list.reduce((a,f)=>a + (parseFloat(f.length_m)||0), 0);
+        return `<div class="layerrow">
+          <span class="sw" style="width:14px;height:0;border:none;border-top:3px ${F.dashed?"dashed":"solid"} ${F.color};border-radius:0"></span>
+          <span class="nm">${esc(F.name)}<br><span class="ct">${list.length} line(s) · ${Math.round(m)} m</span></span>
+          <button onclick="openLayerStyle('feat:${k}')" title="Name, colour and legend">✎</button>
+        </div>`;
+      }).join("");
+    }
+  }
+
   // imported tree points, removable as the batch they arrived in
   const untracked = untrackedImports();
   if(importBatches.length || untracked.length){
@@ -3731,13 +3965,31 @@ function symbolColor(t){
  *  slowed by five extra fields it will never use. Values are taken verbatim from
  *  the Schedule A tables so the export needs no translation.
  * ================================================================== */
+/* THREE VALUES, because that is the distinction the report actually makes. The five
+   it replaces spelled out WHERE the tree stands as well as WHO owns it — "subject
+   property (outside woodlot)" against "private (adjacent property)" — and both of
+   those are private land, so the column was answering two questions at once and
+   sorting cleanly by neither. */
 const LOCATION_D = [
-  ["SUBJECT PROPERTY (OUTSIDE WOODLOT)","Subject property — outside woodlot"],
-  ["SUBJECT PROPERTY (WOODLOT)","Subject property — woodlot"],
-  ["PUBLIC (ROAD ALLOWANCE)","Public — road allowance"],
-  ["PRIVATE (ADJACENT PROPERTY)","Private — adjacent property"],
-  ["SUBJECT PROPERTY (SHARED)","Subject property — shared / boundary"]
+  ["Public","Public"],
+  ["Private","Private"],
+  ["Shared ownership","Shared ownership"]
 ];
+/* The five old values, kept ONLY so a tree recorded under them can be read and
+   migrated. They are not offered in the picker. */
+const LOCATION_OLD = {
+  "SUBJECT PROPERTY (OUTSIDE WOODLOT)": "Private",
+  "SUBJECT PROPERTY (WOODLOT)":         "Private",
+  "PUBLIC (ROAD ALLOWANCE)":            "Public",
+  "PRIVATE (ADJACENT PROPERTY)":        "Private",
+  "SUBJECT PROPERTY (SHARED)":          "Shared ownership"
+};
+function locationNew(v){
+  const k = String(v == null ? "" : v).trim();
+  if(!k) return "";
+  if(LOCATION_D.some(p => p[0].toLowerCase() === k.toLowerCase())) return k;
+  return LOCATION_OLD[k.toUpperCase()] || "";
+}
 const PROP_ACT_D = [
   ["Protected by tree protection fencing","Protected by tree protection fencing"],
   ["Remove for construction/excavation","Remove for construction / excavation"],
@@ -4437,7 +4689,7 @@ const NEW_TREE_DEFAULTS = {
    A street inventory has no proposed action and no prognosis, and stamping them
    would put answers in columns nobody on that job ever looked at. */
 const TPP_TREE_DEFAULTS = {
-  fLOCATION:   "PUBLIC (ROAD ALLOWANCE)",
+  fLOCATION:   "Public",
   fPROP_ACT:   "No action required",
   fPROGNOSIS:  "No change in health"
 };
@@ -4473,12 +4725,15 @@ function locationFromPlacement(lat, lon){
     }
     if(hit) break;
   }
-  if(!hit) return "PUBLIC (ROAD ALLOWANCE)";
-  const site   = addrKey(currentProject());
-  const parcel = addrKey(String(hit.f.props[hit.L2.roleField]==null ? "" : hit.f.props[hit.L2.roleField]));
-  // Either side unreadable means no basis to call it the neighbour's.
-  if(!site || !parcel || site === parcel) return "SUBJECT PROPERTY (OUTSIDE WOODLOT)";
-  return "PRIVATE (ADJACENT PROPERTY)";
+  /* The road allowance is the space between the parcels, so a tree in no parcel is
+     public and a tree in any parcel is on private land — the subject property is
+     private land too, which the five-value list obscured.
+
+     SHARED OWNERSHIP IS NEVER GUESSED. A boundary tree is a judgement about a stem
+     straddling a line, and a parcel fabric is not accurate enough to make it; a wrong
+     "shared" in a submitted report is a claim about somebody's property. */
+  if(!hit) return "Public";
+  return "Private";
 }
 
 /* Applied to a tree being EDITED as well as a new one. An older record with these
@@ -5047,6 +5302,9 @@ function loadLabelCfg(){
   $("labelSize").value = c.size;
   $("labelNames").value = String(c.names||0);
   $("labelBox").value = String(c.box||0);
+  $("labelInk").value = labelInk(c);
+  $("labelBold").value = String(c.bold||0);
+  $("labelUnits").value = String(c.units === 0 ? 0 : 1);
   $("labelZoom").value = String(c.minZoom||17);
   renderFieldChips();
   labelPreview();
@@ -5072,6 +5330,9 @@ function readLabelForm(){
   c.size = $("labelSize").value;
   c.names = parseInt($("labelNames").value,10)||0;
   c.box = parseInt($("labelBox").value,10)||0;
+  c.ink = $("labelInk").value;
+  c.bold = parseInt($("labelBold").value,10)||0;
+  c.units = parseInt($("labelUnits").value,10) ? 1 : 0;
   c.minZoom = parseInt($("labelZoom").value,10)||17;
   return c;
 }
@@ -5082,7 +5343,7 @@ function labelPreview(){
   const smp = sampleFor(labelTarget);
   const get = f => {
     if(!smp) return "sample";
-    if(labelTarget==="trees") return treeLabelValue(smp, f, 1);
+    if(labelTarget==="trees") return treeLabelValue(smp, f, 1, c.units !== 0);
     return smp[f];
   };
   const html = labelHtml(c,get);
@@ -5165,9 +5426,9 @@ function buildLegend(){
   // Name the fence and the plantings when there are any, on screen as on the sheet.
   const onMap = (typeof featsIn==="function") ? featsIn() : [];
   if(onMap.some(f=>f.kind==="fence" && !isRootExc(f)))
-    h += `<div class="lr"><span class="sw" style="background:${FENCE_COLOR}"></span>tree protection fence</div>`;
+    h += `<div class="lr"><span class="sw" style="background:${featStyle.fence.color}"></span>${esc(fenceName("fence"))}</div>`;
   if(onMap.some(f=>f.kind==="fence" && isRootExc(f)))
-    h += `<div class="lr"><span class="sw" style="background:${ROOTEXC_COLOR}"></span>root-sensitive excavation</div>`;
+    h += `<div class="lr"><span class="sw" style="background:${featStyle.rootexc.color}"></span>${esc(fenceName("rootexc"))}</div>`;
   if(onMap.some(f=>f.kind==="planting"))
     h += `<div class="lr"><span class="sw" style="background:#66BB6A;border-color:#1B5E20"></span>proposed planting</div>`;
   const vis = refLayers.filter(l=>l.visible && layerInLegend(l));
@@ -5687,7 +5948,23 @@ function rankedPairs(field){
   const rest = pairs.filter(p=>!hot.some(h=>h[0]===p[0]));
   return { hot, rest };
 }
-function domainOptions(field){
+/* AN OFF-LIST STORED VALUE IS STILL OFFERED, which it was not.
+ *
+ *  The picker was built from the domain alone, and a value not in it came back as ""
+ *  in the box — then the save loop wrote that empty box straight over the tree. So
+ *  shortening a list, or removing a value a crew had added, quietly cleared that
+ *  field on every record carrying it, the first time anybody opened the tree for an
+ *  unrelated reason. Nothing said so.
+ *
+ *  The stored value now appears at the bottom under "Recorded as", marked, so it is
+ *  visible, survives a save, and can be changed deliberately rather than by accident.
+ */
+function domainOptions_has(field, v){
+  const s = String(v == null ? "" : v);
+  if(!s) return false;
+  return domainPairs(field).some(p => p[0] === s);
+}
+function domainOptions(field, current){
   const { hot, rest } = rankedPairs(field);
   let h = `<option value="">—</option>`;
   if(hot.length){
@@ -5697,6 +5974,10 @@ function domainOptions(field){
   }
   h += rest.map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
   if(hot.length) h += `</optgroup>`;
+  const cur = String(current == null ? "" : current);
+  if(cur && !domainPairs(field).some(p => p[0] === cur)){
+    h += `<optgroup label="Recorded as"><option value="${esc(cur)}" selected>${esc(cur)}</option></optgroup>`;
+  }
   if(CUSTOM_DOMAINS.indexOf(field)>=0) h += `<option value="${ADD_DOMAIN}">＋ Add a new value…</option>`;
   return h;
 }
@@ -6096,8 +6377,12 @@ function openTree(i){
   Object.keys(DOMAIN_FIELDS).forEach(f=>{
     const el=$("f"+f); if(!el) return;
     const v=String(t[f]||"");
-    el.innerHTML = domainOptions(f);                         // re-rank on every open
-    el.value = domainPairs(f).some(p=>p[0]===v) ? v : "";
+    el.innerHTML = domainOptions(f, v);                      // re-rank on every open
+    /* Plain assignment, because domainOptions has just made sure an option exists for
+       whatever the tree carries — in the list, or under "Recorded as". Testing
+       membership here and falling back to "" is what BLANKED the box for an off-list
+       value, and the save loop then wrote that blank over the record. */
+    el.value = v;
   });
 
   /* THE LAST WORD, and it has to be, because everything above writes the tree's own
@@ -9111,9 +9396,47 @@ const STOCK_D = [
   ["Bare root","Bare root"]
 ];
 
+/* ---- THE FENCE AND THE EXCAVATION LINE, AS SETTINGS ----------------------- *
+ *
+ *  These were two constants and two hardcoded legend strings. They are lines on a
+ *  drawing going to a municipality, so their wording and their appearance belong to
+ *  the job, not to the app: one town calls it "Tree Protection Hoarding", the next
+ *  wants the excavation line green because purple is already the storm sewer.
+ *
+ *  Same shape as a reference layer's style — name, colour, weight, dash, opacity — so
+ *  there is one idea of what styling a line means, and one place the legend reads.
+ * -------------------------------------------------------------------------- */
 const FENCE_COLOR = "#FF6D00", ROOTEXC_COLOR = "#9C27B0";
-function fenceColor(f){
-  return String((f && f.type) || "") === ROOT_EXC_TYPE ? ROOTEXC_COLOR : FENCE_COLOR;
+const FEAT_STYLE_DEF = {
+  fence:   { name:"Tree protection fence",      color:FENCE_COLOR,   weight:4, dashed:0, opacity:100 },
+  rootexc: { name:"Root-sensitive excavation",  color:ROOTEXC_COLOR, weight:4, dashed:1, opacity:100 }
+};
+let featStyle = JSON.parse(JSON.stringify(FEAT_STYLE_DEF));
+try{
+  const raw = JSON.parse((STORE && STORE.getItem("st_featstyle")) || "null");
+  if(raw && typeof raw === "object"){
+    Object.keys(FEAT_STYLE_DEF).forEach(k=>{
+      // Merged onto the defaults, never replaced by them, so a key added in a later
+      // build appears on a device that saved the settings before it existed.
+      featStyle[k] = Object.assign({}, FEAT_STYLE_DEF[k], raw[k] || {});
+    });
+  }
+}catch(e){}
+function persistFeatStyle(){
+  if(STORE){ try{ STORE.setItem("st_featstyle", JSON.stringify(featStyle)); }catch(e){} }
+}
+function featKindOf(f){ return isRootExc(f) ? "rootexc" : "fence"; }
+function featStyleOf(f){ return featStyle[featKindOf(f)] || FEAT_STYLE_DEF[featKindOf(f)]; }
+function fenceColor(f){ return featStyleOf(f).color || FEAT_STYLE_DEF[featKindOf(f)].color; }
+function fenceName(k){ return (featStyle[k] && featStyle[k].name) || FEAT_STYLE_DEF[k].name; }
+function fenceDash(f){ return !!featStyleOf(f).dashed; }
+function fenceWeightOf(f){
+  const w = Number(featStyleOf(f).weight);
+  return isFinite(w) && w > 0 ? w : 4;
+}
+function fenceOpacityOf(f){
+  const v = Number(featStyleOf(f).opacity);
+  return isFinite(v) ? Math.max(0, Math.min(100, v))/100 : 1;
 }
 function isRootExc(f){ return String((f && f.type) || "") === ROOT_EXC_TYPE; }
 
@@ -9766,8 +10089,9 @@ function renderFeats(){
   const shapes = [];
   featsIn().forEach(f=>{
     if(f.kind==="fence" && f.pts.length>1){
-      shapes.push(L.polyline(f.pts,{color:fenceColor(f),weight:4,pane:"refPane"})
-        .bindPopup(`<b>Tree protection fence</b><br>${esc(f.type||"")}<br>${f.length_m} m` +
+      shapes.push(L.polyline(f.pts,{color:fenceColor(f), weight:fenceWeightOf(f),
+          opacity:fenceOpacityOf(f), dashArray: fenceDash(f) ? "9 6" : null, pane:"refPane"})
+        .bindPopup(`<b>${esc(fenceName(featKindOf(f)))}</b><br>${esc(f.type||"")}<br>${f.length_m} m` +
                    (f.address?`<br>${esc(f.address)}`:"") + (f.notes?`<br>${esc(f.notes)}`:"") +
                    `<br><button onclick="editFeatById('${f.id}')">Edit</button>`));
     } else if(f.kind==="planting"){
@@ -12921,6 +13245,38 @@ function refreshBulkUndo(){
     `↩ Undo · ${u.label} · ${u.rows.length} tree(s)`;
 }
 
+/* THE FIVE OLD OWNERSHIP VALUES, BROUGHT TO THE THREE.
+ *
+ *  Offered rather than done on load. A silent rewrite of a column on 750 records is
+ *  exactly the kind of thing nobody sees until it is in a report — and an old value
+ *  left alone still reads correctly on the form, because the picker now shows it
+ *  under "Recorded as" rather than blanking it.
+ *
+ *  Through bulkApply, so it lands on the undo stack, records only what changed, and
+ *  syncs those rows and no others.
+ */
+function bulkLocationMigrate(){
+  if(!selected.length) return;
+  const stale = selected.filter(t=>{
+    const v = String(t.LOCATION || "").trim();
+    return v && !LOCATION_D.some(p => p[0].toLowerCase() === v.toLowerCase());
+  });
+  if(!stale.length){ toast("None of these carry an old ownership value"); return; }
+  const unknown = stale.filter(t => !locationNew(t.LOCATION));
+  const tally = {};
+  stale.forEach(t=>{ const to = locationNew(t.LOCATION); if(to) tally[to] = (tally[to]||0)+1; });
+  const lines = Object.keys(tally).sort().map(k => `  ${tally[k]} \u2192 ${k}`).join("\n");
+  if(!confirm(`${stale.length - unknown.length} tree(s) will change:\n\n${lines}\n\n` +
+      (unknown.length ? `${unknown.length} carry a value nobody recognises and are left alone.\n\n` : "") +
+      `This goes on the undo stack.`)) return;
+  const n = bulkApply("Ownership to the three values", stale, t=>{
+    const to = locationNew(t.LOCATION);
+    return to ? { LOCATION: to } : null;
+  });
+  toast(n ? `${n} tree(s) brought over` + (unknown.length ? ` \u00b7 ${unknown.length} not recognised` : "")
+          : "Nothing needed changing");
+}
+
 /* ---------- ownership from where the trees stand ---------- */
 function bulkOwnership(){
   if(!selected.length) return;
@@ -13764,7 +14120,10 @@ async function runSingleExport(opt){
     /* The weight is scaled to the SHEET, not to the screen: 3 px on a 2200 px plan is
        a third of a millimetre on paper and disappears. */
     const lw = Math.max(2, Math.round(PDF_DPI * 0.012 * layerWeight(L2)));
-    g.strokeStyle=L2.color; g.lineWidth=lw; g.fillStyle=L2.color+"22";
+    /* Transparency reaches the paper too. It used to be a hardcoded "22" on the fill
+       and nothing on the line, so a layer set back on screen printed solid. */
+    g.strokeStyle=hexA(L2.color, layerOpacity(L2)); g.lineWidth=lw;
+    g.fillStyle=hexA(L2.color, layerFill(L2));
     g.lineJoin="round"; g.lineCap="round";
     g.setLineDash(layerDash(L2) ? [lw*3, lw*2] : []);
     L2.features.forEach(f=>{
@@ -13793,11 +14152,13 @@ async function runSingleExport(opt){
                  sapling: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))==="sapling").length };
   const fenceW = Math.max(3, Math.round(PDF_DPI*0.035));
   sheetF.filter(f=>f.kind==="fence" && f.pts.length>1).forEach(f=>{
-    g.strokeStyle=fenceColor(f); g.lineWidth=fenceW; g.lineJoin="round"; g.lineCap="round";
+    g.strokeStyle=hexA(fenceColor(f), fenceOpacityOf(f));
+    g.lineWidth=Math.max(2, Math.round(fenceW * fenceWeightOf(f) / 4));
+    g.lineJoin="round"; g.lineCap="round";
     /* An excavation line is dashed on the plan as well as a different colour — a
        drawing gets printed in black and white often enough that colour alone is not
        a distinction you can rely on. */
-    g.setLineDash(isRootExc(f) ? [fenceW*3, fenceW*2] : []);
+    g.setLineDash(fenceDash(f) ? [fenceW*3, fenceW*2] : []);
     g.beginPath();
     f.pts.forEach((pt,i)=>{ const p=P(+pt[0],+pt[1]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); });
     // A white casing under the orange, so the line still reads over dark imagery —
@@ -13821,6 +14182,7 @@ async function runSingleExport(opt){
   // someone else needs the tree number and the species, whatever you label with.
   const tc = (labelMode==="cfg") ? cfgFor("trees")
            : { on:labelMode!=="none", sep:"NL", size:"m", names:0, box:0, minZoom:0,
+               ink:"white", bold:0, units:1,
                fields: labelMode==="idsp"    ? ["TREE_NO","SPECIES"]
                      : labelMode==="idtpz"   ? ["TREE_NO","TPZ_LBL"]
                      : labelMode==="idsptpz" ? ["TREE_NO","SPECIES","TPZ_LBL"]
@@ -14031,7 +14393,13 @@ async function runSingleExport(opt){
   }
 
   if(tc.on!==false && tc.fields.length){
-    g.font=`600 ${FS}px sans-serif`; g.textAlign="left"; g.textBaseline="middle";
+    /* The sheet paints what the screen shows: same ink, same weight, same units, and
+       the same rule that the halo is the opposite of the ink. A plan whose labels do
+       not match the map they were set up on is a plan built on a guess. */
+    const inkHex   = labelInkHex(tc);
+    const haloDark = labelHaloDark(tc);
+    const haloCol  = haloDark ? "rgba(0,0,0,.9)" : "rgba(255,255,255,.95)";
+    g.font=`${tc.bold ? 800 : 600} ${FS}px sans-serif`; g.textAlign="left"; g.textBaseline="middle";
     /* Labels are placed one at a time against the boxes already taken. Eight candidate
        positions are tried round each tree, near ones first; if none is clear the label
        is pushed further out and joined to its tree with a leader line. Trees close
@@ -14051,7 +14419,7 @@ async function runSingleExport(opt){
        TREE_ID (CG-00742-A) is the record key across every project in the Sheet and
        is far too much to read off a map. */
     let unplaced = 0;
-    const items = shown.map((t,i)=>({t, parts: tc.fields.map(f=>treeLabelValue(t, f, i+1))
+    const items = shown.map((t,i)=>({t, parts: tc.fields.map(f=>treeLabelValue(t, f, i+1, tc.units !== 0))
                                         .filter(v=>v!=null && String(v).trim()!=="")}))
                        .filter(o=>o.parts.length);
     // north to south, so the order is stable between runs of the same view
@@ -14087,8 +14455,8 @@ async function runSingleExport(opt){
         const anchorX = best.dx<0 ? best.cx+w : (best.dx>-0.3 && best.dx<0.3 ? best.cx+w/2 : best.cx);
         const anchorY = best.cy + h/2;
         // dark under light, so it reads over both imagery and paper
-        [["rgba(0,0,0,.75)", Math.max(3,FS*0.16)],
-         ["rgba(255,255,255,.95)", Math.max(1.5,FS*0.08)]].forEach(([col,wid])=>{
+        [[haloDark ? "rgba(0,0,0,.75)" : "rgba(255,255,255,.95)", Math.max(3,FS*0.16)],
+         [haloDark ? "rgba(255,255,255,.95)" : inkHex,               Math.max(1.5,FS*0.08)]].forEach(([col,wid])=>{
           g.strokeStyle=col; g.lineWidth=wid;
           g.beginPath(); g.moveTo(sx,sy); g.lineTo(anchorX,anchorY); g.stroke();
         });
@@ -14098,8 +14466,8 @@ async function runSingleExport(opt){
       }
       parts.forEach((v,i)=>{
         const txt=String(v), x=best.cx, y=best.cy + FS*0.6 + i*FS*1.2;
-        g.strokeStyle="rgba(0,0,0,.9)"; g.lineWidth=FS*0.28; g.strokeText(txt,x,y);
-        g.fillStyle="#fff"; g.fillText(txt,x,y);
+        g.strokeStyle=haloCol; g.lineWidth=FS*0.28; g.strokeText(txt,x,y);
+        g.fillStyle=inkHex; g.fillText(txt,x,y);
       });
     });
     /* Said out loud. A plan quietly missing eleven tree numbers looks finished, and
@@ -15255,8 +15623,10 @@ function sheetLegendRows(shown){
   if(sheetMarks.crowns) present.push({label:"Crown diameter", color:CROWN_COLOR, kind:"circle", solid:true});
   if(sheetMarks.rem)    present.push({label:"Tree to be removed", color:MARK_REMOVE, kind:"glyph", glyph:"✕", big:true});
   if(sheetMarks.prune)  present.push({label:"Tree to be pruned", color:MARK_PRUNE, kind:"glyph", glyph:"P"});
-  if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:FENCE_COLOR, kind:"line"});
-  if(sheetFeats.rootexc)   present.push({label:"Root-sensitive excavation", color:ROOTEXC_COLOR, kind:"line", dashed:true});
+  if(sheetFeats.fences)    present.push({label:fenceName("fence"),   color:featStyle.fence.color,
+                                         kind:"line", dashed:!!featStyle.fence.dashed});
+  if(sheetFeats.rootexc)   present.push({label:fenceName("rootexc"), color:featStyle.rootexc.color,
+                                         kind:"line", dashed:!!featStyle.rootexc.dashed});
   if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
   if(sheetFeats.sapling) present.push({label:"Proposed sapling, within the woodlot", color:"#66BB6A", kind:"dot"});
   /* A LAYER CAN BE ON THE MAP AND OFF THE LEGEND. Base information — a parcel
