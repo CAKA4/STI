@@ -1713,7 +1713,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-25 · v142";
+const APP_BUILD  = "2026-09-25 · v143";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -1721,7 +1721,7 @@ const APP_BUILD  = "2026-09-25 · v142";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-25 · v141";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-25 · v143";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -9082,83 +9082,108 @@ function diagPhotoName(){
   const t = visibleTrees().find(x => String(x.PHOTOS||"").trim());
   return t ? String(t.PHOTOS).split(";")[0].trim() : "";
 }
+/* ASKED IN TWO PARTS, and the order matters.
+
+   The first version asked ONE question that did everything: which Code.gs is running,
+   how many folders carry the photo folder's name, how many files are in it, and
+   whether one named photograph is there. The folder walk is far and away the slowest
+   of those and the least useful, so when it ran long the whole reply never arrived
+   and the screen printed "The Sheet did not answer" — losing the ONE answer this
+   screen exists to give, which is whether the deployment is current.
+
+   So: `version` first. It touches nothing but a constant, comes back in well under a
+   second, and settles the deployment question on its own. Only then is the Drive
+   asked about, with a long patience and a failure message of its own, so a slow or
+   enormous photo folder can no longer take the important answer down with it. */
 function runDiag(){
   const out = [];
   const name = diagPhotoName();
+  const paint = extra => { $("diagOut").innerHTML = out.join("") + (extra || ""); };
   out.push(diagLine("ok", "This app", esc(APP_BUILD)));
   if(!connected){
     out.push(diagLine("bad", "No Sheet address is set", "Nothing can be fetched."));
-    $("diagOut").innerHTML = out.join(""); return;
+    paint(); return;
   }
   if(isOffline()){
     out.push(diagLine("bad", "This device is offline", "Reconnect and run this again."));
-    $("diagOut").innerHTML = out.join(""); return;
+    paint(); return;
   }
-  $("diagOut").innerHTML = out.join("") + `<div class="mini">Asking the Sheet…</div>`;
+  paint(`<div class="mini">Asking the Sheet which Code.gs it is running…</div>`);
 
-  jsonpGet("photocheck", name ? { name:name } : {}, r => {
+  jsonpGet("version", {}, r => {
     if(!r){
-      out.push(diagLine("bad", "The Sheet did not answer",
-        "It may be busy, or the address in the app may be wrong. Try once more."));
-      $("diagOut").innerHTML = out.join(""); return;
+      out.push(diagLine("bad", "The Sheet did not answer at all",
+        "Not even the version, which is one line and reads nothing. Either the web app is " +
+        "not reachable from this device, or the deployment has been replaced. Open the " +
+        "script address itself in a browser — it should print a line of JSON with a " +
+        "<b>build</b> in it."));
+      paint(); return;
     }
-    /* THE ONE THAT MATTERS. An unknown action falls through to doGet's index. */
-    if(r.service || !r.build){
+    /* An action a deployment has never heard of lands on doGet's own index. */
+    const build = String(r.build || "");
+    if(r.service || !build){
       out.push(diagLine("bad", "The Sheet is running an older Code.gs",
-        "It answered, but it does not know the checks this build asks for — so the " +
-        "<b>photo</b> action it needs to send a photograph to a device that did not take " +
-        "one may not be there either.<br><br><b>Apps Script → Deploy → Manage deployments → " +
-        "pencil → New version.</b> Never <i>New deployment</i> — that changes the URL and " +
-        "every phone stops syncing."));
-      $("diagOut").innerHTML = out.join(""); return;
+        "It answered, but it does not know the version check this build asks for — so the " +
+        "<b>photo</b> action, the drawing library and the treatment columns are not there " +
+        "either.<br><br><b>Apps Script → Deploy → Manage deployments → pencil → New version.</b> " +
+        "Never <i>New deployment</i> — that changes the URL and every phone stops syncing."));
+      paint(); return;
     }
-    /* Behind, level, or ahead of what this app needs — three different answers, and
-       only the first is a problem. */
-    const behind = String(r.build || "") !== GS_EXPECTED;
-    out.push(diagLine(behind ? "bad" : "ok", "The Sheet", esc(r.build) +
-      (behind ? ` — this app was built against <b>${esc(GS_EXPECTED)}</b>. ` +
-                `Paste the Code.gs from this package in and do <b>Deploy → Manage deployments → ` +
-                `pencil → New version</b>.`
+    const behind = build !== GS_EXPECTED;
+    out.push(diagLine(behind ? "bad" : "ok", "The Sheet", esc(build) +
+      (behind ? ` — this app was built against <b>${esc(GS_EXPECTED)}</b>. Paste the Code.gs ` +
+                `from this package in and do <b>Deploy → Manage deployments → pencil → New version</b>.`
               : " — up to date with this app")));
-    const nf = Number(r.folders || 0);
-    /* getFoldersByName RETURNS TRASHED FOLDERS and picks whichever it likes when
-       there is more than one. A second folder of the same name anywhere in the Drive
-       silently becomes the one every lookup uses. */
-    out.push(diagLine(nf === 1 ? "ok" : "bad",
-      `${nf} folder(s) named “${esc(r.folder || "Street Tree Photos")}”`,
-      nf === 1 ? `${r.filesInFolder}${r.filesCapped ? "+" : ""} file(s) in it`
-               : (nf === 0 ? "The photographs have nowhere to live."
-                 : `The Sheet is using <code>${esc(r.usingFolderId||"")}</code>` +
-                   (r.trashedFolders ? ` · ${r.trashedFolders} of them are in the trash` : "") +
-                   `. More than one folder of the same name is how photographs go missing — ` +
-                   `rename or remove the spares.`)));
-    if(r.usingTrashed)
-      out.push(diagLine("bad", "The folder it is using is in the trash", "Restore it, or delete it so a fresh one is made."));
-    if(r.folderError) out.push(diagLine("bad", "The Sheet could not read the Drive", esc(r.folderError)));
 
-    if(!name){
-      out.push(diagLine("ok", "No photograph to test", "Open a tree that has one and use <i>check</i> beside the message."));
-      $("diagOut").innerHTML = out.join(""); return;
-    }
-    out.push(diagLine(r.found ? "ok" : "bad", esc(name),
-      r.found ? `Found in ${esc(r.foundBy)} · ${Math.round((r.bytes||0)/1024)} kB`
-              : "Not in the folder, not in the photo index, and not anywhere else in the Drive — " +
-                "it was never backed up, or it has been deleted."));
-    if(r.lookupError) out.push(diagLine("bad", "Looking it up raised an error", esc(r.lookupError)));
+    // Now the slow half, which can fail on its own without costing the answer above.
+    paint(`<div class="mini">Now looking at the Drive folder…</div>`);
+    jsonpGet("photocheck", name ? { name:name } : {}, c => {
+      if(!c || c.service){
+        out.push(diagLine("bad", "The Drive check did not come back",
+          "The version above still stands. This part reads the Drive, and a very large photo " +
+          "folder can take longer than the app waits. Nothing else is affected by it."));
+        paint(); return;
+      }
+      const nf = Number(c.folders || 0);
+      /* getFoldersByName RETURNS TRASHED FOLDERS and picks whichever it likes when
+         there is more than one. A second folder of the same name anywhere in the Drive
+         silently becomes the one every lookup uses. */
+      out.push(diagLine(nf === 1 ? "ok" : "bad",
+        `${nf} folder(s) named “${esc(c.folder || "Street Tree Photos")}”`,
+        nf === 1 ? "One, as it should be."
+                 : (nf === 0 ? "The photographs have nowhere to live."
+                   : `The Sheet is using <code>${esc(c.usingFolderId||"")}</code>` +
+                     (c.trashedFolders ? ` · ${c.trashedFolders} of them are in the trash` : "") +
+                     `. More than one folder of the same name is how photographs go missing — ` +
+                     `rename or remove the spares.`)));
+      if(c.usingTrashed)
+        out.push(diagLine("bad", "The folder it is using is in the trash", "Restore it, or delete it so a fresh one is made."));
+      if(c.folderError) out.push(diagLine("bad", "The Sheet could not read the Drive", esc(c.folderError)));
 
-    // And what this device is still holding that has not gone up.
-    $("diagOut").innerHTML = out.join("") + `<div class="mini">Checking this device…</div>`;
-    idbMeta().then(meta => {
-      const un = meta.filter(x => !x.uploaded).length;
-      out.push(diagLine(un ? "bad" : "ok",
-        `${meta.length} photograph(s) on this device`,
-        un ? `<b>${un} have not reached Drive.</b> They exist only here. Open the Photo archive and sync.`
-           : "All backed up."));
-      $("diagOut").innerHTML = out.join("");
-    }).catch(()=>{ $("diagOut").innerHTML = out.join(""); });
-  }, 30000);
+      if(!name){
+        out.push(diagLine("ok", "No photograph to test",
+          "Open a tree that has one and use <i>check</i> beside the message."));
+      } else {
+        out.push(diagLine(c.found ? "ok" : "bad", esc(name),
+          c.found ? `Found in ${esc(c.foundBy)} · ${Math.round((c.bytes||0)/1024)} kB`
+                  : "Not in the folder, not in the photo index, and not anywhere else in the Drive — " +
+                    "it was never backed up, or it has been deleted."));
+        if(c.lookupError) out.push(diagLine("bad", "Looking it up raised an error", esc(c.lookupError)));
+      }
+
+      // And what this device is still holding that has not gone up.
+      paint(`<div class="mini">Checking this device…</div>`);
+      idbMeta().then(meta => {
+        const un = meta.filter(x => !x.uploaded).length;
+        out.push(diagLine(un ? "bad" : "ok",
+          `${meta.length} photograph(s) on this device`,
+          un ? `<b>${un} have not reached Drive.</b> They exist only here. Open the Photo archive and sync.`
+             : "All backed up."));
+        paint();
+      }).catch(()=>paint());
+    }, 90000);
+  }, 20000);
 }
-
 /* ---- bringing fences and protection lines in from a layer ------------------ *
 
    Kathleen drew the TPZ fencing and the root-sensitive excavation in ArcGIS: 15 runs
