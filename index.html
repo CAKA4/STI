@@ -452,6 +452,17 @@
   .ptlabel .k{ color:#a8c9b4; font-weight:400 }
   .ptlabel.box{ background:rgba(10,20,14,.62); border-radius:4px; padding:1px 4px }
 
+  /* The prune / remove marks, drawn over the tree point. Sized so the pin's health
+     colour still shows as a ring around the glyph — the mark says what happens to
+     the tree, the colour still says what condition it is in. The white casing is
+     what keeps a pink P readable over a dark aerial. */
+  .tmark{ width:20px; height:20px; text-align:center; font:800 11px/20px var(--sans);
+    pointer-events:none; -webkit-text-stroke:2.6px rgba(255,255,255,.94); paint-order:stroke fill }
+  .tmark.prn{ color:#FF2D9B }
+  /* The X is struck THROUGH the point rather than sitting in it, so it is bigger than
+     the 14 px dot — see the note on the two sizes in the sheet drawing code. */
+  .tmark.rem{ color:#D50000; font-size:17px; -webkit-text-stroke-width:3.1px }
+
   /* field chips in the label builder — the number shows label order */
   .fieldchip{ position:relative; padding:9px 12px; font-size:13px; border-radius:9px; border:1px solid var(--line2);
     background:var(--field); color:var(--text); cursor:pointer; font-family:var(--mono) }
@@ -468,6 +479,9 @@
   .legend .lr{ display:flex; align-items:center; gap:7px; font-size:11.5px; margin-bottom:3px; font-family:var(--mono) }
   .legend .sw{ width:12px; height:12px; border-radius:50%; border:1.5px solid #fff; flex:none }
   .legend .sw.sq{ border-radius:2px }
+  /* a letter rather than a patch of colour, because the mark on the map IS a letter */
+  .legend .sw.lg{ border:none; border-radius:0; background:none; font:800 13px/12px var(--sans); text-align:center }
+  .legend .sw.lg.big{ font-size:15px }
 
   .layerrow{ display:flex; align-items:center; gap:8px; padding:10px; margin-bottom:7px; border-radius:10px;
     border:1px solid var(--line2); background:var(--surface2) }
@@ -499,6 +513,8 @@
   <button id="btnMeasure" onclick="toggleMeasure()" title="Measure distance and area">📏</button>
   <button id="btnRoads" onclick="toggleRoads()" title="Roads and place names">🛣</button>
   <button id="btnTPZ" onclick="toggleTPZ()" title="Tree protection zones">🛡</button>
+  <button id="btnCrown" onclick="toggleCrown()" title="Crown diameter circles">🌳</button>
+  <button id="btnMarks" onclick="toggleMarks()" title="Pruning (P) and removal (✕) marks">✂</button>
   <button id="btnSymbol" onclick="cycleSymbol()" title="Colour trees by…">🎯</button>
   <button id="btnPdf" onclick="togglePDF()" title="Site plan" style="display:none">🗺</button>
 </div>
@@ -1729,7 +1745,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-25 · v146";
+const APP_BUILD  = "2026-09-25 · v149";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -1737,7 +1753,7 @@ const APP_BUILD  = "2026-09-25 · v146";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-25 · v144";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-25 · v149";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2486,6 +2502,8 @@ async function initMap(){
   loadCachedPdf_();
   renderFeats();
   renderTPZ();
+  renderCrown();
+  { const b=$("btnMarks"); if(b) b.classList.toggle("on", marksOn); }
   buildLegend();
   fmap.on("moveend zoomend", scheduleRedraw);
   fmap.on("zoomstart", ()=>{ if(labelLayer) labelLayer.clearLayers(); });   // labels are the costly part
@@ -2657,6 +2675,111 @@ function renderTPZ(){
   if(shapes.length > 400) setStatus(`${shapes.length} protection zones drawn`);
 }
 
+/* ================================================================== *
+ *  CROWN CIRCLES, AND THE PRUNE / REMOVE MARKS
+ *
+ *  Three separate things a tree protection plan has to show at a glance:
+ *  how far the crown reaches, which trees are being pruned, and which are
+ *  coming out. All three are drawn from fields that already exist, so a
+ *  plan cannot say something the table does not.
+ * ================================================================== */
+
+const CROWN_COLOR = "#2E9E4F";      // green; the fill is deliberately near-invisible
+const MARK_PRUNE  = "#FF2D9B";      // pink P
+const MARK_REMOVE = "#D50000";      // red X
+
+/* THE RADIUS, in metres. CROWN_RAD is what the form stores and what the field crew
+   measures, so it is taken first. CROWN_DIA is accepted for a tree brought in from
+   a layer that carries the spread rather than the radius. Failing both, the same
+   allometric estimate the edit form shows — a circle missing from half the trees
+   is worse than one drawn from the estimate the app would have filled in anyway.
+
+   MEMOISED on species + DBH + stems, because renderCrown runs on every pan and
+   estimateCrown walks a regex table. An edit changes the key, so nothing goes stale. */
+let crownMemo = {};
+function crownRadiusOf(t){
+  const r = parseFloat(t.CROWN_RAD);
+  if(isFinite(r) && r > 0) return r;
+  const d = parseFloat(t.CROWN_DIA);
+  if(isFinite(d) && d > 0) return d / 2;
+  const key = (t.SPECIES || "") + "|" + (t.DBH || "") + "|" + (t.STEMS || "");
+  if(crownMemo[key] !== undefined) return crownMemo[key];
+  let est = null;
+  try{ est = estimateCrown(t.SPECIES, t.DBH, t.STEMS); }catch(e){}
+  const v = (est && est.r > 0) ? est.r : 0;
+  crownMemo[key] = v;
+  return v;
+}
+
+/* WHICH MARK A TREE GETS, in one place, so the map, the plan sheet and both legends
+   cannot disagree.
+
+   Pruning is CAN_PRUNE or ELV_RISK — canopy clearance and elevated risk are two
+   reasons for the same operation, and a plan showing two different pruning symbols
+   for one visit is a plan that gets read twice.
+
+   A TREE BEING REMOVED IS NEVER ALSO MARKED FOR PRUNING. Both flags on one tree is
+   a data state that happens (risk noted, then the decision changed), and drawing a
+   P and an X on the same point says the crew should do both. The X wins: you do not
+   prune a tree you are taking down. */
+function markPrune(t){  return treatOn(t.CAN_PRUNE) || treatOn(t.ELV_RISK); }
+function markRemove(t){ return treatOn(t.TREE_REM); }
+function treatMark(t){  return markRemove(t) ? "X" : (markPrune(t) ? "P" : ""); }
+
+/* Crown circles. Solid green where the protection zone is dashed amber, so the two
+   are still told apart on a drawing printed in black and white. Under the pins and
+   non-interactive, exactly as the zones are. */
+let crownLayer = null, crownOn = false;
+try{ crownOn = (STORE && STORE.getItem("st_crownon")) === "1"; }catch(e){}
+function toggleCrown(){
+  crownOn = !crownOn;
+  if(STORE){ try{ STORE.setItem("st_crownon", crownOn?"1":"0"); }catch(e){} }
+  const b=$("btnCrown"); if(b) b.classList.toggle("on", crownOn);
+  renderCrown(); buildLegend();
+  toast(crownOn ? "Crown diameter on" : "Crown circles off");
+}
+/* THE CIRCLES HAVE TO FOLLOW THE FILTER, which they did not. renderPins runs on every
+   change to the trees — including once per tree during a sync — so the circle layers
+   are deliberately NOT rebuilt from inside it. They are rebuilt here instead, at the
+   handful of places where the set of visible trees actually changes. Without this,
+   leaving the Removed trees out left their protection zones drawn on the map until
+   the next pan, which is a plan quietly showing a fence round a tree that is gone. */
+function renderOverlays(){
+  if(tpzOn)   renderTPZ();
+  if(crownOn) renderCrown();
+}
+function renderCrown(){
+  if(!fmap) return;
+  if(crownLayer){ fmap.removeLayer(crownLayer); crownLayer=null; }
+  const b=$("btnCrown"); if(b) b.classList.toggle("on", crownOn);
+  if(!crownOn) return;
+  const view = fmap.getBounds().pad(0.3);
+  const shapes = [];
+  visibleTrees().forEach(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    if(la==null||lo==null || !view.contains([la,lo])) return;
+    const r = crownRadiusOf(t);
+    if(!(r > 0)) return;
+    shapes.push(L.circle([la,lo], { radius:r, pane:"refPane", interactive:false,
+      color:CROWN_COLOR, weight:1.5, opacity:.55,
+      fillColor:CROWN_COLOR, fillOpacity:.07 }));
+  });
+  if(shapes.length) crownLayer = L.layerGroup(shapes).addTo(fmap);
+}
+
+/* The P and the X. On by default — they are the point of a tree protection plan and
+   only a handful of trees carry the flags — but on the rail so a map that is being
+   read for something else can be cleared. */
+let marksOn = true;
+try{ const v = STORE && STORE.getItem("st_markson"); if(v === "0") marksOn = false; }catch(e){}
+function toggleMarks(){
+  marksOn = !marksOn;
+  if(STORE){ try{ STORE.setItem("st_markson", marksOn?"1":"0"); }catch(e){} }
+  const b=$("btnMarks"); if(b) b.classList.toggle("on", marksOn);
+  renderPins(); buildLegend();
+  toast(marksOn ? "Pruning and removal marks on" : "Marks off");
+}
+
 function pinStyle(t){
   return { radius: 7, weight: 2,
            color: t._sent ? "#ffffff" : "#ffd54f",   // amber ring = not yet synced
@@ -2699,6 +2822,18 @@ function renderPins(){
      .bindPopup(()=>treePopupHtml(m._treeIdx),{offset:[0,-6],maxWidth:260,autoPanPadding:[24,24]})
      .on("popupopen",()=>{ popupOpen = true; fillPopupPhoto(m._treeIdx); })
      .on("popupclose",()=>{ popupOpen = false; });
+    /* THE MARK SITS ON THE POINT, not beside it — that is what was asked for and it
+       is also what a contractor reads: the symbol IS the tree. The glyph is small
+       enough that the health colour still shows as a ring around it, and the white
+       casing keeps it legible over dark imagery. Non-interactive, so a tap still
+       reaches the pin underneath and opens the tree. */
+    if(marksOn){
+      const mk = treatMark(t);
+      if(mk) L.marker([lat,lon], { pane:"labelPane", interactive:false,
+        icon: L.divIcon({ className:"", iconSize:null, iconAnchor:[10,10],
+          html:`<div class="tmark ${mk==="X"?"rem":"prn"}">${mk==="X"?"✕":"P"}</div>` })
+      }).addTo(pinLayer);
+    }
     pinIndex.push(i);
     drawn++;
   }
@@ -2723,6 +2858,7 @@ function scheduleRedraw(){
     if(popupOpen) return;
     renderPins();
     if(tpzOn) renderTPZ();
+    if(crownOn) renderCrown();
     renderFeats();
     if(refLayers.length) drawRefLayers();
   }, 140);
@@ -3552,20 +3688,32 @@ function impactClass(t){
   return "some";
 }
 
-/* Three ways to colour the trees. Health is the default; the other two exist so a
-   crew can see at a glance which trees they have already assessed and what is
-   proposed — working through 700 trees against a site plan is otherwise blind. */
+/* Four ways to draw the trees. Three of them colour by an attribute — health, the
+   recommended action, the potential impact — so a crew working through 700 trees
+   against a site plan can see at a glance what has been assessed and what is
+   proposed, which is otherwise blind work.
+
+   THE FOURTH IS PLAIN, and it is there for the opposite reason. A drawing issued to
+   a municipality is about WHERE THE TREES ARE and what is being done to them; the
+   condition of each one belongs in Schedule A, not in four colours of dot that the
+   reader has to look up. Plain draws every tree as a black point with a white
+   outline, so the fence, the crown circles and the P and the X are what the eye
+   goes to. The attribute colouring stays one tap away for working with the data. */
 let symbolMode = "health";
 try{ symbolMode = (STORE&&STORE.getItem("st_symbol")) || "health"; }catch(e){}
-const SYMBOL_MODES = ["health","action","impact"];
-const SYMBOL_LABEL = { health:"Health", action:"Recommended action", impact:"Potential impact" };
+const SYMBOL_MODES = ["health","action","impact","plain"];
+const SYMBOL_LABEL = { health:"Health", action:"Recommended action", impact:"Potential impact",
+                       plain:"Plain black points" };
+const PLAIN_COLOR = "#111111";
 function cycleSymbol(){
   symbolMode = SYMBOL_MODES[(SYMBOL_MODES.indexOf(symbolMode)+1) % SYMBOL_MODES.length];
   if(STORE){ try{ STORE.setItem("st_symbol", symbolMode); }catch(e){} }
   renderPins(); buildLegend();
-  toast("Colouring by " + SYMBOL_LABEL[symbolMode].toLowerCase());
+  toast(symbolMode==="plain" ? "Plain black tree points"
+                             : "Colouring by " + SYMBOL_LABEL[symbolMode].toLowerCase());
 }
 function symbolColor(t){
+  if(symbolMode==="plain") return PLAIN_COLOR;
   if(symbolMode==="action"){
     const c = actionClass(t);
     return c ? ACTION_COLOR[c] : "#37474f";        // dark grey = not yet assessed
@@ -4984,6 +5132,9 @@ function toggleLabels(){
  *  LEGEND
  * ================================================================== */
 function legendRows(){
+  /* Plain is ONE row, not none. A key that says nothing leaves the reader to guess
+     whether a black dot is a tree, a survey monument or a light standard. */
+  if(symbolMode==="plain") return [["Tree", PLAIN_COLOR]];
   if(symbolMode==="action")
     return Object.keys(ACTION_COLOR).map(k=>[ACTION_LABEL[k], ACTION_COLOR[k]])
              .concat([["Not yet assessed","#37474f"]]);
@@ -4994,13 +5145,23 @@ function legendRows(){
 }
 
 function buildLegend(){
-  let h = `<h4>${esc(SYMBOL_LABEL[symbolMode])}</h4>` + legendRows().map(([n,c])=>
+  let h = `<h4>${esc(symbolMode==="plain" ? "Trees" : SYMBOL_LABEL[symbolMode])}</h4>` + legendRows().map(([n,c])=>
     `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
   if(symbolMode==="health")
     h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
   h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 3px #FF1744"></span>red halo = field checked</div>`;
   if(tpzOn) h += `<div class="lr"><span class="sw" style="background:rgba(255,213,79,.25);border-color:#FFD54F"></span>dashed circle = tree protection zone</div>`;
+  if(crownOn) h += `<div class="lr"><span class="sw" style="background:rgba(46,158,79,.14);border-color:${CROWN_COLOR}"></span>green circle = crown diameter</div>`;
+  /* The marks are named only when a tree in view actually carries one — a key that
+     lists a symbol the drawing does not use is a key that has to be read twice. */
+  if(marksOn){
+    const vt = visibleTrees();
+    if(vt.some(markRemove))
+      h += `<div class="lr"><span class="sw lg big" style="color:${MARK_REMOVE}">✕</span>tree to be removed</div>`;
+    if(vt.some(t=>!markRemove(t) && markPrune(t)))
+      h += `<div class="lr"><span class="sw lg" style="color:${MARK_PRUNE}">P</span>tree to be pruned</div>`;
+  }
   // Name the fence and the plantings when there are any, on screen as on the sheet.
   const onMap = (typeof featsIn==="function") ? featsIn() : [];
   if(onMap.some(f=>f.kind==="fence" && !isRootExc(f)))
@@ -7318,7 +7479,7 @@ function pullFromSheet(){
       /* Even the ids that were NOT loaded (another project, already here) raise the
          watermark, so a later new tree cannot be numbered on top of one of them. */
       markIdsSeen(rows);
-      persistTrees(); renderPins(); if(added) fitTrees();
+      persistTrees(); renderPins(); renderOverlays(); if(added) fitTrees();
       toast(`Loaded ${rows.length} · ${added} new${kept?` · ${kept} local edits kept`:""}`);
     }catch(e){ toast("Could not read the Sheet",true); }
     cleanup();
@@ -7450,7 +7611,7 @@ function confirmImport(){
     persistBatches();
   }
   $("mapSheet").classList.remove("show");
-  persistTrees(); renderPins(); fitTrees();
+  persistTrees(); renderPins(); renderOverlays(); fitTrees();
   toast(`Imported ${added}${skipped?` · ${skipped} already present`:""}`);
 }
 function cancelImport(){ importFeatures=null; $("mapSheet").classList.remove("show"); }
@@ -8582,6 +8743,79 @@ function apprValue(t){
   return Math.round(v * 100) / 100;
 }
 
+/* ---- THE CALCULATION, WRITTEN UNDER THE TABLE ----------------------------- *
+ *
+ *  A money column in a submitted report that does not say how it was arrived at is a
+ *  column the reviewer has to ask about, and the answer then lives in an email rather
+ *  than in the document. The note is BUILT FROM THE SETTINGS IN FORCE, never typed:
+ *  change the replacement cost and the note changes with it, so it cannot describe a
+ *  calculation the column no longer used.
+ *
+ *  Pi is written out even though the code cancels it, because the reader reproducing
+ *  the figure by hand works through the published formula. The two give the same
+ *  answer to the cent:
+ *
+ *      unit cost x pi(D/2)^2  =  RC / (pi(c/2)^2) x pi(D/2)^2  =  RC x (D/c)^2
+ * -------------------------------------------------------------------------- */
+function apprNote(){
+  const area = Math.PI * Math.pow(apprCaliper/2, 2);
+  const rate = area > 0 ? apprRCHard / area : 0;
+  const fac = Object.keys(apprFactors)
+    .filter(k => isFinite(parseFloat(apprFactors[k])))
+    .map(k => k + " " + parseFloat(apprFactors[k]).toFixed(2))
+    .join(", ");
+  /* THE PARAMETER IS QUOTED EXACTLY, not to the nearest cent. The Region's figure
+     divided among replacement trees does not land on a whole cent — $873.90125 is a
+     real setting — and a note rounding it to $873.90 describes a calculation that is
+     out by a few cents on a large tree, which is precisely the discrepancy somebody
+     would then write in asking about. The derived RATE is still rounded, and says so. */
+  const exact = n => "$" + Number(n).toLocaleString("en-CA",
+                        { minimumFractionDigits:2, maximumFractionDigits:8 });
+  const rc = (apprRCHard === apprRCCon)
+    ? exact(apprRCHard) + " per replacement tree"
+    : exact(apprRCHard) + " deciduous / " + exact(apprRCCon) + " coniferous per replacement tree";
+  return "Tree Value — Trunk Formula Method. "
+    + "Unit cost = replacement cost \u00f7 the trunk area of the replacement tree "
+    + "(\u03c0 \u00d7 (" + apprCaliper + " cm \u00f7 2)\u00b2 = " + area.toFixed(2) + " cm\u00b2) = "
+    + money(rate) + " per cm\u00b2. "
+    + "Tree value = unit cost \u00d7 the subject tree's trunk area (\u03c0 \u00d7 (DBH \u00f7 2)\u00b2) "
+    + "\u00d7 condition \u00d7 species \u00d7 location. "
+    /* THE RATE ABOVE IS ROUNDED TO THE CENT FOR READING, and on an 88 cm tree a cent
+       of rate is thirty dollars of value — so anybody checking the column by hand
+       from it would find a discrepancy and have to ask about it. The closed form is
+       given as well because the circle constant cancels exactly, and it is what the
+       column is actually computed from: no rounding anywhere until the last cent. */
+    + "The circle constant cancels, so this column is computed as replacement cost "
+    + "\u00d7 (DBH \u00f7 " + apprCaliper + " cm)\u00b2 \u00d7 condition \u00d7 species \u00d7 location "
+    + "\u2014 the same calculation, without the rounding in the rate above. "
+    + "Replacement cost " + rc + " at " + apprCaliper + " cm caliper; "
+    + "species factor " + apprSpecies + "; location factor " + apprLocation + ". "
+    + "Condition factors: " + fac + ". "
+    + "Shrubs are not appraised. A condition rating carrying no factor is left blank "
+    + "rather than estimated.";
+}
+/* The other column answers a different question and needs saying so in as many words,
+   because the two sit side by side when the report prints both and a reader will
+   otherwise take the smaller one for a discount on the larger. */
+function yrNote(){
+  return "Offsetting Value — York Region tree offsetting (" + yrRateYear + " rate). "
+    + "Replacement trees are read from the Region's table on three things: size class "
+    + "(A \u2264 10 cm, B 11\u201325, C 26\u201350, D 51\u201375, E > 75 cm DBH), species "
+    + "classification (Desirable / Less Desirable / Exempt) and condition class "
+    + "(Healthy / Poor / Exempt), then multiplied by " + money(yrRateRepl)
+    + " per replacement tree. "
+    + "It is what it COSTS TO OFFSET removing the tree, not what the tree is worth, and "
+    + "it is stepped: two trees in the same size class offset the same.";
+}
+/* Only the notes for the columns this project actually prints. A note for a column
+   that is not there is a note that gets read as applying to one that is. */
+function valueNotes(project){
+  const m = valueModeFor(project), out = [];
+  if(m === "appraisal" || m === "both") out.push(apprNote());
+  if(m === "offset"    || m === "both") out.push(yrNote());
+  return out;
+}
+
 /* Which of the two a report prints. Per project, because one job may be a Region
    submission and the next an appraisal for an owner. */
 const VALKEY = "st_valmode";
@@ -8848,6 +9082,9 @@ function featsOnSheet(b){
 }
 // What the current sheet actually carries, so the PDF legend can name them.
 let sheetFeats = { fences:0, plantings:0 };
+/* What the last sheet actually drew, so the legend names the symbols ON THAT SHEET
+   rather than everything the app can draw. Same contract as sheetFeats. */
+let sheetMarks = { prune:0, rem:0, crowns:0 };
 /* ROOT-SENSITIVE EXCAVATION IS A LINE, NOT A FENCE, but it lives in the same record:
    both are linear works annotations drawn on the protection plan, both carry a type,
    a length and a project, and both already flow through the Sheet, the shapefile
@@ -10430,7 +10667,7 @@ function docRename(i){
 
    No zebra striping: the sample is ruled, not banded, and banding a table whose rows
    are different heights reads as a fault. */
-function tablePages(rows, title, W, H, M){
+function tablePages(rows, title, W, H, M, foot){
   if(!rows || rows.length<2) return [];
   const head = rows[0], body = rows.slice(1);
   const pad  = Math.round(PDF_DPI*0.055);
@@ -10458,6 +10695,30 @@ function tablePages(rows, title, W, H, M){
   const lh    = Math.round(fs*1.24);
   const topY  = M + Math.round(PDF_DPI*0.50);
   const hdrH  = Math.round(lh*2 + pad*2);
+
+  /* The footnote is laid out HERE, before the page loop, because the loop has to know
+     how much room to leave for it on the last page. A point smaller than the table:
+     it is a note, and at the body size it competes with the data. */
+  const footFS = Math.round(fs*0.88), footLH = Math.round(footFS*1.30);
+  const footGap = Math.round(PDF_DPI*0.14);
+  const tableWNow = colW.reduce((a,b)=>a+b,0);
+  probe.font = `${footFS}px sans-serif`;
+  const footLines = [];
+  (foot || []).forEach((n,k)=>{
+    if(k) footLines.push("");
+    wrapLines(probe, String(n), tableWNow - pad*2).forEach(l=>footLines.push(l));
+  });
+  function drawFoot(gg, x0, y0, w0){
+    gg.save();
+    gg.fillStyle = "#f3f5f2";
+    gg.fillRect(x0, y0, w0, footLines.length*footLH + pad*2);
+    gg.strokeStyle = "#c8d2c9"; gg.lineWidth = 1;
+    gg.strokeRect(x0, y0, w0, footLines.length*footLH + pad*2);
+    gg.fillStyle = "#33443b"; gg.font = `${footFS}px sans-serif`;
+    gg.textAlign = "left"; gg.textBaseline = "alphabetic";
+    footLines.forEach((ln,k)=> gg.fillText(ln, x0 + pad, y0 + pad + footFS + k*footLH));
+    gg.restore();
+  }
 
   // Wrap every cell once; the heights fall out of it.
   probe.font = `${fs}px sans-serif`;
@@ -10491,7 +10752,14 @@ function tablePages(rows, title, W, H, M){
 
     const firstRow = y;
     g.font = `${fs}px sans-serif`;
-    while(i < laid.length && y + laid[i].h <= H - M){
+    /* ROOM FOR THE NOTE IS RESERVED ONLY WHEN THIS IS THE LAST PAGE, and whether it
+       is the last page is decided here rather than guessed: if every remaining row
+       plus the note fits, cap the page short so the note lands under the table it
+       belongs to. Otherwise fill the page and let the next one deal with it. */
+    let restH = 0; for(let k=i;k<laid.length;k++) restH += laid[k].h;
+    const footNeed = footLines.length ? footLines.length*footLH + footGap + pad*2 : 0;
+    const limit = (y + restH + footNeed <= H - M) ? (H - M - footNeed) : (H - M);
+    while(i < laid.length && y + laid[i].h <= limit){
       const row = laid[i];
       g.fillStyle="#1d2b23";
       let cx = M;
@@ -10524,6 +10792,30 @@ function tablePages(rows, title, W, H, M){
     let gx = M;
     colW.forEach(w=>{ gx += w; g.beginPath(); g.moveTo(gx, topY); g.lineTo(gx, y); g.stroke(); });
     g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(M, topY, tableW, y-topY);
+
+    /* THE NOTE UNDER THE TABLE, on the last page only and only if it fits there.
+       A money column that does not say how it was arrived at is a column the
+       reviewer has to ask about. Repeating it on every page of a nine-page Schedule
+       A would be noise, and a note orphaned on a page of its own reads as something
+       else entirely — so if the last page has no room the note gets its own page,
+       which is at least honest about where it belongs. */
+    if(i >= laid.length && footLines.length){
+      const need = footLines.length*footLH + footGap;
+      if(y + need <= H - M){
+        drawFoot(g, M, y + footGap, tableW);
+      } else {
+        pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
+        const cv2 = document.createElement("canvas"); cv2.width=W; cv2.height=H;
+        const g2 = cv2.getContext("2d");
+        g2.fillStyle="#ffffff"; g2.fillRect(0,0,W,H);
+        g2.textAlign="left"; g2.textBaseline="alphabetic";
+        g2.fillStyle="#12201a"; g2.font=`bold ${Math.round(PDF_DPI*0.13)}px sans-serif`;
+        g2.fillText(title + " (continued)", M, M+Math.round(PDF_DPI*0.20));
+        drawFoot(g2, M, topY, tableW);
+        pages.push({data:cv2.toDataURL("image/jpeg",0.92), w:W, h:H});
+        break;
+      }
+    }
 
     pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
   }
@@ -10590,7 +10882,10 @@ async function docBlocks(W, H){
 
       } else if(dsec.kind === "table"){
         const rows = docTableRows(dsec.id);
-        const pg = tablePages(rows, dsec.name, rect.w, rect.h, M);
+        /* Only Schedule A carries a money column, so only Schedule A carries the
+           note that explains it. */
+        const foot = (dsec.id === "schedA") ? valueNotes(currentProject()) : null;
+        const pg = tablePages(rows, dsec.name, rect.w, rect.h, M, foot);
         if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg.map(p => p.data) });
 
       } else if(dsec.kind === "maps"){
@@ -11827,6 +12122,16 @@ function exportScheduleA(){
   if(list.some(t=>t.SHEET_NO)) cols = cols.concat([SCHED_A_SHEET]);
   const rows = [cols.map(c=>c[0])];
   list.forEach((t,i)=>rows.push(cols.map(c=>c[1](t,i))));
+  /* HOW THE MONEY COLUMN WAS WORKED OUT, under the table. A blank row first so
+     nothing reads it as another tree, and one row per note so a spreadsheet keeps
+     them apart. It travels with the CSV because this is the file that gets pasted
+     into the report — leaving the explanation behind in the app is how a reviewer's
+     question ends up answered in an email instead of in the document. */
+  const notes = valueNotes(currentProject());
+  if(notes.length){
+    rows.push(cols.map(()=>""));
+    notes.forEach(n => rows.push([n].concat(cols.slice(1).map(()=>""))));
+  }
   downloadText(rows.map(r=>r.map(csvCell).join(",")).join("\n"),
                `ScheduleA_TreeInventory_${exportTag()}_${nowStr().slice(0,10)}.csv`, "text/csv");
   toast(`Schedule A: ${list.length} trees · ${cols.length} columns`);
@@ -12424,7 +12729,7 @@ function deleteSelection(){
   const gone = {}; ids.forEach(id=>{ gone[id]=1; });
   trees = trees.filter(t=>!gone[t.TREE_ID]);
   selected = [];
-  persistTrees(); renderPins(); renderLabels(); updateSubLine();
+  persistTrees(); renderPins(); renderOverlays(); renderLabels(); updateSubLine();
   closeSelSheet();
   if(synced.length && connected && !isOffline()){
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
@@ -12583,7 +12888,7 @@ function bulkApply(label, list, want){
   if(!rows.length) return 0;
   bulkUndo.push({ label:label, at:nowStr(), rows:rows });
   persistBulkUndo();
-  persistTrees(); renderPins(); renderLabels(); updateSubLine(); refreshBulkUndo();
+  persistTrees(); renderPins(); renderOverlays(); renderLabels(); updateSubLine(); refreshBulkUndo();
   setTimeout(syncNow, 600);
   return rows.length;
 }
@@ -12604,7 +12909,7 @@ function bulkUndoLast(){
     n++;
   });
   bulkUndo.pop(); persistBulkUndo();
-  persistTrees(); renderPins(); renderLabels(); updateSubLine(); refreshBulkUndo();
+  persistTrees(); renderPins(); renderOverlays(); renderLabels(); updateSubLine(); refreshBulkUndo();
   toast(`${n} tree(s) put back` + (gone ? ` · ${gone} no longer on this phone` : ""));
   if(n) setTimeout(syncNow, 600);
 }
@@ -13534,6 +13839,35 @@ async function runSingleExport(opt){
 
      Drawn FIRST, under everything, so a zone can never hide a pin, a fence or a
      label. */
+  /* Metres to page pixels, measured rather than computed from a constant: project the
+     point r metres due north alongside the tree itself and the gap between them on the
+     page IS the radius. Holds at any zoom, sheet size or latitude. */
+  const mToPx = (la, lo, r) => {
+    const c = P(la, lo), up = P(la + r/110540, lo);
+    return Math.abs(c[1] - up[1]);
+  };
+  /* THE CROWN, drawn first and under everything — it is the largest of the circles on
+     a small tree and the point of it is context, not emphasis. Solid where the
+     protection zone is dashed, so the two are still told apart in black and white. */
+  let sheetCrowns = 0;
+  if(crownOn){
+    g.save();
+    shown.forEach(t=>{
+      const la=num(t.LAT), lo=num(t.LON);
+      if(la==null||lo==null) return;
+      const r = crownRadiusOf(t);
+      if(!(r>0)) return;
+      const px = mToPx(la, lo, r);
+      if(!(px > 1)) return;
+      const c = P(la, lo);
+      g.beginPath(); g.arc(c[0], c[1], px, 0, 7);
+      g.fillStyle = "rgba(46,158,79,.10)"; g.fill();
+      g.strokeStyle = "rgba(46,158,79,.85)"; g.lineWidth = Math.max(1.2, R*0.16);
+      g.stroke();
+      sheetCrowns++;
+    });
+    g.restore();
+  }
   if(tpzOn){
     g.save();
     shown.forEach(t=>{
@@ -13542,8 +13876,7 @@ async function runSingleExport(opt){
       const r = parseFloat(t.TPZ_M) || tpzFor(t.DBH);
       if(!(r>0)) return;
       const c  = P(la, lo);
-      const up = P(la + r/110540, lo);
-      const px = Math.abs(c[1] - up[1]);
+      const px = mToPx(la, lo, r);
       if(!(px > 1)) return;                    // smaller than a line width at this scale
       g.beginPath(); g.arc(c[0], c[1], px, 0, 7);
       g.fillStyle = "rgba(255,213,79,.16)"; g.fill();
@@ -13559,7 +13892,10 @@ async function runSingleExport(opt){
     if(t._reviewed){ g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
                      g.strokeStyle="#FF1744"; g.lineWidth=R*0.42; g.stroke(); }
     g.beginPath(); g.arc(p[0],p[1],R,0,7);
-    g.fillStyle=healthColor(t.HEALTH); g.fill();
+    /* symbolColor, NOT healthColor. The sheet drew health colours whatever the mode
+       while its legend was built from the mode — so choosing "recommended action"
+       printed an action key over health dots. The two now come from one function. */
+    g.fillStyle=symbolColor(t); g.fill();
     g.strokeStyle="#fff"; g.lineWidth=R*0.34; g.stroke();
   });
   /* Proposed plantings sit with the trees, as they do on screen, but in their own
@@ -13585,7 +13921,75 @@ async function runSingleExport(opt){
      themselves around them — the two used to know nothing about each other, which
      on a front yard with a dozen proposed trees is a pile of overprinted text. */
   const taken=[];
-  const overlaps=(r)=> taken.some(o=> !(r.x2<o.x1 || r.x1>o.x2 || r.y2<o.y1 || r.y1>o.y2));
+  const hit=(r,o)=> !(r.x2<o.x1 || r.x1>o.x2 || r.y2<o.y1 || r.y1>o.y2);
+  const overlaps=(r)=> taken.some(o=> hit(r,o));
+
+  /* THE TREE SYMBOLS THEMSELVES ARE OBSTACLES, which they were not before. The placer
+     only knew about other labels, so "3.0 m" would print straight across the next
+     tree's dot — and now that a dot can carry a red X, a number printed over it hides
+     the one mark on the sheet that says the tree is coming out.
+
+     Each symbol's box is remembered WITH ITS TREE, because a label must avoid every
+     other tree's symbol and not its own: its own is the thing it is pointing at, and
+     excluding that too would push every single-line label onto a leader line. */
+  /* The two glyph faces, declared HERE because a marked tree's box has to cover its
+     mark and not just its dot — the X now reaches past the symbol. */
+  const MARK_FS  = { X: Math.max(9, Math.round(R*2.5)), P: Math.max(9, Math.round(R*1.55)) };
+  const MARK_CAS = { X: 0.18, P: 0.24 };
+  const pinBoxes = shown.map(t=>{
+    const p = P(num(t.LAT), num(t.LON));
+    const mk = marksOn ? treatMark(t) : "";
+    const hs = Math.max(R*1.05, mk ? MARK_FS[mk]*0.40 : 0);
+    return { t:t, x1:p[0]-hs, y1:p[1]-hs, x2:p[0]+hs, y2:p[1]+hs };
+  });
+  const blocked=(r, self)=> overlaps(r) || pinBoxes.some(o=> o.t !== self && hit(r,o));
+
+  /* THE PRUNE AND REMOVE MARKS, over the tree symbol — a pink P for canopy clearance
+     or elevated risk, a red X for a removal.
+
+     Drawn after the symbols so they sit on top, and BEFORE the labels so their boxes
+     go into `taken` first: a tree number printed across an X is a number nobody can
+     read and an X nobody trusts. The glyph is scaled to the tree symbol rather than
+     the sheet, so it grows and shrinks with the drawing and never swamps a dense row.
+
+     A white casing under the stroke, the same device the leader lines and the scale
+     bar use, so the mark reads over dark imagery as well as over paper.
+
+     THE TWO SIZES ARE DELIBERATE AND THEY ARE NOT THE SAME.
+
+     THE P SITS INSIDE THE SYMBOL, at 1.55 times its radius. A glyph as wide as the
+     symbol, with a casing heavy enough to carry it over an aerial, covers the symbol
+     completely — and the symbol carries the colouring, which is the other half of
+     what an attribute-coloured plan says. At 1.55 a ring of colour still shows round
+     the letter, on every class and over dark imagery.
+
+     THE X SITS OVER AND PAST IT, at 2.5. A removal is the one decision on the sheet
+     that must not be missed and must not be mistaken for a pruning, so it reads as a
+     cross struck THROUGH the tree rather than a letter sitting inside it. Past 2.5
+     the arms of neighbouring crosses begin to touch on a row of street trees a few
+     metres apart, which is where "unmissable" turns back into "unreadable". */
+  let sheetPrune = 0, sheetRem = 0;
+  if(marksOn){
+    g.save();
+    g.textAlign="center"; g.textBaseline="middle";
+    g.lineJoin = "round"; g.miterLimit = 2;
+    shown.forEach(t=>{
+      const mk = treatMark(t);
+      if(!mk) return;
+      const p = P(num(t.LAT), num(t.LON));
+      const ch = mk === "X" ? "✕" : "P";
+      const fs = MARK_FS[mk];
+      g.font = `800 ${fs}px sans-serif`;
+      g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = Math.max(2, fs*MARK_CAS[mk]);
+      g.strokeText(ch, p[0], p[1]);
+      g.fillStyle = mk === "X" ? MARK_REMOVE : MARK_PRUNE;
+      g.fillText(ch, p[0], p[1]);
+      if(mk === "X") sheetRem++; else sheetPrune++;
+    });
+    g.restore();
+    g.textAlign="left"; g.textBaseline="alphabetic";
+  }
+  sheetMarks = { prune: sheetPrune, rem: sheetRem, crowns: sheetCrowns };
 
   /* THE SPECIES CODE AT EACH PLANTING SPOT — Qr, Ta, Ps — in a small white box, the
      way the sample plan labels them. The code is the only thing tying a dot on the
@@ -13667,7 +14071,7 @@ async function runSingleExport(opt){
           const cy = p[1] + dy*gap - h/2;
           const box={x1:cx-CLEAR,y1:cy-CLEAR,x2:cx+w+CLEAR,y2:cy+h+CLEAR};
           if(box.x1<fx+6||box.x2>fx+fw-6||box.y1<fy+6||box.y2>fy+fh-6) continue;
-          if(overlaps(box)) continue;
+          if(blocked(box, t)) continue;
           best={cx,cy,box,ring,dx,dy}; break;
         }
       }
@@ -14444,10 +14848,23 @@ async function drawTppFrame(g, W, H, opt){
         g.fillStyle = r.color; g.fillRect(swX - fs*0.40, cy - fs*0.40, fs*0.8, fs*0.8);
         g.strokeStyle = "#12201a"; g.lineWidth = 1; g.strokeRect(swX - fs*0.40, cy - fs*0.40, fs*0.8, fs*0.8);
       } else if(r.kind === "circle"){
-        g.save(); g.setLineDash([fs*0.22, fs*0.18]);
+        g.save();
+        if(!r.solid) g.setLineDash([fs*0.22, fs*0.18]);
         g.strokeStyle = r.color;
-        g.beginPath(); g.arc(swX, cy, fs*0.42, 0, 7); g.stroke();
+        g.beginPath(); g.arc(swX, cy, fs*0.42, 0, 7);
+        if(r.solid){ g.fillStyle = r.color+"2E"; g.fill(); }
+        g.stroke();
         g.restore();
+      } else if(r.kind === "glyph"){
+        g.save();
+        g.font = `800 ${Math.round(fs*(r.big ? 1.35 : 1.05))}px sans-serif`;
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.lineJoin = "round"; g.miterLimit = 2;
+        g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = Math.max(1.5, fs*0.26);
+        g.strokeText(r.glyph, swX, cy);
+        g.fillStyle = r.color; g.fillText(r.glyph, swX, cy);
+        g.restore();
+        g.font = `${fs}px sans-serif`; g.textAlign="left"; g.textBaseline="alphabetic";
       } else {
         g.fillStyle = r.color;
         g.beginPath(); g.arc(swX, cy, fs*0.36, 0, 7); g.fill();
@@ -14833,6 +15250,11 @@ function sheetLegendRows(shown){
     return true;
   }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
   if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
+  /* Only what the sheet drew. sheetMarks is set by the sheet itself, so a key never
+     claims a symbol the paper does not carry. */
+  if(sheetMarks.crowns) present.push({label:"Crown diameter", color:CROWN_COLOR, kind:"circle", solid:true});
+  if(sheetMarks.rem)    present.push({label:"Tree to be removed", color:MARK_REMOVE, kind:"glyph", glyph:"✕", big:true});
+  if(sheetMarks.prune)  present.push({label:"Tree to be pruned", color:MARK_PRUNE, kind:"glyph", glyph:"P"});
   if(sheetFeats.fences)    present.push({label:"Tree protection fence", color:FENCE_COLOR, kind:"line"});
   if(sheetFeats.rootexc)   present.push({label:"Root-sensitive excavation", color:ROOTEXC_COLOR, kind:"line", dashed:true});
   if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
@@ -14936,7 +15358,8 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
   const labelCh = Math.max(8, Math.floor((colW - Math.round(PDF_DPI*0.15)) / (lfs*0.52)));
 
   g.font=`bold ${Math.round(PDF_DPI*0.085)}px sans-serif`; g.fillStyle="#8fb59c";
-  g.fillText("LEGEND — " + String(SYMBOL_LABEL[symbolMode]).toUpperCase(), lx, ly);
+  g.fillText(symbolMode==="plain" ? "LEGEND"
+             : "LEGEND — " + String(SYMBOL_LABEL[symbolMode]).toUpperCase(), lx, ly);
   g.font=`${Math.round(lfs)}px sans-serif`;
   present.slice(0, cols*maxRows).forEach((r,i)=>{
     const col=i%cols, row=Math.floor(i/cols);
@@ -14953,11 +15376,32 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
       g.beginPath(); g.moveTo(px2+8-rr, cy); g.lineTo(px2+8+rr, cy); g.stroke();
       g.setLineDash([]);
     } else if(r.kind==="circle"){
-      g.strokeStyle=r.color; g.lineWidth=2; g.setLineDash([5,4]);
-      g.beginPath(); g.arc(px2+8, cy, rr, 0, 7); g.stroke(); g.setLineDash([]);
-    } else {
+      g.strokeStyle=r.color; g.lineWidth=2;
+      /* A crown circle is solid on the drawing, so it is solid in the key. Dashing
+         every circle here would make the crown and the protection zone the same
+         symbol, which is the one thing the key exists to prevent. */
+      if(!r.solid) g.setLineDash([5,4]);
       g.beginPath(); g.arc(px2+8, cy, rr, 0, 7);
-      g.fillStyle=r.color; g.fill(); g.stroke();
+      if(r.solid){ g.fillStyle=r.color+"2E"; g.fill(); }
+      g.stroke(); g.setLineDash([]);
+    } else if(r.kind==="glyph"){
+      // the key shows the mark at the ratio the drawing uses, or it is not the key
+      const gfs = Math.round(rr*(r.big ? 2.7 : 2.1));
+      g.save();
+      g.font=`800 ${gfs}px sans-serif`; g.textAlign="center"; g.textBaseline="middle";
+      g.lineJoin="round"; g.miterLimit=2;
+      g.strokeStyle="rgba(255,255,255,.95)"; g.lineWidth=Math.max(2, gfs*0.26);
+      g.strokeText(r.glyph, px2+8, cy);
+      g.fillStyle=r.color; g.fillText(r.glyph, px2+8, cy);
+      g.restore();
+      g.font=`${Math.round(lfs)}px sans-serif`; g.textAlign="left"; g.textBaseline="alphabetic";
+    } else {
+      /* The ring is the map's ring, proportionally — 34 % of the radius, not a hairline.
+         On the dark title block a plain black tree point with a 2 px ring reads as an
+         empty circle, which is the crown swatch two rows above it. */
+      g.beginPath(); g.arc(px2+8, cy, rr, 0, 7);
+      g.fillStyle=r.color; g.fill();
+      g.lineWidth=Math.max(2, rr*0.34); g.stroke();
     }
     g.fillStyle="#e7ebe6";
     const lab = r.label.length>labelCh ? r.label.slice(0,labelCh-1)+"…" : r.label;
@@ -15470,7 +15914,7 @@ function applyFilter(){
   showAllProjects = !filterProject;
   persistFilters();
   try{ STORE&&STORE.setItem("st_showall", showAllProjects?"1":"0"); }catch(e){}
-  renderPins(); updateProjBtn(); closeFilter();
+  renderPins(); renderOverlays(); updateProjBtn(); closeFilter();
   // The menu describes whatever is being shown, so it has to follow the filter.
   refreshMenuMode(); applyTPPMode();
 
@@ -15498,7 +15942,7 @@ function applyFilter(){
 function clearFilter(){
   filterProject=""; filterCruiser=""; filterFrom=""; filterTo=""; hideRules=[];
   showAllProjects=true; persistFilters();
-  renderPins(); updateProjBtn(); closeFilter(); toast("Showing everything");
+  renderPins(); renderOverlays(); updateProjBtn(); closeFilter(); toast("Showing everything");
 }
 function updateProjBtn(){
   const b=$("projFilterBtn"); if(!b) return;
