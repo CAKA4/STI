@@ -340,6 +340,14 @@
         font-size:13.5px; font-weight:500; cursor:pointer }
   .chk input{ width:19px; height:19px; accent-color:#2f9d59; flex:0 0 auto }
 
+  /* one exclusion rule per row, wrapping to two lines on a phone */
+  .hrow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:7px }
+  .hrow select, .hrow input{ flex:1 1 128px; min-width:0; padding:8px 24px 8px 9px !important;
+                             font-size:13px; background-position:right 8px center !important }
+  .hrow input{ padding-right:9px !important }
+  .hrow .hop{ flex:0 1 104px }
+  .hrow .hx{ flex:0 0 auto; padding:8px 11px; font-size:13px; line-height:1 }
+
   /* the treatment ticks on the tree form */
   .treats{ display:flex; flex-direction:column; gap:1px }
   .treats label{ display:flex; align-items:center; gap:10px; padding:9px 10px; cursor:pointer;
@@ -1496,11 +1504,11 @@
     </div>
 
     <div class="fld">
-      <label>Trees already removed</label>
-      <label class="chk"><input id="filHideRemoved" type="checkbox" onchange="filRemovedCount()">
-        Hide trees recorded as <b>Removed</b></label>
-      <div class="mini" id="filRemovedCount">—</div>
-      <div class="mini">A tree that is already gone is not on the plan, is not numbered and is not in the table. Everything follows this one switch, so they cannot disagree.</div>
+      <label>Leave trees out</label>
+      <div id="filHideRows"></div>
+      <div class="btnrow"><button type="button" class="alt" onclick="addHideRule()">＋ Leave out…</button></div>
+      <div class="mini" id="filHideCount">Nothing is being left out.</div>
+      <div class="mini">A tree matching <b>any</b> of these is off the map, out of the numbering and out of every table — one answer, so they cannot disagree. Condition ratings are the usual ones (Removed, Stump), but any field will do.</div>
     </div>
 
     <div class="mini">Only what is on this phone is listed. Use “Load trees from Sheet” to bring another project down first.</div>
@@ -1721,7 +1729,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-25 · v145";
+const APP_BUILD  = "2026-09-25 · v146";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2108,31 +2116,72 @@ let filterFrom = "", filterTo = "";
    compensation table and the photographs cannot disagree. Hiding removed trees in the
    table but numbering them on the plan is exactly the kind of disagreement that ends
    up on a drawing. */
-const HIDE_HEALTH = ["Removed"];
-let hideRemoved = false;
+/* LEAVING TREES OUT, ON WHATEVER MAKES THEM NOT BELONG.
+
+   Chris: "I realized in addition to trees to remove to exclude, there is a stump in
+   the health condition that should also be excluded. Perhaps we should have some
+   options in that part to allow for flexibility to exclude trees, not just on those
+   two attributes."
+
+   Quite right, and the first version was the wrong shape — it hard-coded whichever
+   value happened to come up first. Removed and Stump are not a special pair; they are
+   two answers out of nine, and the next job will want a different set. A plan that
+   leaves out the stumps is not the same plan as one that leaves out the ash it is
+   about to lose, and neither is a rule worth writing into the app.
+
+   So it is a LIST OF RULES, on any field, and a tree is hidden if ANY of them matches
+   — which is what "exclude these" means. It reuses the machinery the attribute search
+   already runs on: the same field list, the same operators, the same value lists, the
+   same matcher. One definition of what a condition is, so a rule in the filter and a
+   rule in the search cannot disagree about what it selects. */
+let hideRules = [];
 try{ filterProject = (STORE&&STORE.getItem("st_fproj")) || ""; }catch(e){}
 try{ filterCruiser = (STORE&&STORE.getItem("st_fcru")) || ""; }catch(e){}
 try{ filterFrom = (STORE&&STORE.getItem("st_ffrom")) || ""; }catch(e){}
 try{ filterTo   = (STORE&&STORE.getItem("st_fto"))   || ""; }catch(e){}
-try{ hideRemoved = (STORE&&STORE.getItem("st_fhide")) === "1"; }catch(e){}
-function isHiddenHealth(t){
-  return HIDE_HEALTH.indexOf(String((t && t.HEALTH) || "").trim()) >= 0;
+try{
+  const raw = (STORE && STORE.getItem("st_fhide")) || "";
+  /* v145 stored a single flag here. Anyone who had it switched on keeps exactly what
+     they had, as the rule that says it. */
+  if(raw === "1") hideRules = [{ f:"HEALTH", op:"is", v:"Removed" }];
+  else if(raw && raw.charAt(0) === "[") hideRules = JSON.parse(raw) || [];
+}catch(e){ hideRules = []; }
+
+// A rule with nothing in it is a rule somebody is still typing, not "hide everything".
+function liveHideRules(){
+  return (hideRules || []).filter(r =>
+    r && r.f && (r.op === "blank" || r.op === "filled" || String(r.v || "").trim() !== ""));
 }
-/* Would this tree be showing if the removed filter were off? Asked by turning the
-   filter off and putting the tree through the SAME function everything else uses,
+function isHiddenTree(t){
+  const live = liveHideRules();
+  if(!live.length) return false;
+  return live.some(r => queryMatch(t, r));
+}
+/* Would this tree be showing if nothing were being excluded? Asked by taking the
+   rules away and putting the tree through the SAME function everything else uses,
    rather than re-implementing the project, recorder and phase tests here — two
    copies of that logic drifting apart is how a report ends up on the wrong trees. */
-function wouldShowButForHealth(t){
-  if(!hideRemoved || !isHiddenHealth(t)) return false;
-  hideRemoved = false;
+function wouldShowButForHidden(t){
+  if(!isHiddenTree(t)) return false;
+  const keep = hideRules;
+  hideRules = [];
   try { return inCurrentProject(t); }
-  finally { hideRemoved = true; }
+  finally { hideRules = keep; }
+}
+/* The trees the rules are being applied TO — everything the other filters let
+   through. The value lists and the counts are drawn from this, not from what is
+   showing, or a rule would stop offering the very value it is hiding. */
+function hideScopeTrees(){
+  const keep = hideRules;
+  hideRules = [];
+  try { return trees.filter(inCurrentProject); }
+  finally { hideRules = keep; }
 }
 function persistFilters(){
   if(!STORE) return;
   try{ STORE.setItem("st_fproj", filterProject); STORE.setItem("st_fcru", filterCruiser);
        STORE.setItem("st_ffrom", filterFrom);    STORE.setItem("st_fto", filterTo);
-       STORE.setItem("st_fhide", hideRemoved ? "1" : "0"); }catch(e){}
+       STORE.setItem("st_fhide", JSON.stringify(liveHideRules())); }catch(e){}
 }
 function projectOf(t){ return String(t.PROJECT||"").trim(); }
 /* WHEN a tree was last recorded, as YYYY-MM-DD. DATE is stamped on every save, so
@@ -2140,7 +2189,7 @@ function projectOf(t){ return String(t.PROJECT||"").trim(); }
 function treeDay(t){ return String(t.DATE||"").slice(0,10); }
 
 function inCurrentProject(t){
-  if(hideRemoved && isHiddenHealth(t)) return false;
+  if(isHiddenTree(t)) return false;
   if(filterCruiser && String(t.CRUISER||"").toLowerCase() !== filterCruiser.toLowerCase()) return false;
   /* THE PHASE FILTER. A job of seven hundred trees is reported on in phases, and a
      phase is the run of trees visited between two dates. Applied HERE rather than in
@@ -2172,7 +2221,8 @@ function scopeLabel(){
   else if(filterTo)   bits.push("to " + filterTo);
   /* A filter that is on but invisible is how a report gets built on the wrong trees.
      This one hides trees, so it says so. */
-  if(hideRemoved) bits.push("no removed");
+  const live = liveHideRules();
+  if(live.length) bits.push("no " + live.map(hideRuleShort).join(", "));
   return bits.join(" · ");
 }
 function visibleTrees(){ return trees.filter(inCurrentProject); }
@@ -3791,7 +3841,7 @@ function renumberProject(){
 
      A tree left out for any other reason — another recorder, another phase — is not
      touched, and still blocks a clash the way it always did. */
-  const tail = rest.filter(wouldShowButForHealth);
+  const tail = rest.filter(wouldShowButForHidden);
   const other = rest.filter(t => tail.indexOf(t) < 0);
   const span = list.length + tail.length;
   const scope = scopeLabel();
@@ -15273,23 +15323,114 @@ function openFilter(){
   $("filStats").textContent = `${trees.length} trees on this phone · ${Object.keys(pj).length} project(s) · ${Object.keys(cr).length} recorder(s)`;
   $("filFrom").value = filterFrom;
   $("filTo").value   = filterTo;
-  if($("filHideRemoved")) $("filHideRemoved").checked = hideRemoved;
-  filPhaseCount(); filRemovedCount();
+  renderHideRules();
+  filPhaseCount();
   $("filFrom").onchange = filPhaseCount;
   $("filTo").onchange   = filPhaseCount;
   $("filterSheet").classList.add("show");
 }
-/* How many it would take out, before it is switched on. */
-function filRemovedCount(){
-  const el = $("filRemovedCount"); if(!el) return;
-  const scope = trees.filter(t => {
-    if(filterProject) return projectOf(t).toLowerCase() === filterProject.toLowerCase();
-    if(showAllProjects || !settings.project) return true;
-    return projectOf(t).toLowerCase() === settings.project.toLowerCase();
+/* ---- the exclusion rules, on the Showing sheet ---------------------------- *
+
+   Built on the same pieces as the attribute search — QUERY_FIELDS, QUERY_OPS,
+   queryMatch — so "Condition rating is Stump" means one thing in the app, not two.
+   The only difference is what the answer is used for: the search SELECTS what
+   matches, this LEAVES OUT what matches. */
+function hideRuleShort(r){
+  const v = String(r.v || "").trim();
+  if(r.op === "blank")  return queryFieldLabel(r.f) + " blank";
+  if(r.op === "filled") return queryFieldLabel(r.f) + " set";
+  /* A condition rating reads on its own — "no Removed, Stump" — because that is how
+     it is spoken. Anything else needs its field naming to mean anything. */
+  if(r.f === "HEALTH" && r.op === "is") return v;
+  const op = (QUERY_OPS.find(o => o[0] === r.op) || ["", r.op])[1];
+  return queryFieldLabel(r.f) + " " + op + " " + v;
+}
+// The values actually present on the trees the rules are applied TO.
+function hideValues(f){
+  const seen = {};
+  hideScopeTrees().forEach(t => { const v = String(t[f] == null ? "" : t[f]).trim(); if(v) seen[v] = 1; });
+  const present = Object.keys(seen).sort((a,b) => a.localeCompare(b));
+  if(queryKind(f) === "yesno") return ["Yes", "No"];
+  const d = DOMAIN_FIELDS[f] || (f === "HEALTH" ? HEALTH_D : null);
+  if(d){
+    const inList = d.map(p => p[0]).filter(v => seen[v]);
+    return inList.concat(present.filter(v => !d.some(p => p[0] === v)));
+  }
+  return present.length <= 60 ? present : [];
+}
+function addHideRule(){
+  /* Condition rating first, because that is what this is for nine times in ten —
+     and Removed, because that is the one everybody starts with. */
+  const used = hideRules.filter(r => r.f === "HEALTH" && r.op === "is").map(r => r.v);
+  const next = HEALTH_D.map(p => p[0]).reverse().find(v => used.indexOf(v) < 0 &&
+                 hideScopeTrees().some(t => String(t.HEALTH || "").trim() === v));
+  hideRules.push({ f:"HEALTH", op:"is", v: next || "Removed" });
+  renderHideRules();
+}
+function dropHideRule(i){ hideRules.splice(i, 1); renderHideRules(); }
+function setHideField(i, f){
+  hideRules[i].f = f;
+  hideRules[i].v = "";
+  const k = queryKind(f);
+  if(k === "yesno"){ hideRules[i].op = "is"; hideRules[i].v = "Yes"; }
+  else if(["ge","le"].indexOf(hideRules[i].op) >= 0 && k !== "num") hideRules[i].op = "is";
+  else if(hideRules[i].op === "has" && k === "num") hideRules[i].op = "is";
+  renderHideRules();
+}
+function setHideOp(i, op){ hideRules[i].op = op; renderHideRules(); }
+function setHideVal(i, v){ hideRules[i].v = v; renderHideRules(); }
+function renderHideRules(){
+  const box = $("filHideRows"); if(!box) return;
+  box.innerHTML = (hideRules || []).map((r,i) => {
+    const k = queryKind(r.f);
+    const ops = QUERY_OPS.filter(o => {
+      if(k === "yesno") return o[0] === "is" || o[0] === "not";
+      if(o[0] === "ge" || o[0] === "le") return k === "num";
+      if(o[0] === "has") return k !== "num";
+      return true;
+    });
+    /* "Contains" is a fragment of a word, not one of the values on the trees —
+       offering a list for it is offering the wrong thing. It gets a text box. */
+    const typed = r.op === "has";
+    let vals = (r.op === "blank" || r.op === "filled" || typed) ? null : hideValues(r.f);
+    /* A value that is not on the list still has to be VISIBLE on the row. It used to
+       fall through to "— choose —" while quietly staying in force, so the rule was
+       doing something the screen denied. */
+    if(vals && r.v && vals.indexOf(String(r.v)) < 0) vals = vals.concat([String(r.v)]);
+    const valBox = (r.op === "blank" || r.op === "filled")
+      ? `<input type="text" value="" disabled placeholder="—">`
+      : (vals && vals.length
+          ? `<select onchange="setHideVal(${i}, this.value)">` +
+            `<option value=""${!r.v?" selected":""}>— choose —</option>` +
+            vals.map(v => `<option value="${esc(v)}"${String(r.v)===String(v)?" selected":""}>${esc(v)}</option>`).join("") +
+            `</select>`
+          : `<input type="text" value="${esc(r.v||"")}" placeholder="${typed ? "part of a word" : "value"}"
+               onchange="setHideVal(${i}, this.value)">`);
+    return `<div class="hrow">
+      <select onchange="setHideField(${i}, this.value)">
+        ${QUERY_FIELDS.map(x => `<option value="${x[0]}"${r.f===x[0]?" selected":""}>${esc(x[1])}</option>`).join("")}
+      </select>
+      <select class="hop" onchange="setHideOp(${i}, this.value)">
+        ${ops.map(o => `<option value="${o[0]}"${r.op===o[0]?" selected":""}>${esc(o[1])}</option>`).join("")}
+      </select>
+      ${valBox}
+      <button type="button" class="alt hx" onclick="dropHideRule(${i})">✕</button>
+    </div>`;
+  }).join("");
+  filHideCount();
+}
+/* How many it takes out, before it is committed to. */
+function filHideCount(){
+  const el = $("filHideCount"); if(!el) return;
+  const live = liveHideRules();
+  if(!live.length){ el.textContent = "Nothing is being left out."; return; }
+  const scope = hideScopeTrees();
+  const gone = scope.filter(t => live.some(r => queryMatch(t, r)));
+  const parts = live.map(r => {
+    const n = scope.filter(t => queryMatch(t, r)).length;
+    return `${hideRuleShort(r)} (${n})`;
   });
-  const n = scope.filter(isHiddenHealth).length;
-  el.textContent = n ? `${n} of the ${scope.length} tree(s) in view are recorded as Removed`
-                     : "None of the trees in view are recorded as Removed";
+  el.innerHTML = `<b>${gone.length}</b> of ${scope.length} tree(s) left out · ` + esc(parts.join(" · "));
 }
 
 /* The count BEFORE committing to it. "230 trees" or "0 trees" is the difference
@@ -15323,7 +15464,7 @@ function applyFilter(){
   filterCruiser = $("filCruiser").value==="__none__" ? "" : $("filCruiser").value;
   filterFrom = String($("filFrom").value||"").slice(0,10);
   filterTo   = String($("filTo").value||"").slice(0,10);
-  hideRemoved = !!($("filHideRemoved") && $("filHideRemoved").checked);
+  hideRules = liveHideRules();          // half-typed rules are dropped, not applied
   // Entered the wrong way round is a mistake, not an empty result.
   if(filterFrom && filterTo && filterFrom > filterTo){ const x=filterFrom; filterFrom=filterTo; filterTo=x; }
   showAllProjects = !filterProject;
@@ -15355,7 +15496,7 @@ function applyFilter(){
   if(n) fitTrees();
 }
 function clearFilter(){
-  filterProject=""; filterCruiser=""; filterFrom=""; filterTo=""; hideRemoved=false;
+  filterProject=""; filterCruiser=""; filterFrom=""; filterTo=""; hideRules=[];
   showAllProjects=true; persistFilters();
   renderPins(); updateProjBtn(); closeFilter(); toast("Showing everything");
 }
@@ -15727,7 +15868,7 @@ function showHelp(){
     <p><b>Photo quality</b><br>Set in Menu → Settings. <i>Standard</i> is 150–260 KB and up to 1600 px, <i>High</i> (the default) 350–600 KB and up to 2048 px, <i>Maximum</i> 0.8–1.4 MB and up to 2600 px. Higher settings mean fewer photos per gigabyte of Drive, and the setting line tells you roughly how many. Whatever you pick, the encoder will reduce the pixel size before it will push JPEG quality below a floor — a slightly smaller sharp photo reads better than a large mushy one.</p>
     <p><b>Naming a layer for the legend</b><br>The <b>✎</b> button on any layer in <i>Layers &amp; reference files</i> sets what that layer is called, and <b>the name is the legend wording</b> — one string on the layer list, the legend on screen and the legend on the plan sheet, so they cannot disagree. A layer arrives called whatever the file was called; <i>Prop_SWM_Pond_rev3</i> is not what should print on a drawing going to a municipality.<br><br>The same screen sets the <b>colour</b> (twelve to pick from, or type a hex code), the <b>line weight</b>, whether it draws <b>dashed</b> — on the map and on the plan, and dashed in the key too, or the key does not identify it — and the <b>legend symbol</b>, which is otherwise taken from what the layer actually holds: a line layer gets a line, an area layer a hatch box, a point layer a dot. <b>In the legend</b> can be turned off for base information that belongs on the drawing but not in the key.</p>
 
-    <p><b>Leaving out the trees that are already gone</b><br>In <i>Showing</i>, tick <b>Hide trees recorded as Removed</b>. It sits with the project, the recorder and the phase for a reason: everything downstream reads one answer to <i>which trees is this report about</i>, so the map, the labels, the numbering, Schedule A, Table 1, the compensation table, the photographs and the plan sheet cannot disagree. The button says <i>no removed</i> while it is on, because a filter that hides trees and does not admit it is how a report gets built on the wrong set.<br><br><b>Renumbering knows about it.</b> Number the showing trees 1 to N with removed trees hidden and those hidden trees would still be sitting on numbers inside 1 to N — two trees on one number, which is the problem renumbering exists to solve. So a tree left out <i>only</i> because it is Removed is renumbered too, immediately after the rest: the plan and the table read 1 to N with no gaps, every number stays unique, and a tree that is already gone keeps a number for the record. A tree left out for any other reason — another recorder, another phase — is not touched, and still stops a renumber that would collide with it.</p>
+    <p><b>Leaving trees out of the plan and the tables</b><br>In <i>Showing</i>, under <b>Leave trees out</b>, add a rule: <i>Condition rating is Removed</i>, then another for <i>Stump</i>, and as many more as the job needs. A tree matching <b>any</b> of them is off the map, out of the labels, out of the numbering and out of every table. Rules are not limited to the condition — any field the attribute search offers will do, with the same operators, so <i>Common name contains Ash</i> or <i>Tag number is blank</i> work just as well. Each rule shows how many trees it takes out before you commit to it.<br><br>It sits with the project, the recorder and the phase because everything downstream reads one answer to <i>which trees is this report about</i> — the map, Schedule A, Table 1, the compensation table, the photographs and the plan sheet cannot disagree. The Showing button names what is being left out, because a filter that hides trees and does not admit it is how a report gets built on the wrong set.<br><br><b>Renumbering knows about it.</b> Number the showing trees 1 to N with some hidden, and those hidden trees would still be sitting on numbers inside 1 to N — two trees on one number, which is the problem renumbering exists to solve. So a tree left out <i>only</i> by these rules is renumbered too, immediately after the rest: the plan and the table read 1 to N with no gaps, every number stays unique, and an excluded tree keeps a number for the record. A tree left out for any other reason — another recorder, another phase — is not touched, and still stops a renumber that would collide with it.</p>
 
     <p><b>Tree protection treatments</b><br>Five ticks on the tree form — <i>TPZ fencing</i>, <i>Root-sensitive excavation</i>, <i>Tree removal</i>, <i>Canopy clearance pruning</i>, <i>Elevated tree risk</i> — because a tree commonly gets more than one and a sentence describing them cannot be counted. Each is its own column, so <i>Find trees by attribute</i> filters on them, the bulk edit sets them on a whole selection, and they go out in the CSV, the shapefile and the Excel. A tick is stored as <i>Yes</i>; an unticked box is left <b>blank rather than "No"</b>, so a tree nobody has been through yet looks unanswered instead of looking like a considered no.<br><br><i>Menu → Tree protection &amp; reporting → Tree protection treatments</i> gives the table: how many trees carry each treatment, <b>how many carry more than one</b>, which combinations occur, and then the trees themselves with a tick under each column. The two totals are printed separately on purpose — a job with 42 treated trees can easily carry 58 treatments, and the second read as the first is a scope priced half again too high.</p>
 
