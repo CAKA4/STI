@@ -759,12 +759,14 @@
     <div class="mgroup" id="g_sync">
       <button class="mhead" onclick="toggleGroup('sync')">⇅ Sync &amp; the Sheet<span class="caret">▸</span></button>
       <div class="mbody">
-        <button class="menuitem" onclick="syncNow()">Sync now</button>
-        <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
+        <button class="menuitem prime" onclick="syncNow()">⇅ Sync — send and check everything</button>
+        <div class="mini" id="syncLine" style="padding:4px 4px 8px">—</div>
         <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
+        <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
+        <div class="mini" style="padding:10px 4px 6px">If something looks wrong</div>
+        <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
         <button class="menuitem" onclick="reconcileWithSheet()">Check what the Sheet already has</button>
         <button class="menuitem" onclick="closeMenu(); kitSync({loud:true});">Project setup — send and fetch now</button>
-        <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
         <button class="menuitem" onclick="openDiag('')">Sheet &amp; photo check — why a photo will not load</button>
       </div>
@@ -1827,7 +1829,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-26 · v153";
+const APP_BUILD  = "2026-09-26 · v154";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2606,6 +2608,7 @@ async function initMap(){
   syncBarHeight();
   startGPS();
   if(trees.length) fitTrees();
+  startAutoSync();
   setStatus(trees.length ? `${trees.length} trees on device` : "No trees yet — import points or add one");
 }
 
@@ -7617,68 +7620,222 @@ function payload(t){
   o.HLTH_CODE = healthCode(t.HEALTH);
   return o;
 }
+
+/* ================================================================== *
+ *  A SIGNATURE OF WHAT WAS SENT
+ *
+ *  Chris: "I have users that are not computer literate. Ensuring everything is
+ *  synced without errors should be seamless."
+ *
+ *  `_sent` is a single bit, and a bit cannot tell the two reasons a tree is queued
+ *  apart: it was EDITED since it went up, or its flag was cleared by something that
+ *  turned out to be wrong. That is why reconciling had to be a question — "only do
+ *  this if you have not edited them since" — and why a crew member could not
+ *  reasonably be asked to answer it.
+ *
+ *  Storing a fingerprint of the row AS IT WAS SENT answers it without asking anyone.
+ *  Queued, on the Sheet, and the fingerprint still matches what is on the phone: the
+ *  flag was wrong, clear it. Fingerprint differs: it is a real edit, send it.
+ *
+ *  A 32-bit string hash, not a cryptographic one — this is a "did anything change"
+ *  test between two copies of the same record, not a defence against anybody.
+ * ================================================================== */
+function treeSig(t){
+  const src = JSON.stringify(payload(t));
+  let h = 5381;
+  for(let i = 0; i < src.length; i++){ h = ((h * 33) ^ src.charCodeAt(i)) >>> 0; }
+  return h.toString(36) + "." + src.length.toString(36);
+}
+function markSent(t){ t._sent = true; t._sig = treeSig(t); }
+/* Trees that were already synced before signatures existed are known-clean by
+   definition — they carry no unsent edit, because an unsent edit would have cleared
+   the flag. Stamping them once is what lets the healing below work on an inventory
+   that predates this build, rather than only on trees recorded after it. */
+function stampExistingSigs(){
+  let n = 0;
+  trees.forEach(t=>{ if(t._sent && !t._sig){ t._sig = treeSig(t); n++; } });
+  if(n) persistTrees();
+  return n;
+}
 function sendTree(t){
   if(!connected){ toast("Saved on this phone",true); return; }
   if(isOffline()){ netDot(); return; }
   fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
     body:JSON.stringify(payload(t))})
-    .then(()=>{ t._sent=true; persistTrees(); renderPins(); })
+    .then(()=>{ markSent(t); persistTrees(); renderPins(); })
     .catch(()=>{ netDot(); });
 }
-function syncNow(){
-  closeMenu();
-  if(!connected){ toast("This build has no backend address",true); return; }
-  if(isOffline()){ toast("No connection",true); return; }
-  const q = trees.filter(t=>!t._sent);
-  flushPhotos();
-  /* Fences, plantings and their deletions go up on the same tap. "Everything is
-     already synced" counted only the trees, so it could report success over a fence
-     that had never left the phone — the kind of confidently wrong message this app
-     exists to avoid. */
-  const qf = feats.filter(f=>!f._sent).length + featDeletes.length;
-  syncFeats(); flushFeatDeletes();
-  /* The project setup goes both ways on the same tap. It is small, it is the thing
-     that makes two people's documents match, and asking somebody to remember a
-     second button is how one device ends up a week behind. */
-  kitSync({ loud:false });
-  if(!q.length){
-    toast(qf ? `Sending ${qf} fence/planting change(s)…` : "Everything is already synced");
-    setTimeout(()=>fetchPhotoLinks(true),1500); return;
-  }
-  /* Chunked rather than one giant POST: a few hundred trees in a single request risks
-     running past the Apps Script execution limit. Chunks are deliberately spaced well
-     apart — the Sheet processes one at a time behind a lock, and firing them faster
-     than it can work just leaves requests queueing. */
-  const CHUNK = 100;
-  const parts = [];
-  for(let i=0;i<q.length;i+=CHUNK) parts.push(q.slice(i,i+CHUNK));
-  toast(`Syncing ${q.length} trees…`);
-
-  let done = 0;
-  const sendPart = k => {
-    if(k >= parts.length){
-      persistTrees(); renderPins();
-      toast(`Sent ${done} trees — checking…`);
-      // Uploads are fire-and-forget, so confirm against the Sheet and re-send anything
-      // that did not arrive. Without this a dropped chunk would look like a success.
-      setTimeout(()=>verifyAndRetry(1), 8000);
-      setTimeout(()=>fetchPhotoLinks(true), 20000);
-      return;
-    }
-    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"treebatch", trees:parts[k].map(payload)})})
-      .then(()=>{
-        parts[k].forEach(t=>t._sent=true);
-        done += parts[k].length;
-        persistTrees();
-        if(parts.length>1) setStatus(`Synced ${done} of ${q.length}…`);
-        setTimeout(()=>sendPart(k+1), 6000);           // give the Sheet time to finish this chunk
-      })
-      .catch(()=>{ persistTrees(); renderPins(); toast(`Stopped after ${done} — tap Sync again`,true); });
-  };
-  sendPart(0);
-}
+/* The old syncNow lived here: a chunked tree upload, followed eight seconds later by
+   a verify that asked the wrong question. Both jobs are now steps inside
+   syncEverything, in an order that heals a wrong flag BEFORE deciding what to send,
+   so the ordinary case sends nothing at all rather than the whole inventory. */
 function refreshPhotoLinks(){ closeMenu(); fetchPhotoLinks(false); }
+
+/* ================================================================== *
+ *  ONE SYNC, AND IT RUNS ITSELF
+ *
+ *  There were six menu items that all said something about the Sheet, and a crew
+ *  member had to know which one their problem was. Getting it wrong either did
+ *  nothing or asked a question they could not answer. That is a design fault, not
+ *  a training problem.
+ *
+ *  ONE ACTION NOW, in a fixed order, reporting once at the end:
+ *
+ *    1. everything that is not a tree — photos, fences, users, settings, the
+ *       project setup
+ *    2. ask the Sheet, once, which tree IDs it holds
+ *    3. HEAL — a tree queued but already up there, unchanged since it was sent,
+ *       has a flag that is simply wrong. Clear it. No question, because the
+ *       signature has already answered the only one worth asking.
+ *    4. CATCH — a tree marked sent that the Sheet does not have never arrived.
+ *       Queue it.
+ *    5. send what is genuinely queued, in chunks
+ *    6. confirm against the Sheet, and say one plain thing
+ *
+ *  And it runs on its own: when the app opens, when the connection comes back, and
+ *  on a quiet timer while anything is waiting. The button stays, for the times
+ *  somebody wants to watch it happen.
+ * ================================================================== */
+let syncBusy = false, syncLast = 0;
+
+/* The Sheet's tree IDs, as a lookup. JSONP because the reply has to be readable,
+   which a no-cors POST is not. */
+function fetchSheetIds(){
+  return new Promise(res=>{
+    const cb = "__ids" + Date.now(), sep = SCRIPT_URL.indexOf("?") >= 0 ? "&" : "?";
+    const sc = document.createElement("script");
+    let done = false;
+    const finish = v => { if(done) return; done = true;
+      try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
+      if(sc.parentNode) sc.parentNode.removeChild(sc);
+      res(v); };
+    window[cb] = r => {
+      const have = {};
+      ((r && r.ids) || []).forEach(id => have[String(id).trim()] = 1);
+      finish((r && r.ok) ? have : null);
+    };
+    sc.onerror = ()=>finish(null);
+    setTimeout(()=>finish(null), 30000);
+    /* NO PROJECT FILTER. Every tree on the device is tested against this, so it has
+       to be every tree on the Sheet. */
+    sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
+    document.body.appendChild(sc);
+  });
+}
+
+function sendTreeChunks(list, onProgress){
+  return new Promise(res=>{
+    if(!list.length) return res(0);
+    const CHUNK = 100, parts = [];
+    for(let i = 0; i < list.length; i += CHUNK) parts.push(list.slice(i, i + CHUNK));
+    let done = 0;
+    const step = k => {
+      if(k >= parts.length){ persistTrees(); renderPins(); return res(done); }
+      fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+        headers:{ "Content-Type":"text/plain;charset=utf-8" },
+        body: JSON.stringify({ _action:"treebatch", trees: parts[k].map(payload) }) })
+        .then(()=>{
+          parts[k].forEach(markSent);
+          done += parts[k].length;
+          persistTrees();
+          if(onProgress) onProgress(done, list.length);
+          // The Sheet works one chunk at a time behind a lock; firing faster than it
+          // can finish just leaves requests queueing.
+          setTimeout(()=>step(k + 1), 6000);
+        })
+        .catch(()=>{ persistTrees(); renderPins(); res(done); });
+    };
+    step(0);
+  });
+}
+
+async function syncEverything(opts){
+  opts = opts || {};
+  if(!connected){ if(opts.loud) toast("This build has no backend address", true); return; }
+  if(isOffline()){ if(opts.loud) toast("No connection", true); netDot(); return; }
+  if(syncBusy){ if(opts.loud) toast("Already syncing…"); return; }
+  syncBusy = true; syncLast = Date.now();
+  try{
+    stampExistingSigs();
+
+    // 1 — everything that is not a tree
+    flushPhotos(); flushUsers(); flushProjects(); flushSettings();
+    flushDomains(); flushInspections(); syncFeats(); flushFeatDeletes();
+    kitSync({ loud:false });
+
+    // 2 — what the Sheet holds
+    if(opts.loud) setStatus("Checking the Sheet…");
+    const have = await fetchSheetIds();
+
+    let healed = 0, lost = 0;
+    if(have){
+      trees.forEach(t=>{
+        const id = String(t.TREE_ID || "").trim(); if(!id) return;
+        // 3 — queued, already up there, and unchanged since: the flag was wrong.
+        if(!t._sent && have[id] && t._sig && t._sig === treeSig(t)){ markSent(t); healed++; return; }
+        // 4 — marked sent but not there: it never arrived.
+        if(t._sent && !have[id]){ t._sent = false; lost++; }
+      });
+      if(healed || lost) persistTrees();
+    }
+
+    // 5 — send what is genuinely queued
+    const queue = trees.filter(t=>!t._sent);
+    const sent = await sendTreeChunks(queue, (d, n)=>{
+      if(n > 100) setStatus(`Sending ${d} of ${n}…`);
+    });
+
+    // 6 — confirm, and say one plain thing
+    let left = trees.filter(t=>!t._sent).length;
+    if(sent){
+      await new Promise(r=>setTimeout(r, 6000));
+      const after = await fetchSheetIds();
+      if(after){
+        let miss = 0;
+        trees.forEach(t=>{ if(t._sent && !after[String(t.TREE_ID||"").trim()]){ t._sent = false; miss++; } });
+        if(miss) persistTrees();
+        left = trees.filter(t=>!t._sent).length;
+      }
+    }
+    renderPins(); netDot(); updateSubLine();
+    setStatus(`${visibleTrees().length} trees on device`);
+    if(!have && !sent){ if(opts.loud) toast("Could not reach the Sheet", true); return; }
+    if(left){
+      toast(`${left} tree(s) still to send — tap Sync again`, true);
+    } else if(opts.loud || sent || healed){
+      toast(sent ? `Everything is on the Sheet · ${sent} sent` : "Everything is on the Sheet");
+    }
+    if(sent) setTimeout(()=>fetchPhotoLinks(true), 15000);
+  } finally {
+    syncBusy = false;
+  }
+}
+
+/* The button, for when somebody wants to watch it happen. */
+function syncNow(){ closeMenu(); syncEverything({ loud:true }); }
+
+/* AND WITHOUT ANYBODY PRESSING ANYTHING. On opening, when the connection returns,
+   and on a quiet timer while something is waiting. Quiet means quiet: nothing is
+   said unless there is something to say, because a crew member being told "all
+   synced" every four minutes learns to ignore the one message that matters. */
+function syncPending(){
+  return trees.filter(t=>!t._sent).length +
+         (typeof feats !== "undefined" ? feats.filter(f=>!f._sent).length : 0) +
+         (typeof featDeletes !== "undefined" ? featDeletes.length : 0);
+}
+const AUTO_SYNC_MS = 4 * 60 * 1000;
+function autoSyncTick(){
+  if(syncBusy || !connected || isOffline()) return;
+  if(Date.now() - syncLast < 60000) return;
+  if(!syncPending()) return;
+  syncEverything({ loud:false });
+}
+function startAutoSync(){
+  /* The first pass is the one that matters: it is what clears a flag left wrong by
+     an earlier build, before anybody has to notice it was wrong. */
+  setTimeout(()=>{ if(connected && !isOffline()) syncEverything({ loud:false }); }, 4000);
+  setInterval(autoSyncTick, AUTO_SYNC_MS);
+}
 /* Verifies what actually landed and automatically re-sends the rest. Runs a couple of
    passes: a chunk that failed on a busy Sheet usually succeeds on the retry. */
 /* Reconciling the other way.
@@ -7717,7 +7874,7 @@ function reconcileWithSheet(){
         `Only do this if you have not edited them since. Any edit made after they were ` +
         `uploaded would stop being sent.` +
         (notThere ? `\n\n${notThere} genuinely missing tree(s) stay queued.` : ""))){
-        onSheet.forEach(t=>t._sent=true);
+        onSheet.forEach(markSent);
         persistTrees();
         renderPins();          // the header count is written here
         toast(`${onSheet.length} marked as synced` + (notThere?` · ${notThere} still queued`:""));
@@ -7755,7 +7912,7 @@ function verifyAndRetry(pass){
       const part = missing.slice(0,100);
       fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
         body:JSON.stringify({_action:"treebatch", trees:part.map(payload)})})
-        .then(()=>{ part.forEach(t=>t._sent=true); persistTrees(); renderPins();
+        .then(()=>{ part.forEach(markSent); persistTrees(); renderPins();
                     setTimeout(()=>verifyAndRetry(pass+1), 8000); })
         .catch(()=>{});
     }catch(e){}
@@ -7797,10 +7954,13 @@ function pullFromSheet(){
         const link = r.PHOTO_LINKS==null ? "" : r.PHOTO_LINKS;
         if(i>=0){
           // Never overwrite unsynced local edits: the phone in hand is the newer truth.
-          if(trees[i]._sent){ KEYS.forEach(k=>trees[i][k]=r[k]==null?"":r[k]); trees[i].PHOTO_LINK=link; trees[i]._sent=true; }
+          /* Straight off the Sheet, so it IS what the Sheet holds — signed as such,
+             or a flag wrongly cleared later could never heal and the tree would be
+             re-posted for ever. */
+          if(trees[i]._sent){ KEYS.forEach(k=>trees[i][k]=r[k]==null?"":r[k]); trees[i].PHOTO_LINK=link; markSent(trees[i]); }
           else { if(link) trees[i].PHOTO_LINK=link; kept++; }   // links are safe to take either way
         } else {
-          const t={}; KEYS.forEach(k=>t[k]=r[k]==null?"":r[k]); t.PHOTO_LINK=link; t._sent=true; trees.push(t); added++;
+          const t={}; KEYS.forEach(k=>t[k]=r[k]==null?"":r[k]); t.PHOTO_LINK=link; markSent(t); trees.push(t); added++;
         }
       });
       /* Even the ids that were NOT loaded (another project, already here) raise the
@@ -16344,6 +16504,16 @@ function openMenu(){
      against "158 trees" up there reads as a fault rather than as two questions. */
   const vis = visibleTrees().length;
   const scope = (vis === trees.length) ? "" : ` · ${vis} showing`;
+  /* ONE PLAIN SENTENCE, under the one button. A count on its own leaves the reader to
+     work out whether a count is bad news. */
+  { const el = $("syncLine");
+    if(el){
+      const q = syncPending();
+      el.textContent = (!connected || isOffline())
+        ? (q ? `No connection · ${q} waiting to send` : "No connection")
+        : (q ? `${q} waiting to send — it goes up on its own, or tap Sync`
+             : "Everything on this device is on the Sheet");
+    } }
   $("menuStats").textContent = `${trees.length} on this device${scope} · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
   updateProjBtn();
   updateArchCount();
@@ -17138,7 +17308,10 @@ document.addEventListener("touchend", e=>{
   lastTouchEnd = now;
 }, {passive:false});
 
-window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); flushPhotos(); flushUsers(); flushProjects(); flushSettings(); flushDomains(); flushInspections(); syncFeats(); flushFeatDeletes(); });
+window.addEventListener("online", ()=>{ runGeoQueue(); netDot();
+  /* One call now, rather than eight flushes and no trees. Coming back into signal is
+     exactly when a crew member expects the queue to clear itself. */
+  syncEverything({ loud:false }); });
 // Backgrounding the app mid-entry must not leave a half-made tree on the map.
 document.addEventListener("visibilitychange", ()=>{
   if(document.visibilityState==="hidden" && editIndex!=null && trees[editIndex] && trees[editIndex]._new){
