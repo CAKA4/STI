@@ -763,6 +763,7 @@
         <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
         <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
         <button class="menuitem" onclick="reconcileWithSheet()">Check what the Sheet already has</button>
+        <button class="menuitem" onclick="closeMenu(); kitSync({loud:true});">Project setup — send and fetch now</button>
         <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
         <button class="menuitem" onclick="openDiag('')">Sheet &amp; photo check — why a photo will not load</button>
@@ -1464,6 +1465,23 @@
   </div>
 </div>
 
+<!-- ===== project setup: two devices disagree ===== -->
+<div class="sheet" id="kitSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Project setup — two versions</h2>
+    <div class="mini" id="kitWho">—</div>
+    <div class="mini" style="margin-top:10px">Pick a side for each part. Anything not listed is the same on both and is left alone.</div>
+    <div id="kitRows" style="margin-top:12px"></div>
+    <div class="btnrow" style="margin-top:14px">
+      <button class="primary" onclick="kitResolve()">Apply</button>
+      <button class="alt" onclick="kitTakeAllTheirs()">Take all of theirs</button>
+    </div>
+    <div class="btnrow"><button onclick="closeKitClash()">Leave it for now</button></div>
+    <div class="mini">Leaving it changes nothing on either side. It will ask again on the next sync.</div>
+  </div>
+</div>
+
 <div class="sheet" id="diagSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
@@ -1809,7 +1827,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-25 · v151";
+const APP_BUILD  = "2026-09-26 · v152";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -1817,7 +1835,7 @@ const APP_BUILD  = "2026-09-25 · v151";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-25 · v149";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-26 · v152";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2481,10 +2499,16 @@ function persistRefLayers(){
   // Settings are small and change often; geometry is large and changes rarely, so
   // they are written separately.
   refLayers.forEach(l=>{
-    idbPutLayer({ id:l.id, name:l.name, color:l.color, visible:l.visible,
+    idbPutLayer({ id:l.id, src:l.src || "", name:l.name, color:l.color, visible:l.visible,
                   role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
                   legend:l.legend !== false, legendKind:l.legendKind || "auto",
                   dashed: !!l.dashed, weight: l.weight || 3,
+                  /* v150 added these and this line did not. The fields are written
+                     out one by one rather than spread, so anything not named here is
+                     simply dropped — the transparency you set survived until the app
+                     was closed and then went back to the default, with nothing said. */
+                  opacity: isFinite(Number(l.opacity)) ? Number(l.opacity) : 90,
+                  fill:    isFinite(Number(l.fill))    ? Number(l.fill)    : 10,
                   features:l.features })
       .catch(()=>toast("Could not save "+l.name+" to this device",true));
   });
@@ -3260,7 +3284,12 @@ async function importRefLayer(file){
 
     const id = "ref"+Date.now().toString(36);
     refLayers.push({
-      id, name: file.name.replace(/\.[^.]+$/,"").slice(0,40),
+      id,
+      /* The file it came from, kept unchanged for the life of the layer. The NAME is
+         the legend wording and gets edited; this is what two devices holding the same
+         shapefile can both recognise it by, so the symbology can travel. */
+      src: file.name.replace(/\.[^.]+$/,"").toLowerCase(),
+      name: file.name.replace(/\.[^.]+$/,"").slice(0,40),
       color: REF_PALETTE[refLayers.length % REF_PALETTE.length],
       visible: true, features: feats
     });
@@ -7608,6 +7637,10 @@ function syncNow(){
      exists to avoid. */
   const qf = feats.filter(f=>!f._sent).length + featDeletes.length;
   syncFeats(); flushFeatDeletes();
+  /* The project setup goes both ways on the same tap. It is small, it is the thing
+     that makes two people's documents match, and asking somebody to remember a
+     second button is how one device ends up a week behind. */
+  kitSync({ loud:false });
   if(!q.length){
     toast(qf ? `Sending ${qf} fence/planting change(s)…` : "Everything is already synced");
     setTimeout(()=>fetchPhotoLinks(true),1500); return;
@@ -7740,6 +7773,7 @@ function verifyAndRetry(pass){
 
 function pullFromSheet(){
   closeMenu();
+  kitSync({ loud:false });          // a device joining a job wants the setup with it
   if(!connected || isOffline()){ toast("No connection",true); return; }
   const cb="__tr"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
   const sc=document.createElement("script");
@@ -13275,6 +13309,302 @@ function bulkLocationMigrate(){
   });
   toast(n ? `${n} tree(s) brought over` + (unknown.length ? ` \u00b7 ${unknown.length} not recognised` : "")
           : "Nothing needed changing");
+}
+
+/* ==================================================================== *
+ *  THE PROJECT SETUP, SHARED BETWEEN DEVICES
+ *
+ *  The trees, the fences, the plantings and the detail-drawing library already
+ *  travel through the Sheet. What did not was everything that turns them into a
+ *  DOCUMENT — the title block, the section list, the label settings, the layer
+ *  symbology, which money column prints. Two people could hold the same 158 trees
+ *  and produce two plans that looked nothing alike.
+ *
+ *  ONE BLOB PER PROJECT on the Sheet, with a revision number.
+ *
+ *  WHAT IS DELIBERATELY NOT IN IT. Anything that is a property of the DEVICE rather
+ *  than the job: which basemap you prefer, whether your rail has the crown circles
+ *  on, the offline tile areas you saved, your Showing filter. Sharing those would
+ *  mean one person's screen rearranging itself because somebody else tapped
+ *  something, which is not collaboration, it is interference.
+ * ==================================================================== */
+const KITKEY = "st_kitbase";
+let kitBase = {};               // project -> { rev, json } as of the last agreement
+try{ kitBase = JSON.parse((STORE && STORE.getItem(KITKEY)) || "{}") || {}; }catch(e){ kitBase = {}; }
+function persistKitBase(){ if(STORE){ try{ STORE.setItem(KITKEY, JSON.stringify(kitBase)); }catch(e){} } }
+
+/* A LAYER'S STYLE IS KEYED BY THE FILE IT CAME FROM, not by its id — ids are minted
+   on the device that read the file, so two phones holding the same shapefile have
+   two different ids for it. The source name is the one thing both know. */
+function layerKitKey(L2){
+  return String((L2 && (L2.src || L2.name)) || "").trim().toLowerCase();
+}
+function layerStyleKit(){
+  const out = {};
+  refLayers.forEach(L2=>{
+    const k = layerKitKey(L2); if(!k) return;
+    out[k] = { name:L2.name, color:L2.color, weight:layerWeight(L2), dashed:!!L2.dashed,
+               legend:L2.legend !== false, legendKind:L2.legendKind || "auto",
+               opacity:Math.round(layerOpacity(L2)*100), fill:Math.round(layerFill(L2)*100),
+               role:L2.role || "", roleField:L2.roleField || "" };
+  });
+  return out;
+}
+function applyLayerStyleKit(m){
+  if(!m || typeof m !== "object") return 0;
+  let n = 0;
+  refLayers.forEach(L2=>{
+    const v = m[layerKitKey(L2)]; if(!v) return;
+    L2.name = v.name || L2.name;
+    L2.color = v.color || L2.color;
+    L2.weight = v.weight; L2.dashed = !!v.dashed;
+    L2.legend = v.legend !== false; L2.legendKind = v.legendKind || "auto";
+    L2.opacity = v.opacity; L2.fill = v.fill;
+    if(v.role){ L2.role = v.role; L2.roleField = v.roleField || ""; }
+    n++;
+  });
+  if(n){ persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend(); }
+  return n;
+}
+
+/* The sections, in the order they are read on screen. Each is named, because the
+   conflict screen lists them by name and "wording" has to mean something to whoever
+   is looking at it at eight in the morning. */
+const KIT_PARTS = [
+  ["wording",   "Wording & branding"],
+  ["doc",       "Document sections"],
+  ["labels",    "Label settings"],
+  ["featstyle", "Fence & excavation styling"],
+  ["layers",    "Layer symbology"],
+  ["value",     "Value column"],
+  ["appraisal", "Appraisal settings"],
+  ["sheet",     "Sheet size & scale"]
+];
+function kitSnapshot(project){
+  const p = String(project || "").trim();
+  return {
+    wording:   tppText,
+    doc:       docSections(),
+    labels:    labelCfg,
+    featstyle: featStyle,
+    layers:    layerStyleKit(),
+    value:     { mode: valueModeFor(p) },
+    appraisal: { hard:apprRCHard, con:apprRCCon, cal:apprCaliper,
+                 sp:apprSpecies, loc:apprLocation, f:apprFactors },
+    sheet:     { size: sheetSize, scale: ($("mapScale") && $("mapScale").value) || "1000",
+                 prefix: ($("docPrefix") && $("docPrefix").value) || "TPP" }
+  };
+}
+/* Applied part by part, because the conflict screen lets you take one and keep
+   another. `only` is the list of parts to take; absent means all of them. */
+function kitApply(project, kit, only){
+  if(!kit || typeof kit !== "object") return [];
+  const take = k => !only || only.indexOf(k) >= 0;
+  const done = [];
+  if(take("wording") && kit.wording){
+    tppText = Object.assign({}, TPP_TEXT_DEF, kit.wording);
+    if(STORE){ try{ STORE.setItem(TPPKEY, JSON.stringify(tppText)); }catch(e){} }
+    done.push("wording");
+  }
+  if(take("doc") && Array.isArray(kit.doc)){ docSave(kit.doc); done.push("doc"); }
+  if(take("labels") && kit.labels && typeof kit.labels === "object"){
+    labelCfg = kit.labels; persistLabelCfg(); renderLabels(); syncLabelBtn(); done.push("labels");
+  }
+  if(take("featstyle") && kit.featstyle && typeof kit.featstyle === "object"){
+    Object.keys(FEAT_STYLE_DEF).forEach(k=>{
+      featStyle[k] = Object.assign({}, FEAT_STYLE_DEF[k], kit.featstyle[k] || {});
+    });
+    persistFeatStyle(); renderFeats(); buildLegend(); done.push("featstyle");
+  }
+  if(take("layers") && kit.layers){ applyLayerStyleKit(kit.layers); done.push("layers"); }
+  if(take("value") && kit.value && kit.value.mode){
+    setValueMode(project, kit.value.mode); done.push("value");
+  }
+  if(take("appraisal") && kit.appraisal){
+    /* setApprValue would queue it straight back up to the Sheet's Settings tab, which
+       is where it just came from. Written directly instead. */
+    const a = kit.appraisal;
+    if(isFinite(parseFloat(a.hard))) apprRCHard  = parseFloat(a.hard);
+    if(isFinite(parseFloat(a.con)))  apprRCCon   = parseFloat(a.con);
+    if(isFinite(parseFloat(a.cal)))  apprCaliper = parseFloat(a.cal);
+    if(isFinite(parseFloat(a.sp)))   apprSpecies = parseFloat(a.sp);
+    if(isFinite(parseFloat(a.loc)))  apprLocation= parseFloat(a.loc);
+    if(a.f && typeof a.f === "object") apprFactors = a.f;
+    if(STORE){ try{ STORE.setItem("st_apprval", JSON.stringify({ hard:apprRCHard, con:apprRCCon,
+      cal:apprCaliper, sp:apprSpecies, loc:apprLocation, f:apprFactors })); }catch(e){} }
+    done.push("appraisal");
+  }
+  if(take("sheet") && kit.sheet){
+    if(kit.sheet.size) setSheetSize(kit.sheet.size);
+    if($("mapScale") && kit.sheet.scale) $("mapScale").value = kit.sheet.scale;
+    if($("docPrefix") && kit.sheet.prefix) $("docPrefix").value = kit.sheet.prefix;
+    done.push("sheet");
+  }
+  return done;
+}
+/* Which named parts differ between two setups. Compared as text, because a deep
+   compare of a settings tree is a lot of code to answer a yes-or-no question. */
+function kitDiff(a, b){
+  const out = [];
+  KIT_PARTS.forEach(([k, label])=>{
+    const x = JSON.stringify((a||{})[k] == null ? null : a[k]);
+    const y = JSON.stringify((b||{})[k] == null ? null : b[k]);
+    if(x !== y) out.push({ key:k, label:label });
+  });
+  return out;
+}
+/* DIRTY IS COMPUTED, NOT TRACKED. Instrumenting every place a setting is written
+   means one missed call and a change that never goes up, silently — the failure you
+   only find when somebody's title block is wrong in a submitted report. Comparing
+   the snapshot with the one at the last agreement cannot miss. */
+function kitIsDirty(project){
+  const b = kitBase[project];
+  if(!b) return false;                    // never agreed on anything: not "changed"
+  return JSON.stringify(kitSnapshot(project)) !== b.json;
+}
+function kitRevOf(project){ const b = kitBase[project]; return b ? (b.rev || 0) : 0; }
+function kitRemember(project, rev, json){
+  kitBase[project] = { rev: rev || 0, json: json || JSON.stringify(kitSnapshot(project)) };
+  persistKitBase();
+}
+
+/* ---------- the exchange ---------- */
+let kitBusy = false, kitClash = null;
+function kitSync(opts){
+  opts = opts || {};
+  const project = String(currentProject() || "").trim();
+  if(!project || !connected || isOffline() || kitBusy) return;
+  /* Only with ONE project in view. "All projects" has no single setup to be the
+     setup of, and writing one project's title block under another's name is the
+     kind of quiet wrong answer that reaches a client. */
+  if(showAllProjects){ if(opts.loud) toast("Set Showing to one project first", true); return; }
+  kitBusy = true;
+  const cb = "__kit" + Date.now(), sep = SCRIPT_URL.indexOf("?") >= 0 ? "&" : "?";
+  const sc = document.createElement("script");
+  const cleanup = ()=>{ kitBusy = false; try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
+                        if(sc.parentNode) sc.parentNode.removeChild(sc); };
+  window[cb] = resp => {
+    try{ kitDecide(project, resp, opts); }catch(e){}
+    cleanup();
+  };
+  sc.onerror = ()=>{ if(opts.loud) toast("Could not reach the Sheet", true); cleanup(); };
+  sc.src = SCRIPT_URL + sep + "action=kitget&callback=" + cb + "&project=" + encodeURIComponent(project);
+  document.body.appendChild(sc);
+}
+function kitDecide(project, resp, opts){
+  if(!resp || !resp.ok){ if(opts.loud) toast("The Sheet did not answer about the setup", true); return; }
+  const theirRev = Number(resp.rev) || 0;
+  const mine = kitSnapshot(project), mineJson = JSON.stringify(mine);
+  const myRev = kitRevOf(project);
+  const dirty = kitIsDirty(project);
+  let theirs = null;
+  if(resp.kit){ try{ theirs = JSON.parse(resp.kit); }catch(e){ theirs = null; } }
+
+  // Nothing there yet: this device seeds it.
+  if(!theirRev){ kitPush(project, mine, 0, opts); return; }
+  // First contact with an existing setup, and nothing of ours to lose.
+  if(!kitBase[project]){
+    const d = kitDiff(mine, theirs);
+    if(!d.length){ kitRemember(project, theirRev, mineJson); return; }
+    kitClash = { project, theirs, theirRev, diff:d, who:resp.by || "another device", at:resp.at || "" };
+    openKitClash(true);
+    return;
+  }
+  if(theirRev === myRev){
+    if(dirty) kitPush(project, mine, myRev, opts);
+    else if(opts.loud) toast("The project setup is up to date");
+    return;
+  }
+  if(theirRev > myRev && !dirty){
+    const took = kitApply(project, theirs);
+    kitRemember(project, theirRev, JSON.stringify(kitSnapshot(project)));
+    if(took.length) toast(`Project setup updated${resp.by ? " by " + resp.by : ""}`);
+    return;
+  }
+  if(theirRev > myRev && dirty){
+    kitClash = { project, theirs, theirRev, diff:kitDiff(mine, theirs),
+                 who:resp.by || "another device", at:resp.at || "" };
+    openKitClash(false);
+    return;
+  }
+  /* Our revision is AHEAD of the Sheet's — the row was cleared or rebuilt under us.
+     Sending at our number would be refused for ever, so we re-base onto theirs. */
+  kitRemember(project, theirRev, kitBase[project].json);
+  kitPush(project, mine, theirRev, opts);
+}
+function kitPush(project, kit, baseRev, opts){
+  const json = JSON.stringify(kit);
+  fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+    headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    body: JSON.stringify({ _action:"kitput", project, kit:json, rev:baseRev,
+                           by: settings.cruiser || "", device: deviceTag() }) })
+    .then(()=>{
+      /* no-cors, so the reply cannot be read. The revision is assumed to have moved
+         by one and CHECKED on the next exchange — if the write was refused, the next
+         kitget sees a revision we do not expect and opens the conflict screen, which
+         is the same path a genuine clash takes. */
+      kitRemember(project, (Number(baseRev)||0) + 1, json);
+      if(opts && opts.loud) toast("Project setup sent to the Sheet");
+    })
+    .catch(()=>{ if(opts && opts.loud) toast("Could not send the project setup", true); });
+}
+function deviceTag(){
+  const ua = navigator.userAgent || "";
+  if(/iPhone/i.test(ua)) return "iPhone";
+  if(/iPad/i.test(ua)) return "iPad";
+  if(/Android/i.test(ua)) return "Android";
+  if(/Mac/i.test(ua)) return "Mac";
+  if(/Windows/i.test(ua)) return "Windows";
+  return "device";
+}
+
+/* ---------- the conflict screen ---------- */
+function openKitClash(firstContact){
+  if(!kitClash) return;
+  const c = kitClash;
+  $("kitWho").innerHTML = firstContact
+    ? `This device has its own setup for <b>${esc(c.project)}</b>, and the Sheet already has one` +
+      (c.who ? ` from <b>${esc(c.who)}</b>` : "") + (c.at ? ` · ${esc(String(c.at).slice(0,16))}` : "") + "."
+    : `<b>${esc(c.who)}</b> changed the setup for <b>${esc(c.project)}</b>` +
+      (c.at ? ` · ${esc(String(c.at).slice(0,16))}` : "") + `, and you have changes of your own.`;
+  $("kitRows").innerHTML = c.diff.map((d,i)=>`
+    <div class="statrow" style="gap:8px;align-items:center">
+      <span style="flex:1">${esc(d.label)}</span>
+      <label class="chk" style="margin:0"><input type="radio" name="kit${i}" value="mine" checked> Mine</label>
+      <label class="chk" style="margin:0"><input type="radio" name="kit${i}" value="theirs"> Theirs</label>
+    </div>`).join("");
+  $("kitSheet").classList.add("show");
+}
+function closeKitClash(){ $("kitSheet").classList.remove("show"); kitClash = null; }
+function kitResolve(){
+  const c = kitClash; if(!c) return;
+  const take = [];
+  c.diff.forEach((d,i)=>{
+    const el = document.querySelector(`input[name="kit${i}"]:checked`);
+    if(el && el.value === "theirs") take.push(d.key);
+  });
+  if(take.length) kitApply(c.project, c.theirs, take);
+  /* Whichever way each part went, the result is a NEW setup that neither device had,
+     so it goes up as the next revision from theirs. Taking everything of theirs is
+     the one case with nothing to send. */
+  const merged = kitSnapshot(c.project);
+  const project = c.project, theirRev = c.theirRev;
+  closeKitClash();
+  if(take.length === KIT_PARTS.length && !kitDiff(merged, c.theirs).length){
+    kitRemember(project, theirRev, JSON.stringify(merged));
+    toast("Took the Sheet's setup");
+    return;
+  }
+  kitRemember(project, theirRev, kitBase[project] ? kitBase[project].json : "");
+  kitPush(project, merged, theirRev, { loud:true });
+  toast("Setup merged and sent");
+}
+function kitTakeAllTheirs(){
+  const c = kitClash; if(!c) return;
+  kitApply(c.project, c.theirs);
+  kitRemember(c.project, c.theirRev, JSON.stringify(kitSnapshot(c.project)));
+  closeKitClash();
+  toast("Took the Sheet's setup");
 }
 
 /* ---------- ownership from where the trees stand ---------- */
