@@ -818,9 +818,9 @@
         <button class="menuitem" onclick="exportFeatsGeoJSON()">Fences &amp; plantings (GeoJSON)</button>
         <div class="mini" style="padding:10px 4px 8px">The document</div>
         <button class="menuitem" onclick="openTppText()">TPP wording &amp; branding</button>
-        <button class="menuitem" onclick="exportScheduleB()">Schedule B — tree photographs (PDF)</button>
+        <button class="menuitem" onclick="openSchedB()">Schedule B — tree photographs (PDF)</button>
         <button class="menuitem" onclick="openDetails()">Standard detail drawings</button>
-        <button class="menuitem prime" onclick="openDoc()">📄 Assemble the final document</button>
+        <button class="menuitem prime" onclick="openDoc()">📄 Assemble the final document — add your arborist report here</button>
       </div>
     </div>
 
@@ -1298,9 +1298,15 @@
     </div>
 
     <div id="docList"></div>
-    <div class="mini" id="docStatus" style="margin:8px 0">Add your arborist report, custom tables or figures as PDFs.</div>
+    <div class="mini" id="docStatus" style="margin:8px 0">—</div>
+    <div class="mini" style="margin:8px 0">
+      <b>Your arborist report goes in here.</b> Tap <b>＋ Add a PDF</b>, choose the file, and
+      name it as the contents page should read. Then move it up the list with the arrows —
+      it normally sits straight after Contents, before the site plan. Anything else that is
+      already a PDF — a survey, a letter, a figure — comes in the same way.
+    </div>
     <div class="btnrow">
-      <button onclick="document.getElementById('docInput').click()">Add PDFs</button>
+      <button class="primary" onclick="document.getElementById('docInput').click()">＋ Add a PDF</button>
       <button class="primary" onclick="buildDocument()">Build the document</button>
     </div>
     <div class="btnrow"><button onclick="closeDoc()">Close</button></div>
@@ -1344,7 +1350,7 @@
 
     <div class="btnrow">
       <button class="primary" onclick="saveTppText()">Save</button>
-      <button onclick="document.getElementById('tppTextSheet').classList.remove('show')">Close</button>
+      <button onclick="document.getElementById('tppTextSheet').classList.remove('show'); backToMenu();">Close</button>
     </div>
     <div class="btnrow"><button class="alt" onclick="resetTppText()">Back to the shipped wording</button></div>
   </div>
@@ -1464,6 +1470,52 @@
       <button class="primary" onclick="confirmLineImport()">Add them</button>
       <button onclick="cancelLineImport()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== Schedule B: its title, and what each photograph is called ===== -->
+<div class="sheet" id="schedBSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Schedule B — tree photographs</h2>
+    <div class="hint">A document of its own, one photograph to a page, captioned so every picture can be found in Schedule A.</div>
+
+    <div class="row2">
+      <div class="fld"><label>Title</label><input id="sbTitle" type="text" placeholder="Schedule B" oninput="schedBPreview()"></div>
+      <div class="fld"><label>Subtitle</label><input id="sbSub" type="text" placeholder="Tree Photographs" oninput="schedBPreview()"></div>
+    </div>
+    <div class="fld">
+      <label>Site, as it should read on the title page</label>
+      <input id="sbSite" type="text" placeholder="1 Cynthia Crescent, Richmond Hill, Ontario" oninput="schedBPreview()">
+    </div>
+
+    <div class="fld" style="margin-top:14px">
+      <label>Under each photograph — tap in the order you want them</label>
+      <div class="chips" id="sbFields"></div>
+      <div class="mini">The <b>tree number</b> is always first and cannot be removed: it is the only thing tying a photograph to a row in Schedule A, and a photograph that cannot be looked up is one nobody can act on.</div>
+    </div>
+    <div class="fld">
+      <label>Between them</label>
+      <select id="sbSep" onchange="schedBPreview()">
+        <option value="-">Hyphen — T1-Silver_Maple-Satisfactory</option>
+        <option value=" · ">Middle dot — T1 · Silver_Maple · Satisfactory</option>
+        <option value=", ">Comma — T1, Silver_Maple, Satisfactory</option>
+        <option value=" ">Space — T1 Silver_Maple Satisfactory</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>Preview</label>
+      <div class="preview" style="background:#fff;border-style:solid">
+        <div id="sbPreview" style="color:#12201a;font:600 14px var(--sans);text-align:center">—</div>
+      </div>
+      <div class="mini" id="sbCount" style="margin-top:6px">—</div>
+    </div>
+
+    <div class="btnrow">
+      <button class="primary" onclick="saveSchedB()">Save</button>
+      <button class="alt" onclick="saveSchedB(); exportScheduleB();">Save and build it</button>
+    </div>
+    <div class="btnrow"><button onclick="closeSchedB()">Close</button></div>
   </div>
 </div>
 
@@ -1829,7 +1881,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-26 · v154";
+const APP_BUILD  = "2026-09-26 · v155";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3548,7 +3600,7 @@ function removeAllRefLayers(){
 }
 
 function openLayers(){ renderLayerList(); $("layersSheet").classList.add("show"); }
-function closeLayers(){ $("layersSheet").classList.remove("show"); }
+function closeLayers(){ $("layersSheet").classList.remove("show"); backToMenu(); }
 function renderLayerList(){
   const withLbl = id => cfgFor(id).fields.length ? `${cfgFor(id).fields.length} label field(s)` : "no labels";
   let h = `<div class="layerrow">
@@ -9969,7 +10021,7 @@ function openDiag(name){
   $("diagOut").innerHTML = `<div class="mini">Asking the Sheet…</div>`;
   runDiag();
 }
-function closeDiag(){ $("diagSheet").classList.remove("show"); }
+function closeDiag(){ $("diagSheet").classList.remove("show"); backToMenu(); }
 function diagLine(state, label, detail){
   const mark = state === "ok" ? "✓" : state === "bad" ? "✕" : "…";
   const col  = state === "ok" ? "#4cc079" : state === "bad" ? "#ff8f7d" : "#9fbcab";
@@ -10998,6 +11050,7 @@ function saveTppText(){
   if(STORE){ try{ STORE.setItem(TPPKEY, JSON.stringify(tppText)); }catch(e){} }
   $("tppTextSheet").classList.remove("show");
   toast("Saved for this and future plans");
+  backToMenu();
 }
 function resetTppText(){
   if(!confirm("Put every box back to the wording the app ships with?")) return;
@@ -12321,7 +12374,7 @@ function openDetails(){
     });
   });
 }
-function closeDetails(){ $("detailSheet").classList.remove("show"); }
+function closeDetails(){ $("detailSheet").classList.remove("show"); backToMenu(); }
 function setDetailFilter(v){ detailFilter = v; renderDetails(); }
 function renderDetails(){
   const munis = detailMunis();
@@ -12715,11 +12768,103 @@ function exportYRCompensation(){
    reviewer sees the same thing they are used to. */
 const SCHED_B_W_IN = 10, SCHED_B_H_IN = 7.5;   // 4:3, as the existing appendices are
 
+/* ================================================================== *
+ *  SCHEDULE B — ITS TITLE, AND WHAT EACH PHOTOGRAPH IS CALLED
+ *
+ *  Chris: "The user should have an ability to title this Schedule. The images will
+ *  be titled at the bottom and the user should be able to select the attributes of
+ *  the tree that will be used to title the image (e.g. T1-species-health)."
+ *
+ *  The caption used to be hard-wired to number, species and condition. That is the
+ *  right default and it is not the only right answer — a plan whose table carries
+ *  the tag number wants the tag under the photograph, and a removals-only appendix
+ *  wants the proposed action.
+ *
+ *  THE TREE NUMBER IS NOT OPTIONAL. It is the only thing tying a photograph to a row
+ *  in Schedule A, and a photograph that cannot be looked up is a photograph nobody
+ *  can act on. Everything after it is yours.
+ * ================================================================== */
+const SCHEDB_KEY = "st_schedb";
+const SCHEDB_DEF = { title:"Schedule B", sub:"Tree Photographs", site:"",
+                     fields:["SPECIES","HEALTH"], sep:"-" };
+let schedB = Object.assign({}, SCHEDB_DEF);
+try{
+  const r = JSON.parse((STORE && STORE.getItem(SCHEDB_KEY)) || "null");
+  if(r && typeof r === "object") schedB = Object.assign({}, SCHEDB_DEF, r);
+}catch(e){}
+function persistSchedB(){ if(STORE){ try{ STORE.setItem(SCHEDB_KEY, JSON.stringify(schedB)); }catch(e){} } }
+
+/* The fields worth putting under a photograph. Not every column — an appendix
+   caption has room for two or three things, and offering sixty is offering none. */
+const SCHEDB_FIELDS = [
+  ["SPECIES",   "Common name"],
+  ["BOTANICAL", "Botanical name"],
+  ["HEALTH",    "Condition rating"],
+  ["DBH",       "DBH"],
+  ["TAG_NO",    "Tag number"],
+  ["ADDRESS",   "Address"],
+  ["LOCATION",  "Ownership"],
+  ["PROP_ACT",  "Proposed action"],
+  ["TPZ_LBL",   "Protection zone"]
+];
 function schedBCaption(t, seq){
-  const no = treeNoFor(t, seq);
-  const sp = String(t.SPECIES||"Unknown").trim().replace(/\s+/g,"_");
-  const hl = String(t.HEALTH||"").trim().replace(/\s+/g,"_");
-  return "T" + no + "-" + sp + (hl ? "-" + hl : "");
+  const parts = ["T" + treeNoFor(t, seq)];
+  (schedB.fields || []).forEach(f=>{
+    /* treeLabelValue, so the protection zone reads "2.4 m" and the DBH "30 cm" here
+       exactly as they do on the map and on the plan. One answer per field. */
+    let v = treeLabelValue(t, f, seq, true);
+    v = String(v == null ? "" : v).trim();
+    if(!v) return;
+    /* Spaces become underscores because these captions are read as one token — it is
+       how the existing appendices are written, and it keeps a two-word species from
+       looking like two fields. */
+    parts.push(v.replace(/\s+/g, "_"));
+  });
+  return parts.join(schedB.sep || "-");
+}
+function openSchedB(){
+  closeMenu();
+  $("sbTitle").value = schedB.title || "";
+  $("sbSub").value   = schedB.sub || "";
+  $("sbSite").value  = schedB.site || lastMapTitle || settings.project || "";
+  $("sbSep").value   = schedB.sep || "-";
+  renderSchedBFields();
+  schedBPreview();
+  $("schedBSheet").classList.add("show");
+}
+function closeSchedB(){ $("schedBSheet").classList.remove("show"); backToMenu(); }
+function renderSchedBFields(){
+  $("sbFields").innerHTML = SCHEDB_FIELDS.map(([f,label])=>{
+    const i = (schedB.fields || []).indexOf(f);
+    return `<button type="button" class="fieldchip${i>=0?" on":""}" onclick="toggleSchedBField('${f}')">` +
+           `${esc(label)}${i>=0?`<span class="ord">${i+1}</span>`:""}</button>`;
+  }).join("");
+}
+function toggleSchedBField(f){
+  const l = schedB.fields || (schedB.fields = []);
+  const i = l.indexOf(f);
+  if(i >= 0) l.splice(i, 1); else l.push(f);
+  renderSchedBFields(); schedBPreview();
+}
+function readSchedBForm(){
+  schedB.title = normText($("sbTitle").value).slice(0,60);
+  schedB.sub   = normText($("sbSub").value).slice(0,60);
+  schedB.site  = normText($("sbSite").value).slice(0,120);
+  schedB.sep   = $("sbSep").value || "-";
+}
+function schedBPreview(){
+  readSchedBForm();
+  const list = reportTrees();
+  const t = list[0] || { TREE_NO:"1", SPECIES:"Silver Maple", HEALTH:"Satisfactory",
+                         DBH:"46", TAG_NO:"1042", TPZ_M:"2.4" };
+  $("sbPreview").textContent = schedBCaption(t, 1);
+  $("sbCount").textContent =
+    `${list.filter(x=>String(x.PHOTOS||"").split(";").filter(y=>y.trim()).length).length} of ${list.length} tree(s) in view have a photograph`;
+}
+function saveSchedB(){
+  readSchedBForm(); persistSchedB();
+  toast("Schedule B setup saved");
+  closeSchedB();
 }
 
 async function exportScheduleB(){
@@ -12734,9 +12879,10 @@ async function exportScheduleB(){
   if(!list.length){ toast("No photos on the trees in view",true); return; }
 
   const W = Math.round(SCHED_B_W_IN*PDF_DPI), H = Math.round(SCHED_B_H_IN*PDF_DPI);
-  const site = normText(prompt("Site, as it should read on the title page:",
-                 lastMapTitle || settings.project || "") || "");
-  if(site===null) return;
+  /* Typed on the Schedule B screen, not asked for here. A prompt at the moment you
+     press Export is the worst place to ask for a title: it is one line, it cannot be
+     seen against anything, and it is gone the next time. */
+  const site = String(schedB.site || lastMapTitle || settings.project || "").trim();
 
   const pages = [];
   // title page
@@ -12746,9 +12892,9 @@ async function exportScheduleB(){
     g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
     g.fillStyle="#12201a"; g.textAlign="center";
     g.font=`bold ${Math.round(PDF_DPI*0.42)}px sans-serif`;
-    g.fillText("Schedule B", W/2, H*0.34);
+    g.fillText(schedB.title || "Schedule B", W/2, H*0.34);
     g.font=`${Math.round(PDF_DPI*0.28)}px sans-serif`;
-    g.fillText("Tree Photographs", W/2, H*0.44);
+    if(schedB.sub) g.fillText(schedB.sub, W/2, H*0.44);
     g.font=`${Math.round(PDF_DPI*0.17)}px sans-serif`; g.fillStyle="#3f5147";
     if(site) g.fillText(site, W/2, H*0.54);
     g.fillText(nowStr().slice(0,10), W/2, H*0.61);
@@ -16521,6 +16667,17 @@ function openMenu(){
   $("menuSheet").classList.add("show");
 }
 function closeMenu(){ $("menuSheet").classList.remove("show"); }
+/* COMING BACK.
+
+   Every screen reached from the Menu closes the Menu on its way in, so finishing
+   with one left you on the map with nothing open. Setting up a plan means visiting
+   six of them in a row, and re-opening the Menu and re-expanding the group each time
+   is six unnecessary taps and a lost place.
+
+   Only for the screens that are a STEP IN A SEQUENCE. Building the document, drawing
+   a fence, opening a tree — those end on the map on purpose, because the map is what
+   you look at next. */
+function backToMenu(){ openMenu(); }
 
 /* ---------- shared crew list ---------- */
 function userSelect(){
