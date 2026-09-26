@@ -1827,7 +1827,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-26 · v152";
+const APP_BUILD  = "2026-09-26 · v153";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -1835,7 +1835,7 @@ const APP_BUILD  = "2026-09-26 · v152";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-26 · v152";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-26 · v153";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -7762,12 +7762,20 @@ function verifyAndRetry(pass){
     cleanup();
   };
   sc.onerror=cleanup;
-  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb +
-           /* currentProject(), not settings.project. settings.project is what a NEW
-              tree is stamped with; what you are looking at is the Showing filter.
-              Asking for the wrong one meant "Load trees from Sheet" fetched the
-              recording project while the crew was filtered to another. */
-           (currentProject() && !showAllProjects ? "&project="+encodeURIComponent(currentProject()) : "");
+  /* NO PROJECT FILTER, and that was the whole bug.
+
+     It asked the Sheet for the IDs of the CURRENT PROJECT and then tested EVERY tree
+     on the device against that list. Every tree belonging to any other project was
+     therefore "not on the Sheet" and got marked unsent — 592 of them on a device
+     holding 750 trees while showing a 158-tree phase, which is 750 minus 158 exactly.
+
+     Nothing was lost by it: the trees were on the Sheet all along. But the app then
+     re-posted the whole rest of the inventory on the next sync, and every sync after,
+     and showed a queue that was not real. verifySync sitting next to it always asked
+     unfiltered; this one did not.
+
+     THE SET ASKED FOR HAS TO BE THE SET BEING TESTED. */
+  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -16331,7 +16339,12 @@ function openMenu(){
   refreshMenuMode();
   const un = trees.filter(t=>!t._sent).length;
   const iq = pendingInspections.length;
-  $("menuStats").textContent = `${trees.length} trees · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
+  /* NAME THE SCOPE. The bar at the top counts what is SHOWING; this counts what is
+     on the DEVICE. Both are useful and they are rarely the same, so "750 trees" here
+     against "158 trees" up there reads as a fault rather than as two questions. */
+  const vis = visibleTrees().length;
+  const scope = (vis === trees.length) ? "" : ` · ${vis} showing`;
+  $("menuStats").textContent = `${trees.length} on this device${scope} · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
   updateProjBtn();
   updateArchCount();
   paintGroups();
