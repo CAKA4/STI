@@ -1391,8 +1391,41 @@
           <option value="letter">11 × 8.5 in (letter)</option>
         </select>
       </div>
-      <div class="fld"></div>
+      <div class="fld"><label>Site plan scale</label>
+        <select id="docScale" onchange="docScaleChanged()">
+          <option value="100">1:100</option>
+          <option value="150">1:150</option>
+          <option value="200">1:200</option>
+          <option value="250" selected>1:250</option>
+          <option value="300">1:300</option>
+          <option value="350">1:350</option>
+          <option value="500">1:500</option>
+          <option value="750">1:750</option>
+          <option value="1000">1:1,000</option>
+          <option value="1500">1:1,500</option>
+          <option value="2000">1:2,000</option>
+          <option value="2500">1:2,500</option>
+          <option value="4000">1:4,000</option>
+        </select>
+      </div>
     </div>
+    <div class="row2">
+      <div class="fld"><label>Label each tree with</label>
+        <select id="docLabels">
+          <option value="idsp">Tree number and species — T1, Sugar Maple</option>
+          <option value="cfg">My label settings</option>
+          <option value="id">Tree number only — T1</option>
+          <option value="idtpz">Tree number and protection zone — T1, 2.4 m</option>
+          <option value="idsptpz">Number, species and protection zone</option>
+          <option value="sp">Species only</option>
+          <option value="none">No labels</option>
+        </select>
+      </div>
+      <div class="fld"><label>Key map background</label>
+        <select id="docKeyBase" onchange="docKeyBaseChanged()"></select>
+      </div>
+    </div>
+    <div class="mini" id="docScaleEst" style="margin:-2px 0 8px">—</div>
 
     <div id="docList"></div>
     <div class="mini" id="docStatus" style="margin:8px 0">—</div>
@@ -1985,7 +2018,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v165";
+const APP_BUILD  = "2026-09-27 · v166";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -11300,6 +11333,55 @@ function loadPdfJs(){
   return _pdfjsReady;
 }
 
+/* THE WHITE ROUND A PAGE IS NOT PART OF THE PAGE.
+
+   Chris: "Ensure the pdf pages of the arborist report and drawings fill the sheet as
+   shown in the attached image, make it look good."
+
+   They could not. A letter page is 8.5 x 11 — an aspect of 0.77 — and half of a
+   17 x 11 sheet's content area is about 7.0 x 10.7, an aspect of 0.65. Fitted by its
+   width, as it must be to stay in proportion, the page leaves an inch and a half of
+   nothing at the top and bottom. That is not a layout fault; it is the page carrying
+   its own inch of Word margin into a slot that has margins of its own.
+
+   So the margin is cut off. The ink's bounding box is found and the page is
+   re-exported as just that, with a small even bleed so the text does not touch the
+   neighbouring page. Every page is trimmed on its own, because a title page with a
+   full-bleed photograph has no margin to lose and must not be cropped to nothing.
+
+   Sampled every 3rd pixel: at 150 dpi that is a 0.5 mm grid, which cannot miss a
+   line of text, and it makes a thirty-page report trim in under a second. */
+function trimPageWhite(cv){
+  const full = cv.toDataURL("image/jpeg", 0.85);
+  let d;
+  try{ d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; }
+  catch(e){ return full; }                      // tainted canvas: leave it alone
+  const W = cv.width, H = cv.height, STEP = 3, LIM = 244;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for(let y = 0; y < H; y += STEP){
+    const row = y*W*4;
+    for(let x = 0; x < W; x += STEP){
+      const i = row + x*4;
+      if(d[i] < LIM || d[i+1] < LIM || d[i+2] < LIM){
+        if(x < x0) x0 = x; if(x > x1) x1 = x;
+        if(y < y0) y0 = y; if(y > y1) y1 = y;
+      }
+    }
+  }
+  if(x1 < 0 || y1 < 0) return full;             // a blank page stays a blank page
+  const bleed = Math.round(Math.min(W, H) * 0.012);
+  x0 = Math.max(0, x0 - bleed); y0 = Math.max(0, y0 - bleed);
+  x1 = Math.min(W - 1, x1 + bleed + STEP); y1 = Math.min(H - 1, y1 + bleed + STEP);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  /* A page that is nearly all ink has nothing worth cutting, and cropping it would
+     only risk shaving a border line off a drawing. */
+  if(w > W*0.94 && h > H*0.94) return full;
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  out.getContext("2d").drawImage(cv, x0, y0, w, h, 0, 0, w, h);
+  return out.toDataURL("image/jpeg", 0.85);
+}
+
 function pdfToPages(file, onProgress){
   return loadPdfJs()
     .then(()=>file.arrayBuffer())
@@ -11314,8 +11396,12 @@ function pdfToPages(file, onProgress){
         const sc=Math.min(3, Math.max(1, target/vp0.width));
         const vp=page.getViewport({scale:sc});
         const cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
-        await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
-        out.push(cv.toDataURL("image/jpeg",0.85));
+        const cx2 = cv.getContext("2d");
+        /* White behind the page. A PDF page has no background of its own, and a
+           transparent one trims to nothing. */
+        cx2.fillStyle = "#ffffff"; cx2.fillRect(0,0,cv.width,cv.height);
+        await page.render({canvasContext:cx2,viewport:vp}).promise;
+        out.push(trimPageWhite(cv));
         if(onProgress) onProgress(i, pdf.numPages);
       }
       return out;
@@ -11380,11 +11466,61 @@ function docInsertAt(l){
   while(i < l.length && l[i] && l[i].kind === "upload") i++;
   return i;
 }
+/* THE SITE PLAN'S SCALE AND LABELLING, SET WHERE THE DOCUMENT IS BUILT.
+
+   Chris: "in the tree protection and report I want to be able to set the map scale
+   here for the site plan and key map, I typically use 1:250 but other options should
+   be available. Also allow me to select the way trees are labeled here."
+
+   They lived on the map-export screen, which is a different screen for a different
+   job — exporting what is on the phone in front of you. Assembling the document is
+   where the question actually arises, and having to go and set it somewhere else
+   first is how a set comes out at 1:1,000 when it was meant to be at 1:250. Kept in
+   the project kit, so a job holds its own scale. */
+const DOCMAPKEY = "st_docmap";
+let docMap = { scale:"250", labels:"idsp" };
+try{ const v = JSON.parse(STORE && STORE.getItem(DOCMAPKEY)); if(v && typeof v === "object") docMap = Object.assign(docMap, v); }catch(e){}
+function persistDocMap(){ if(STORE){ try{ STORE.setItem(DOCMAPKEY, JSON.stringify(docMap)); }catch(e){} } }
+function docScaleChanged(){
+  docMap.scale = $("docScale").value;
+  /* The map export reads the same figure, so the two screens cannot disagree about
+     what scale this job is drawn at. */
+  if($("mapScale")) $("mapScale").value = docMap.scale;
+  persistDocMap(); docScaleEstimate();
+}
+function docLabelsChanged(){
+  docMap.labels = $("docLabels").value;
+  if($("mapLabels")) $("mapLabels").value = docMap.labels;
+  persistDocMap();
+}
+function docKeyBaseChanged(){
+  const v = $("docKeyBase").value;
+  keyBase.which = v; persistKeyBase();
+}
+/* How many plan sheets that scale will take, said before the document is built
+   rather than after twenty minutes of rendering. */
+function docScaleEstimate(){
+  const el = $("docScaleEst"); if(!el) return;
+  try{
+    const cells = sheetGrid(parseInt(docMap.scale,10) || 250, true);
+    const n = cells.length;
+    el.textContent = n
+      ? `Site plan: ${n} sheet${n===1?"":"s"} at 1:${Number(docMap.scale).toLocaleString()}, plus an index sheet.`
+      : "No trees in view to draw a site plan from.";
+  }catch(e){ el.textContent = ""; }
+}
+
 function openDoc(){
   closeMenu();
   $("docSheetSize").value = sheetSize;
   $("docValue").value = valueModeFor(currentProject());
   $("docPlace").value = docPlacement;
+  $("docScale").value  = docMap.scale;
+  $("docLabels").value = docMap.labels;
+  $("docLabels").onchange = docLabelsChanged;
+  $("docKeyBase").innerHTML = KEY_BASES.map(([v,l]) =>
+    `<option value="${v}"${keyBase.which===v?" selected":""}>${esc(l)}</option>`).join("");
+  docScaleEstimate();
   renderDoc();
   const ups = docSections().filter(d => d && d.kind === "upload");
   docSay(ups.length ? (ups.length === 1 ? "1 PDF in the list." : ups.length + " PDFs in the list.")
@@ -11600,25 +11736,63 @@ function tablePages(rows, title, W, H, M, foot){
   const head = rows[0], body = rows.slice(1);
   const pad  = Math.round(PDF_DPI*0.055);
   const probe = document.createElement("canvas").getContext("2d");
-  const fs = Math.round(PDF_DPI*0.075);
+  /* A FACE THAT CAN BE READ ON PAPER, and a bigger one when there is room for it.
+     Chris, of Schedule A: "Ensure the tree inventory table fills the sheet"; and of
+     Table 1: "has a font size that is easy to read on the sheet". Thirteen columns
+     of sentences cannot be set as large as eight columns of counts, so the face
+     follows the column count rather than being one figure for both. */
+  const fs = Math.round(PDF_DPI * (head.length <= 6 ? 0.125 : head.length <= 9 ? 0.110 : 0.092));
   const avail = W - M*2;
 
-  /* Column widths from the natural width of the content, capped, then scaled to the
-     sheet. A wide free-text column is capped hardest — it is the one that wraps. */
-  probe.font = `${fs}px sans-serif`;
-  const want = head.map((h,c)=>{
+  /* Column widths in two passes. FIRST what each column would like: the widest thing
+     in it, measured whole rather than truncated at 26 characters, which is what made
+     a column of sentences ask for the same width as a column of dates. */
+  probe.font = `${fs}px ${TPP_FONT}`;
+  const CAP = Math.round(PDF_DPI*2.1);
+  const nat = head.map((h,c)=>{
     let w = probe.measureText(String(h)).width;
-    body.forEach(r=>{
-      const t = String(r[c]==null?"":r[c]);
-      w = Math.max(w, probe.measureText(t.length>26 ? t.slice(0,26) : t).width);
-    });
-    return Math.min(w + pad*2, Math.round(PDF_DPI*1.9));
+    body.forEach(r=>{ w = Math.max(w, probe.measureText(String(r[c]==null?"":r[c])).width); });
+    return w + pad*2;
   });
-  /* Scaled DOWN to fit and never up: a two-column table stretched across seventeen
-     inches has its two words at opposite ends of the sheet. Schedule A's thirteen
-     columns overrun and are scaled back; a narrow table simply stays narrow. */
+  const want = nat.map(w => Math.min(w, CAP));
   const total = want.reduce((a,b)=>a+b,0) || 1;
-  const colW  = want.map(w => w*Math.min(1, avail/total));
+
+  let colW;
+  if(total > avail){
+    /* Too wide: scaled back, as before. */
+    colW = want.map(w => w*(avail/total));
+  } else {
+    /* NARROWER THAN THE SHEET, which is the case Chris is looking at — Schedule A
+       occupying two thirds of an 11x17 with a hand's width of nothing beside it.
+
+       The slack goes to the columns that were CAPPED, in proportion to how much they
+       were starved of: "the last 3 columns in the sheet typically have sentences and
+       these columns can be widened". A DBH column asked for half an inch and has no
+       use for more. Where nothing was capped, every column grows a little so the
+       table still reaches the edge of the sheet. */
+    const starve = nat.map((n,c) => Math.max(0, n - want[c]));
+    const hunger = starve.reduce((a,b)=>a+b,0);
+    let slack = avail - total;
+    colW = want.map((w,c) => w + slack * (hunger > 0 ? starve[c]/hunger : w/total));
+
+    /* NO COLUMN IS STRETCHED PAST READING WIDTH. A two-column table given the whole
+       slack puts a hundred and forty characters on one line across seventeen inches,
+       which nobody can follow back to the start. Anything over the cap gives its
+       excess back, and if every column is capped the table is simply narrower than
+       the sheet — which for a two-column table is the right answer. */
+    const WIDE = Math.min(Math.round(PDF_DPI*4.5), avail*0.42);
+    for(let pass = 0; pass < 3; pass++){
+      let excess = 0; const room = [];
+      colW.forEach((w,c)=>{
+        if(w > WIDE){ excess += w - WIDE; colW[c] = WIDE; }
+        else room.push(c);
+      });
+      if(excess <= 1 || !room.length) break;
+      const cap = room.reduce((a,c)=> a + (WIDE - colW[c]), 0);
+      if(cap <= 0) break;
+      room.forEach(c => { colW[c] += excess * ((WIDE - colW[c])/cap); });
+    }
+  }
 
   const lh    = Math.round(fs*1.24);
   const topY  = M + Math.round(PDF_DPI*0.50);
@@ -11630,7 +11804,7 @@ function tablePages(rows, title, W, H, M, foot){
   const footFS = Math.round(fs*0.88), footLH = Math.round(footFS*1.30);
   const footGap = Math.round(PDF_DPI*0.14);
   const tableWNow = colW.reduce((a,b)=>a+b,0);
-  probe.font = `${footFS}px sans-serif`;
+  probe.font = `${footFS}px ${TPP_FONT}`;
   const footLines = [];
   (foot || []).forEach((n,k)=>{
     if(k) footLines.push("");
@@ -11642,14 +11816,14 @@ function tablePages(rows, title, W, H, M, foot){
     gg.fillRect(x0, y0, w0, footLines.length*footLH + pad*2);
     gg.strokeStyle = "#c8d2c9"; gg.lineWidth = 1;
     gg.strokeRect(x0, y0, w0, footLines.length*footLH + pad*2);
-    gg.fillStyle = "#33443b"; gg.font = `${footFS}px sans-serif`;
+    gg.fillStyle = "#33443b"; gg.font = `${footFS}px ${TPP_FONT}`;
     gg.textAlign = "left"; gg.textBaseline = "alphabetic";
     footLines.forEach((ln,k)=> gg.fillText(ln, x0 + pad, y0 + pad + footFS + k*footLH));
     gg.restore();
   }
 
   // Wrap every cell once; the heights fall out of it.
-  probe.font = `${fs}px sans-serif`;
+  probe.font = `${fs}px ${TPP_FONT}`;
   const laid = body.map(r => {
     const cells = r.map((v,c) => wrapLines(probe, String(v==null?"":v), colW[c]-pad*2));
     const lines = Math.max(1, ...cells.map(c => c.length));
@@ -11663,13 +11837,13 @@ function tablePages(rows, title, W, H, M, foot){
     const g  = cv.getContext("2d");
     g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
     g.textAlign="left"; g.textBaseline="alphabetic";
-    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.13)}px sans-serif`;
+    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
     g.fillText(title, M, M+Math.round(PDF_DPI*0.20));
 
     // header band
     let y = topY;
     g.fillStyle="#12201a"; g.fillRect(M, y, colW.reduce((a,b)=>a+b,0), hdrH);
-    g.fillStyle="#ffffff"; g.font=`bold ${fs}px sans-serif`;
+    g.fillStyle="#ffffff"; g.font=`bold ${fs}px ${TPP_FONT}`;
     let x = M;
     head.forEach((h,c)=>{
       wrapLines(g, String(h), colW[c]-pad*2).slice(0,2)
@@ -11679,7 +11853,7 @@ function tablePages(rows, title, W, H, M, foot){
     y += hdrH;
 
     const firstRow = y;
-    g.font = `${fs}px sans-serif`;
+    g.font = `${fs}px ${TPP_FONT}`;
     /* ROOM FOR THE NOTE IS RESERVED ONLY WHEN THIS IS THE LAST PAGE, and whether it
        is the last page is decided here rather than guessed: if every remaining row
        plus the note fits, cap the page short so the note lands under the table it
@@ -11737,7 +11911,7 @@ function tablePages(rows, title, W, H, M, foot){
         const g2 = cv2.getContext("2d");
         g2.fillStyle="#ffffff"; g2.fillRect(0,0,W,H);
         g2.textAlign="left"; g2.textBaseline="alphabetic";
-        g2.fillStyle="#12201a"; g2.font=`bold ${Math.round(PDF_DPI*0.13)}px sans-serif`;
+        g2.fillStyle="#12201a"; g2.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
         g2.fillText(title + " (continued)", M, M+Math.round(PDF_DPI*0.20));
         drawFoot(g2, M, topY, tableW);
         pages.push({data:cv2.toDataURL("image/jpeg",0.92), w:W, h:H});
@@ -11825,7 +11999,7 @@ async function docBlocks(W, H){
 
       } else if(dsec.kind === "maps"){
         /* Counted now, drawn later — a map sheet prints its own number. */
-        const scale = parseInt(($("mapScale") && $("mapScale").value) || "1000", 10);
+        const scale = parseInt(docMap.scale, 10) || 250;
         const cells = sheetGrid(scale, true);
         if(cells.length) out.push({ name:dsec.name, lay:"maps", scale:scale,
                                     cells:cells, count: cells.length + 1 });
@@ -11887,10 +12061,31 @@ async function buildDocument(){
     at += n;
   });
 
+  /* THE INDEX MAP, WORKED OUT ONCE AND GIVEN TO EVERY SHEET.
+
+     Chris: "Include the key map image on all pages, not just the site plan pages."
+     A reviewer holding sheet 14 needs to know where in the town it is as much as one
+     holding sheet 8. Where there is a map series, the key map is the index: every
+     sheet drawn and numbered, with the one in hand picked out. */
+  let keyBounds = null, keyCells = null;
+  try{
+    const mapsBlock = blocks.find(x => x.lay === "maps");
+    const sb = seriesBounds();
+    if(sb && isFinite(sb.n)){
+      const padLat = Math.max((sb.n-sb.s)*0.10, 0.0006);
+      const padLon = Math.max((sb.e-sb.w)*0.10, 0.0008);
+      keyBounds = L.latLngBounds([sb.s-padLat, sb.w-padLon],[sb.n+padLat, sb.e+padLon]);
+    }
+    if(mapsBlock && mapsBlock.cells && mapsBlock.cells.length){
+      keyCells = mapsBlock.cells.map(c => ({ n: c.no, bounds: L.latLngBounds([c.s, c.w],[c.n, c.e]) }));
+    }
+  }catch(e){ keyBounds = null; keyCells = null; }
+
   const frame = (label) => ({
     sheetLabel: prefix + label,
     date: date,
     title: title,
+    keyBounds: keyBounds, keyCells: keyCells,
     legend: sheetLegendRows(reportTrees())
   });
 
@@ -11911,6 +12106,7 @@ async function buildDocument(){
       setStatus("Assembling: plan index sheet");
       sheets.push(await runSingleExport({
         bounds: all, title: title, grid: b.cells, tppFrame: true,
+        keyBounds: keyBounds, keyCells: keyCells, keyCurrent: 0, labelMode: docMap.labels,
         sheetLabel: prefix + b.start, scaleText: "1:" + b.scale.toLocaleString(),
         photoPages: false, returnPage: true }));
       for(let i = 0; i < b.cells.length; i++){
@@ -11918,6 +12114,7 @@ async function buildDocument(){
         setStatus(`Assembling: plan sheet ${c.no} of ${b.cells.length}`);
         sheets.push(await runSingleExport({
           bounds: L.latLngBounds([c.s, c.w],[c.n, c.e]), title: title, tppFrame: true,
+          keyBounds: keyBounds, keyCells: keyCells, keyCurrent: c.no, labelMode: docMap.labels,
           sheetLabel: prefix + (b.start + 1 + i), scaleText: "1:" + b.scale.toLocaleString(),
           photoPages: false, returnPage: true }));
       }
@@ -15388,7 +15585,6 @@ const AERIAL_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_I
 const ROADS_URL  = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
 const PLACES_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 // The key map reads far better as a street map than as an aerial at that scale.
-const KEY_URL    = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
 const AERIAL_CREDIT = "Imagery: Esri, Maxar, Earthstar Geographics · Roads and places: Esri";
 let mapRoads = true;
 try{ mapRoads = (STORE&&STORE.getItem("st_maproads")) !== "0"; }catch(e){}
@@ -15476,7 +15672,10 @@ async function runSingleExport(opt){
 
   const title = opt.title || normText($("mapTitle").value) || settings.project || "Street Tree Inventory";
   if(!opt.title){ lastMapTitle = title; if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} } }
-  let labelMode = $("mapLabels").value;
+  /* The document's own choice wins when the document is what is being built — the
+     assembly screen is where Chris sets it, and the map-export screen is a different
+     screen for a different job. */
+  let labelMode = opt.labelMode || $("mapLabels").value;
   const wantPhotoPages = (opt.photoPages !== undefined) ? opt.photoPages : ($("mapPhotos").value === "1");
 
   const W = Math.round(PDF_W_IN*PDF_DPI), H = Math.round(PDF_H_IN*PDF_DPI);
@@ -15950,7 +16149,11 @@ async function runSingleExport(opt){
   if(tpp){
     g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(fx,fy,fw,fh);
     await drawTppFrame(g, W, H, {
-      bounds: b, z: z,
+      /* The key map shows the WHOLE job with every sheet numbered — the index map —
+         and picks out this one, rather than showing a lone red box in a field of
+         grey that tells a reviewer nothing about which sheet they are holding. */
+      keyBounds: opt.keyBounds || b, keyZoom: z,
+      keyCells: opt.keyCells || null, keyCurrent: opt.keyCurrent || 0,
       legend: sheetLegendRows(shown),
       sheetLabel: opt.sheetLabel || "",
       scaleText: opt.scaleText || "",
@@ -15959,9 +16162,11 @@ async function runSingleExport(opt){
     });
   } else {
     if(!opt.noKeyMap)
-      await drawKeyMap(g, fx+fw-Math.round(PDF_DPI*1.5)-24, fy+24, Math.round(PDF_DPI*1.5), b, z);
-    drawNorthArrow(g, fx+fw-Math.round(PDF_DPI*0.42), fy+fh-Math.round(PDF_DPI*1.0));
-    drawScaleBar(g, fx+24, fy+fh-24, sc, z, b.getCenter().lat);
+      { const kw = Math.round(PDF_DPI*1.5);
+        await drawKeyMap(g, fx+fw-kw-24, fy+24, kw, kw, { bounds: b, caption: true }); }
+    drawNorthArrow(g, fx+fw-Math.round(PDF_DPI*0.42), fy+fh-Math.round(PDF_DPI*1.0), Math.round(PDF_DPI*0.30));
+    { const barW = Math.round(PDF_DPI*1.6);
+      drawScaleBar(g, fx+24+barW/2, fy+fh-24, sc, z, b.getCenter().lat, barW, true); }
 
     // neat line
     g.strokeStyle="#12201a"; g.lineWidth=4; g.strokeRect(fx,fy,fw,fh);
@@ -16017,32 +16222,116 @@ function padBoundsToFrame(b, fw, fh){
 
 /* Locator inset: the same imagery five zoom levels out, with the sheet extent marked.
    Without it a reader has no idea where in the municipality they are looking. */
-async function drawKeyMap(g, x, y, size, bounds, z){
-  const kz = Math.max(10, z-6);
+/* THE KEY MAP — now an INDEX MAP, on every sheet.
+
+   Chris: "Include the key map image on all pages, not just the site plan pages,
+   allow me to select the aerial photo, esri street map or other web link map for the
+   key map." And: "show the index map in the key map box when illustrating the site
+   plan maps on the pages, ensure to show the full extent of the index maps and their
+   number, use the aerial photo as the background just as shown in on the page."
+
+   So it does three things the old one did not. It fills the rectangle it is given
+   rather than a square of its own choosing; it draws EVERY sheet of the series with
+   its number and picks out the one you are looking at; and the tiles come from
+   whichever basemap the project has chosen.
+
+   The whole series, not just this sheet, is the point: a key map showing one red box
+   in a field of grey tells a reviewer nothing about which of the nine sheets they
+   are holding. */
+const KEY_BASES = [
+  ["aerial",  "Aerial photo",    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 19],
+  ["streets", "Esri street map", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", 19],
+  ["topo",    "Esri topographic","https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", 19],
+  ["osm",     "OpenStreetMap",   "https://tile.openstreetmap.org/{z}/{x}/{y}.png", 19]
+];
+const KEYBASEKEY = "st_keybase";
+let keyBase = { which:"aerial", url:"" };
+try{ const v = JSON.parse(STORE && STORE.getItem(KEYBASEKEY)); if(v && typeof v === "object") keyBase = Object.assign(keyBase, v); }catch(e){}
+function persistKeyBase(){ if(STORE){ try{ STORE.setItem(KEYBASEKEY, JSON.stringify(keyBase)); }catch(e){} } }
+function keyBaseUrl(){
+  if(keyBase.which === "custom" && /\{z\}/.test(String(keyBase.url||""))) return keyBase.url;
+  const row = KEY_BASES.find(r => r[0] === keyBase.which) || KEY_BASES[0];
+  return row[2];
+}
+const KEY_URL = KEY_BASES[1][2];          // kept: the old name, still the street map
+
+/* bounds: what the key map should COVER (the whole job, for an index map).
+   opt.cells: every sheet of the series, each {n, bounds} — drawn and numbered.
+   opt.current: the sheet number to pick out. */
+async function drawKeyMap(g, x, y, w, h, opt){
+  opt = opt || {};
+  const bounds = opt.bounds; if(!bounds) return;
+  h = h || w;
+  /* A zoom at which the whole extent fits the box, rather than a guess derived from
+     the sheet's own zoom — which on a 1:250 sheet put the index map at street level
+     and showed one driveway. */
   const c = bounds.getCenter();
+  let kz = 19;
+  for(; kz > 5; kz--){
+    const pw = Math.abs(lonToPx(bounds.getEast(),kz) - lonToPx(bounds.getWest(),kz));
+    const ph = Math.abs(latToPx(bounds.getSouth(),kz) - latToPx(bounds.getNorth(),kz));
+    if(pw <= w*0.86 && ph <= h*0.86) break;
+  }
   const cx = lonToPx(c.lng,kz), cy = latToPx(c.lat,kz);
-  const half = size/2;
+  const X = px => x + w/2 + (px - cx);
+  const Y = py => y + h/2 + (py - cy);
+
   g.save();
-  g.fillStyle="#fff"; g.fillRect(x-4,y-4,size+8,size+8);
-  g.beginPath(); g.rect(x,y,size,size); g.clip();
-  const t0=Math.floor((cx-half)/256), t1=Math.floor((cx+half)/256);
-  const u0=Math.floor((cy-half)/256), u1=Math.floor((cy+half)/256);
+  g.fillStyle="#eef2ee"; g.fillRect(x,y,w,h);
+  g.beginPath(); g.rect(x,y,w,h); g.clip();
+  const url = keyBaseUrl();
+  const t0=Math.floor((cx-w/2)/256), t1=Math.floor((cx+w/2)/256);
+  const u0=Math.floor((cy-h/2)/256), u1=Math.floor((cy+h/2)/256);
   const jobs=[];
   for(let tx=t0;tx<=t1;tx++) for(let ty=u0;ty<=u1;ty++)
-    jobs.push(loadTile(KEY_URL.replace("{z}",kz).replace("{x}",tx).replace("{y}",ty)).then(im=>({im,tx,ty})));
+    jobs.push(loadTile(url.replace("{z}",kz).replace("{x}",tx).replace("{y}",ty)).then(im=>({im,tx,ty})));
   (await Promise.all(jobs)).forEach(({im,tx,ty})=>{
-    if(im) g.drawImage(im, x+half+(tx*256-cx), y+half+(ty*256-cy), 256, 256);
+    if(im) g.drawImage(im, X(tx*256), Y(ty*256), 256, 256);
   });
-  // the sheet extent
-  const ew = lonToPx(bounds.getEast(),kz)-lonToPx(bounds.getWest(),kz);
-  const eh = latToPx(bounds.getSouth(),kz)-latToPx(bounds.getNorth(),kz);
-  g.strokeStyle="#FF1744"; g.lineWidth=3;
-  g.strokeRect(x+half-ew/2, y+half-eh/2, Math.max(ew,6), Math.max(eh,6));
+
+  /* every sheet of the series, numbered */
+  const cells = Array.isArray(opt.cells) ? opt.cells : [];
+  if(cells.length){
+    const fs = Math.max(9, Math.round(Math.min(w,h)*0.085));
+    cells.forEach(cell=>{
+      const bb = cell.bounds; if(!bb) return;
+      const x1 = X(lonToPx(bb.getWest(),kz)),  x2 = X(lonToPx(bb.getEast(),kz));
+      const y1 = Y(latToPx(bb.getNorth(),kz)), y2 = Y(latToPx(bb.getSouth(),kz));
+      const cur = String(cell.n) === String(opt.current);
+      g.lineWidth = cur ? 3.5 : 2;
+      g.strokeStyle = cur ? "#FF1744" : "#12201a";
+      if(cur){ g.fillStyle = "rgba(255,23,68,.18)"; g.fillRect(x1, y1, x2-x1, y2-y1); }
+      g.strokeRect(x1, y1, x2-x1, y2-y1);
+      /* The number, on a plate so it reads over any imagery. */
+      const mx = (x1+x2)/2, my = (y1+y2)/2, r = fs*0.78;
+      g.fillStyle = cur ? "#FF1744" : "rgba(255,255,255,.92)";
+      g.beginPath(); g.arc(mx, my, r, 0, 7); g.fill();
+      g.strokeStyle = "#12201a"; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = cur ? "#ffffff" : "#12201a";
+      g.font = `bold ${fs}px ${TPP_FONT}`; g.textAlign="center"; g.textBaseline="middle";
+      g.fillText(String(cell.n), mx, my);
+    });
+  } else {
+    // no series: just the extent of what this sheet shows
+    const x1 = X(lonToPx(bounds.getWest(),kz)),  x2 = X(lonToPx(bounds.getEast(),kz));
+    const y1 = Y(latToPx(bounds.getNorth(),kz)), y2 = Y(latToPx(bounds.getSouth(),kz));
+    g.strokeStyle="#FF1744"; g.lineWidth=3;
+    g.strokeRect(x1, y1, Math.max(x2-x1,6), Math.max(y2-y1,6));
+  }
   g.restore();
-  g.strokeStyle="#12201a"; g.lineWidth=3; g.strokeRect(x,y,size,size);
-  g.fillStyle="rgba(18,32,26,.85)"; g.fillRect(x,y,size,26);
-  g.fillStyle="#fff"; g.font="bold 15px sans-serif"; g.textAlign="left";
-  g.fillText("KEY MAP", x+8, y+18);
+  g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(x,y,w,h);
+  /* The caption is for the FIELD export, where the key map floats on the map with
+     nothing to name it. Inside the title block the cell is already labelled KEY MAP,
+     and drawing it again put the words twice, one under the other — which is what
+     the draft shows. */
+  if(opt.caption){
+    const bh = Math.max(20, Math.round(h*0.10));
+    g.fillStyle="rgba(18,32,26,.85)"; g.fillRect(x,y,w,bh);
+    g.fillStyle="#fff"; g.font=`bold ${Math.round(bh*0.62)}px ${TPP_FONT}`;
+    g.textAlign="left"; g.textBaseline="middle";
+    g.fillText("KEY MAP", x + Math.round(bh*0.35), y + bh/2);
+  }
+  g.textAlign="left"; g.textBaseline="alphabetic";
 }
 
 /* ---------- a series of sheets at a fixed scale ---------- */
@@ -16480,41 +16769,72 @@ async function buildPhotoPages(shown, W, H, M, title){
   return pages;
 }
 
-function drawNorthArrow(g,x,y){
-  const R = Math.round(PDF_DPI*0.30);
+/* THE NORTH ARROW FROM THE REFERENCE SHEET: a plain ring, a two-tone needle, and a
+   bold N above it. Chris: "Keep it the same size as shown and use the same type of
+   north arrow." The radius is now a parameter, because the one place it is drawn —
+   the top right of the legend box — has to place it by its own size to stay inside
+   the paper. The draft hung half of it off the edge. */
+function drawNorthArrow(g, x, y, R){
+  R = R || Math.round(PDF_DPI*0.26);
   g.save(); g.translate(x,y);
-  g.fillStyle="rgba(255,255,255,.94)"; g.strokeStyle="#12201a"; g.lineWidth=3;
+  g.fillStyle="#ffffff"; g.strokeStyle="#12201a"; g.lineWidth=Math.max(2, R*0.09);
   g.beginPath(); g.arc(0,0,R,0,7); g.fill(); g.stroke();
-  g.beginPath(); g.moveTo(0,-R*0.68); g.lineTo(R*0.30,R*0.34); g.lineTo(0,R*0.12);
+  // the needle: solid to the east of the axis, hollow to the west, as the sample has it
+  g.beginPath(); g.moveTo(0,-R*0.72); g.lineTo(R*0.26,R*0.46); g.lineTo(0,R*0.18);
   g.closePath(); g.fillStyle="#12201a"; g.fill();
-  g.beginPath(); g.moveTo(0,-R*0.68); g.lineTo(-R*0.30,R*0.34); g.lineTo(0,R*0.12);
-  g.closePath(); g.fillStyle="#9db3a5"; g.fill();
-  g.fillStyle="#12201a"; g.font=`bold ${Math.round(R*0.5)}px sans-serif`;
-  g.textAlign="center"; g.fillText("N",0,-R*0.78);
+  g.beginPath(); g.moveTo(0,-R*0.72); g.lineTo(-R*0.26,R*0.46); g.lineTo(0,R*0.18);
+  g.closePath(); g.fillStyle="#ffffff"; g.fill();
+  g.strokeStyle="#12201a"; g.lineWidth=Math.max(1, R*0.05); g.stroke();
+  g.fillStyle="#12201a"; g.font=`bold ${Math.round(R*0.62)}px ${TPP_FONT}`;
+  g.textAlign="center"; g.textBaseline="alphabetic";
+  g.fillText("N", 0, -R*0.80);
   g.restore();
+  g.textAlign="left"; g.textBaseline="alphabetic";
 }
 
 // Rounded to a sensible round number, the way a map scale bar should be.
-function drawScaleBar(g,x,y,sc,z,lat){
+/* A SCALE BAR THAT FITS ITS BOX.
+
+   Chris: "ensure the scale bar is numerically adjusted so it remains small and fits
+   inside the box, for example using 50m at a scale of 1:1000 causes the bar to
+   spread into the sheet number box which is an error."
+
+   It used to aim at 1.6 inches whatever the box was, and a round distance near that
+   target was chosen by closeness — so at 1:1000 it picked 50 m, drew 1.9 inches of
+   bar in a 1.4 inch box, and walked over the sheet number. Now the caller says how
+   much room there is and the LARGEST round distance that fits inside it wins. x is
+   the CENTRE of the box, so the bar is centred like everything else in there. */
+function drawScaleBar(g, xCentre, yBottom, sc, z, lat, boxW, plate){
   const mPerPx = 156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,z) / sc;
-  const target = PDF_DPI*1.6*mPerPx;
-  const steps=[5,10,20,25,50,100,200,250,500,1000,2000,5000];
-  let m = steps.reduce((a,c)=>Math.abs(c-target)<Math.abs(a-target)?c:a, steps[0]);
-  const px = m/mPerPx, h = Math.round(PDF_DPI*0.075), fs = Math.round(PDF_DPI*0.09);
+  const avail  = Math.max(Math.round(PDF_DPI*0.5), (boxW || Math.round(PDF_DPI*1.6)));
+  const steps  = [1,2,5,10,15,20,25,50,75,100,150,200,250,500,750,1000,2000,5000];
+  let m = steps[0];
+  for(const cand of steps){ if(cand/mPerPx <= avail) m = cand; else break; }
+  const px = Math.min(avail, m/mPerPx);
+  const h  = Math.round(PDF_DPI*0.055);
+  const fs = Math.round(PDF_DPI*0.075);
+  const x  = xCentre - px/2;
+  const y  = yBottom - fs*0.15;
   g.save();
-  g.fillStyle="rgba(255,255,255,.94)"; g.strokeStyle="#12201a"; g.lineWidth=2;
-  g.fillRect(x-10, y-h-fs-16, px+20, h+fs+22);
-  g.strokeRect(x-10, y-h-fs-16, px+20, h+fs+22);
-  // alternating black and white blocks, four divisions
+  /* On a title-block cell the paper is already white; over aerial imagery the bar
+     needs something to sit on or the numbers are unreadable. */
+  if(plate){
+    const m1 = Math.round(fs*0.55);
+    g.fillStyle="rgba(255,255,255,.94)"; g.strokeStyle="#12201a"; g.lineWidth=2;
+    g.fillRect(x-m1, y-h-fs-m1*1.6, px+m1*2, h+fs+m1*2.2);
+    g.strokeRect(x-m1, y-h-fs-m1*1.6, px+m1*2, h+fs+m1*2.2);
+  }
+  // four alternating divisions
   for(let i=0;i<4;i++){
     g.fillStyle = i%2 ? "#ffffff" : "#12201a";
-    g.fillRect(x+px*i/4, y-h-6, px/4, h);
+    g.fillRect(x + px*i/4, y - h, px/4, h);
   }
-  g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(x, y-h-6, px, h);
-  g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
-  g.textAlign="left";  g.fillText("0", x-2, y-h-12);
-  g.textAlign="right"; g.fillText(m+" m", x+px+2, y-h-12);
+  g.strokeStyle="#12201a"; g.lineWidth=1.5; g.strokeRect(x, y - h, px, h);
+  g.fillStyle="#12201a"; g.font=`${fs}px ${TPP_FONT}`; g.textBaseline="alphabetic";
+  g.textAlign="left";   g.fillText("0", x, y - h - Math.round(fs*0.35));
+  g.textAlign="right";  g.fillText(m + " m", x + px, y - h - Math.round(fs*0.35));
   g.restore();
+  g.textAlign="left";
 }
 
 /* Legend of EVERY layer on the sheet — the tree classes actually present, the
@@ -16540,9 +16860,34 @@ function drawScaleBar(g,x,y,sc,z,lat){
  *  The green banner block below is left exactly as it was. It is the right thing for
  *  a quick field export, which is not a submission and should not pretend to be.
  * ================================================================== */
-const TPP_COL_IN    = 1.95;     // the title block column
+const TPP_COL_IN    = 2.35;     // the title block column
 const TPP_EDGE_IN   = 0.14;     // paper edge to the neat line
 const TPP_GUTTER_IN = 0.10;     // neat line to the column
+
+/* CALIBRI, which is what these drawings have always been set in.
+
+   Chris, on the reference sheet: "the font and text size, which text is bold, should
+   appear as, Typically Calibri."
+
+   Canvas takes a CSS font stack, so this is a stack: Calibri where it exists (his
+   Windows desktop, where the document is assembled), Carlito — which is
+   metric-compatible with Calibri — where a Linux box has it, then Candara and
+   Segoe UI, and the platform's own sans as the last resort on a phone. Naming one
+   font and hoping is how a sheet comes out in Times on somebody else's machine. */
+const TPP_FONT = '"Calibri","Carlito","Candara","Segoe UI",sans-serif';
+const tppF  = (inches, weight) => `${weight ? weight + " " : ""}${Math.round(PDF_DPI*inches)}px ${TPP_FONT}`;
+
+/* A rectangle with small rounded corners — the outer frame, and the cells. */
+function tppRoundRect(g, x, y, w, h, r){
+  const rr = Math.min(r, w/2, h/2);
+  g.beginPath();
+  g.moveTo(x+rr, y);
+  g.lineTo(x+w-rr, y);      g.quadraticCurveTo(x+w, y,     x+w, y+rr);
+  g.lineTo(x+w,   y+h-rr);  g.quadraticCurveTo(x+w, y+h,   x+w-rr, y+h);
+  g.lineTo(x+rr,  y+h);     g.quadraticCurveTo(x,   y+h,   x,   y+h-rr);
+  g.lineTo(x,     y+rr);    g.quadraticCurveTo(x,   y,     x+rr, y);
+  g.closePath();
+}
 
 /* Text that has to fit a box it was not written for. Returns the lines rather than
    drawing, because the landscaping page needs to MEASURE a block before it commits
@@ -16567,16 +16912,27 @@ function drawWrapped(g, text, x, y, maxW, lineH){
   return y + wrapLines(g, text, maxW).length * lineH;
 }
 
-// A bordered cell with a small caps label in its top-left, as the sample has them.
+/* A bordered cell with a small label in its top-left, as the sample has them.
+   The label is set in the sheet's own face and at a size that can be read on paper —
+   the draft printed these at 0.070 in, about 5 pt, which on an 11x17 sheet held at
+   arm's length is a grey smudge. */
 function tppCell(g, x, y, w, h, label){
-  g.strokeStyle="#12201a"; g.lineWidth=2;
+  g.strokeStyle="#12201a"; g.lineWidth=2.5;
   g.strokeRect(x, y, w, h);
   if(label){
     g.fillStyle="#12201a";
-    g.font = `bold ${Math.round(PDF_DPI*0.070)}px sans-serif`;
+    g.font = tppF(0.088, "bold");
     g.textAlign="left"; g.textBaseline="alphabetic";
-    g.fillText(String(label).toUpperCase(), x + Math.round(PDF_DPI*0.05), y + Math.round(PDF_DPI*0.105));
+    g.fillText(String(label).toUpperCase(), x + Math.round(PDF_DPI*0.055), y + Math.round(PDF_DPI*0.135));
   }
+}
+/* The inner area of a cell, below its label. Everything a cell draws is placed
+   against this rather than against the cell edge, so a label can change height
+   without pushing content out of its box. */
+function tppInner(x, y, w, h, labelled){
+  const pad = Math.round(PDF_DPI*0.055);
+  const top = labelled ? Math.round(PDF_DPI*0.185) : pad;
+  return { x:x+pad, y:y+top, w:w-pad*2, h:h-top-pad, cx:x+w/2, cy:y+top+(h-top-pad)/2 };
 }
 
 /* Where the content goes on a TPP sheet: everything left of the title block column.
@@ -16614,21 +16970,24 @@ async function drawTppFrame(g, W, H, opt){
   const e   = Math.round(PDF_DPI*TPP_EDGE_IN);
   const col = Math.round(PDF_DPI*TPP_COL_IN);
   const x   = W - e - col;
-  const pad = Math.round(PDF_DPI*0.05);
+  const pad = Math.round(PDF_DPI*0.055);
   const inW = col - pad*2;
 
-  // the neat line round the whole sheet
-  g.strokeStyle="#12201a"; g.lineWidth=3;
-  g.strokeRect(e, e, W - e*2, H - e*2);
+  /* THE OUTER FRAME. Chris: "Add a full strong frame around the entire layout, with
+     small rounded corners." Drawn last-but-one at 5 px so it reads as the edge of the
+     drawing rather than as another cell border. */
+  g.strokeStyle="#12201a"; g.lineWidth=5;
+  tppRoundRect(g, e, e, W - e*2, H - e*2, Math.round(PDF_DPI*0.055));
+  g.stroke();
 
   /* Laid out from the BOTTOM up in fixed heights, with the legend taking whatever is
      left over. Sized proportionally instead, a long client block or a five-line title
      would squeeze the date off the sheet. */
-  const hDate  = Math.round(PDF_DPI*0.40);
-  const hScale = Math.round(PDF_DPI*0.68);
-  const hTitle = Math.round(PDF_DPI*1.40);
-  const hFor   = Math.round(PDF_DPI*1.05);
-  const hBy    = Math.round(PDF_DPI*0.95);
+  const hDate  = Math.round(PDF_DPI*0.42);
+  const hScale = Math.round(PDF_DPI*0.62);
+  const hTitle = Math.round(PDF_DPI*1.30);
+  const hFor   = Math.round(PDF_DPI*1.00);
+  const hBy    = Math.round(PDF_DPI*1.05);
   const hKey   = Math.round(PDF_DPI*1.95);
 
   let bottom = H - e;
@@ -16641,35 +17000,50 @@ async function drawTppFrame(g, W, H, opt){
   const yLeg   = yKey + hKey;
   const hLeg   = Math.max(Math.round(PDF_DPI*1.0), yBy - yLeg);
 
-  /* ---- key map ---- */
+  /* ---- key map ----
+     On EVERY sheet, not only the plan sheets. Chris: "Include the key map image on
+     all pages" — a reviewer picking up sheet 14 of a document needs to know where in
+     the town it is as much as one holding sheet 8. */
   tppCell(g, x, yKey, col, hKey, "Key map");
-  if(opt.bounds && typeof drawKeyMap === "function"){
-    const s = Math.min(inW, hKey - Math.round(PDF_DPI*0.16));
+  if(opt.keyBounds && typeof drawKeyMap === "function"){
+    const box = tppInner(x, yKey, col, hKey, true);
     try{
-      await drawKeyMap(g, x + (col-s)/2, yKey + Math.round(PDF_DPI*0.14), s, opt.bounds, opt.z || 18);
+      await drawKeyMap(g, box.x, box.y, box.w, box.h, {
+        bounds: opt.keyBounds, z: opt.keyZoom || 16,
+        cells: opt.keyCells || null, current: opt.keyCurrent || 0
+      });
     }catch(err){}
   }
 
   /* ---- legend ---- */
   tppCell(g, x, yLeg, col, hLeg, "");
   {
+    const box = tppInner(x, yLeg, col, hLeg, false);
     g.fillStyle="#12201a";
-    g.font = `bold ${Math.round(PDF_DPI*0.085)}px sans-serif`;
+    g.font = tppF(0.125, "bold");
     g.textAlign="left"; g.textBaseline="alphabetic";
-    g.fillText("Legend", x+pad, yLeg + Math.round(PDF_DPI*0.13));
-    // the north arrow rides in the legend header, as it does on the sample
+    g.fillText("Legend", box.x, yLeg + Math.round(PDF_DPI*0.19));
+
+    /* THE NORTH ARROW RIDES IN THE TOP RIGHT OF THE LEGEND, as the reference sheet
+       has it. It used to be placed at x + col - 0.16 in with a 0.30 in radius, so
+       half of it hung off the right-hand edge of the paper — visible in the draft as
+       a circle sliced by the sheet border. Placed by its own radius now. */
+    const naR = Math.round(PDF_DPI*0.26);
     if(typeof drawNorthArrow === "function"){
-      try{ drawNorthArrow(g, x + col - Math.round(PDF_DPI*0.16), yLeg + Math.round(PDF_DPI*0.20)); }catch(err){}
+      try{ drawNorthArrow(g, x + col - pad - naR, yLeg + Math.round(PDF_DPI*0.27) + naR, naR); }catch(err){}
     }
+
+    /* Chris: "Ensure the font in the legend areas ... are large enough, they seem
+       very small in this draft." They were 0.062 in — about 4.5 pt on paper. */
     const rows = opt.legend || [];
-    const fs   = Math.round(PDF_DPI*0.062);
-    const lh   = Math.round(fs*1.32);
-    const swX  = x + pad + Math.round(PDF_DPI*0.05);
-    const txX  = x + pad + Math.round(PDF_DPI*0.22);
-    const txW  = col - (txX - x) - pad;
-    let y = yLeg + Math.round(PDF_DPI*0.26);
-    const floor = yLeg + hLeg - Math.round(PDF_DPI*0.06);
-    g.font = `${fs}px sans-serif`;
+    const fs   = Math.round(PDF_DPI*0.098);
+    const lh   = Math.round(fs*1.30);
+    const swX  = box.x + Math.round(PDF_DPI*0.07);
+    const txX  = box.x + Math.round(PDF_DPI*0.26);
+    const txW  = box.x + box.w - txX;
+    let y = yLeg + Math.round(PDF_DPI*0.40);
+    const floor = yLeg + hLeg - Math.round(PDF_DPI*0.08);
+    g.font = `${fs}px ${TPP_FONT}`;
     for(const r of rows){
       const lines = wrapLines(g, r.label, txW);
       if(y + lines.length*lh > floor) break;        // better a short legend than one overflowing its box
@@ -16677,48 +17051,48 @@ async function drawTppFrame(g, W, H, opt){
       g.lineWidth = Math.max(1.5, fs*0.16);
       if(r.kind === "line"){
         g.strokeStyle = r.color;
-        g.beginPath(); g.moveTo(swX - fs*0.45, cy); g.lineTo(swX + fs*0.45, cy); g.stroke();
+        g.beginPath(); g.moveTo(swX - fs*0.52, cy); g.lineTo(swX + fs*0.52, cy); g.stroke();
       } else if(r.kind === "square"){
-        g.fillStyle = r.color; g.fillRect(swX - fs*0.40, cy - fs*0.40, fs*0.8, fs*0.8);
-        g.strokeStyle = "#12201a"; g.lineWidth = 1; g.strokeRect(swX - fs*0.40, cy - fs*0.40, fs*0.8, fs*0.8);
+        g.fillStyle = r.color; g.fillRect(swX - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
+        g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.strokeRect(swX - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
       } else if(r.kind === "circle"){
         g.save();
         if(!r.solid) g.setLineDash([fs*0.22, fs*0.18]);
         g.strokeStyle = r.color;
-        g.beginPath(); g.arc(swX, cy, fs*0.42, 0, 7);
+        g.beginPath(); g.arc(swX, cy, fs*0.44, 0, 7);
         if(r.solid){ g.fillStyle = r.color+"2E"; g.fill(); }
         g.stroke();
         g.restore();
       } else if(r.kind === "glyph"){
         g.save();
-        g.font = `800 ${Math.round(fs*(r.big ? 1.35 : 1.05))}px sans-serif`;
+        g.font = `800 ${Math.round(fs*(r.big ? 1.35 : 1.05))}px ${TPP_FONT}`;
         g.textAlign = "center"; g.textBaseline = "middle";
         g.lineJoin = "round"; g.miterLimit = 2;
         g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = Math.max(1.5, fs*0.26);
         g.strokeText(r.glyph, swX, cy);
         g.fillStyle = r.color; g.fillText(r.glyph, swX, cy);
         g.restore();
-        g.font = `${fs}px sans-serif`; g.textAlign="left"; g.textBaseline="alphabetic";
+        g.font = `${fs}px ${TPP_FONT}`; g.textAlign="left"; g.textBaseline="alphabetic";
       } else {
         g.fillStyle = r.color;
-        g.beginPath(); g.arc(swX, cy, fs*0.36, 0, 7); g.fill();
-        g.strokeStyle = "#12201a"; g.lineWidth = 1; g.stroke();
+        g.beginPath(); g.arc(swX, cy, fs*0.38, 0, 7); g.fill();
+        g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.stroke();
       }
-      g.fillStyle = "#1d2b23";
+      g.fillStyle = "#12201a";
       lines.forEach((ln,i)=> g.fillText(ln, txX, y + i*lh));
-      y += lines.length*lh + Math.round(fs*0.22);
+      y += lines.length*lh + Math.round(fs*0.20);
     }
     // the base-data credits sit at the foot of the legend box
     const credits = (typeof tppText === "object" && tppText.credits) || "";
     if(credits){
-      const cfs = Math.round(PDF_DPI*0.052);
-      g.font = `${cfs}px sans-serif`;
-      const lines = wrapLines(g, credits, inW);
+      const cfs = Math.round(PDF_DPI*0.072);
+      g.font = `${cfs}px ${TPP_FONT}`;
+      const lines = wrapLines(g, credits, box.w);
       const need = lines.length * Math.round(cfs*1.30);
-      let cy = yLeg + hLeg - need - Math.round(PDF_DPI*0.07);
+      let cy = yLeg + hLeg - need - Math.round(PDF_DPI*0.08);
       if(cy > y){
-        g.fillStyle = "#4a5b50";
-        lines.forEach((ln,i)=> g.fillText(ln, x+pad, cy + i*Math.round(cfs*1.30)));
+        g.fillStyle = "#3b4a41";
+        lines.forEach((ln,i)=> g.fillText(ln, box.x, cy + i*Math.round(cfs*1.30)));
       }
     }
   }
@@ -16726,67 +17100,121 @@ async function drawTppFrame(g, W, H, opt){
   /* ---- prepared by, with the logo ---- */
   tppCell(g, x, yBy, col, hBy, "Prepared by");
   {
-    const fs = Math.round(PDF_DPI*0.062), lh = Math.round(fs*1.34);
-    g.font = `${fs}px sans-serif`; g.fillStyle="#1d2b23"; g.textAlign="center";
-    const lines = wrapLines(g, (typeof tppText==="object" && tppText.preparedBy) || "", inW);
-    let y = yBy + Math.round(PDF_DPI*0.22);
-    lines.forEach(ln=>{ if(ln) g.fillText(ln, x+col/2, y); y += lh; });
+    const box = tppInner(x, yBy, col, hBy, true);
+    const fs = Math.round(PDF_DPI*0.092), lh = Math.round(fs*1.32);
+    g.font = `${fs}px ${TPP_FONT}`; g.fillStyle="#12201a"; g.textAlign="center";
+    const lines = wrapLines(g, (typeof tppText==="object" && tppText.preparedBy) || "", box.w);
+    let y = box.y + fs;
+    lines.forEach(ln=>{ if(ln) g.fillText(ln, box.cx, y); y += lh; });
     const im = await tppLogoImage();
     if(im && im.width){
-      const maxW = inW, maxH = Math.max(0, yBy + hBy - y - Math.round(PDF_DPI*0.05));
-      const s = Math.min(maxW/im.width, maxH/im.height);
-      if(s > 0) g.drawImage(im, x + (col - im.width*s)/2, y, im.width*s, im.height*s);
+      const maxW = box.w, maxH = Math.max(0, box.y + box.h - y - Math.round(PDF_DPI*0.02));
+      const sc = Math.min(maxW/im.width, maxH/im.height);
+      if(sc > 0) g.drawImage(im, box.cx - im.width*sc/2, y, im.width*sc, im.height*sc);
     }
     g.textAlign="left";
   }
 
-  /* ---- prepared for ---- */
+  /* ---- prepared for ----
+     Chris: "mimic ... the Prepared For box" — the reference fills the box, centred,
+     with the client's name in bold on the first line. */
   tppCell(g, x, yFor, col, hFor, "Prepared for");
   {
-    const fs = Math.round(PDF_DPI*0.058), lh = Math.round(fs*1.34);
-    g.font = `${fs}px sans-serif`; g.fillStyle="#1d2b23"; g.textAlign="center";
-    let y = yFor + Math.round(PDF_DPI*0.21);
-    wrapLines(g, (typeof tppText==="object" && tppText.preparedFor) || "", inW)
-      .forEach(ln=>{ if(ln) g.fillText(ln, x+col/2, y); y += lh; });
+    const box = tppInner(x, yFor, col, hFor, true);
+    const fs = Math.round(PDF_DPI*0.090), lh = Math.round(fs*1.32);
+    const raw = wrapLines(g, (typeof tppText==="object" && tppText.preparedFor) || "", box.w);
+    g.fillStyle="#12201a"; g.textAlign="center";
+    /* Vertically centred in the space it has, so a two-line client and a five-line
+       one both sit in the middle of the box instead of hanging from the top. */
+    let y = box.y + Math.max(0, (box.h - raw.length*lh)/2) + fs*0.9;
+    raw.forEach((ln,i)=>{
+      g.font = i === 0 ? `bold ${fs}px ${TPP_FONT}` : `${fs}px ${TPP_FONT}`;
+      if(ln) g.fillText(ln, box.cx, y);
+      y += lh;
+    });
     g.textAlign="left";
   }
 
-  /* ---- title ---- */
+  /* ---- title ----
+     Chris: "mimic the title font and fill the box as shown". On the reference the
+     title is bold and set as large as the box allows, with any line after a blank
+     line — the site and phase — smaller beneath it. */
   tppCell(g, x, yTitle, col, hTitle, "Title");
   {
-    const fs = Math.round(PDF_DPI*0.068), lh = Math.round(fs*1.36);
-    g.font = `bold ${fs}px sans-serif`; g.fillStyle="#12201a"; g.textAlign="center";
-    const lines = wrapLines(g, (typeof tppText==="object" && tppText.title) || opt.title || "", inW);
-    // centred in the box rather than hung from the top, which is how it reads
-    let y = yTitle + (hTitle - lines.length*lh)/2 + fs;
-    if(y < yTitle + Math.round(PDF_DPI*0.24)) y = yTitle + Math.round(PDF_DPI*0.24);
-    lines.forEach(ln=>{ if(ln) g.fillText(ln, x+col/2, y); y += lh; });
-    g.textAlign="left";
-  }
+    const box = tppInner(x, yTitle, col, hTitle, true);
+    const all = String((typeof tppText==="object" && tppText.title) || opt.title || "");
+    const parts = all.split(/\n\s*\n/);
+    const head = parts[0] || "";
+    const sub  = parts.slice(1).join("\n");
 
-  /* ---- scale | sheet ---- */
-  {
-    const half = Math.round(col*0.46);
-    tppCell(g, x, yScale, half, hScale, "Scale");
-    tppCell(g, x+half, yScale, col-half, hScale, "Sheet");
-    g.fillStyle="#12201a"; g.textAlign="center";
-    g.font = `${Math.round(PDF_DPI*0.095)}px sans-serif`;
-    g.fillText(opt.scaleText || "N.T.S.", x + half/2, yScale + Math.round(PDF_DPI*0.28));
-    if(opt.scaleBar && typeof drawScaleBar === "function"){
-      try{ drawScaleBar(g, x + Math.round(PDF_DPI*0.06), yScale + hScale - Math.round(PDF_DPI*0.07),
-                        opt.scaleBar.sc, opt.scaleBar.z, opt.scaleBar.lat); }catch(err){}
+    /* FILLING THE BOX. Rather than a fixed size that is too small for a short title
+       and too big for a long one, the face is stepped down until the whole thing
+       fits the width and the height it has. */
+    let hFs = Math.round(PDF_DPI*0.135), hLines = [], sLines = [], sFs = 0;
+    for(;;){
+      g.font = `bold ${hFs}px ${TPP_FONT}`;
+      hLines = wrapLines(g, head, box.w);
+      sFs = Math.max(Math.round(PDF_DPI*0.070), Math.round(hFs*0.80));
+      g.font = `${sFs}px ${TPP_FONT}`;
+      sLines = sub ? wrapLines(g, sub, box.w) : [];
+      const need = hLines.length*Math.round(hFs*1.22) +
+                   (sLines.length ? Math.round(hFs*0.30) + sLines.length*Math.round(sFs*1.22) : 0);
+      if(need <= box.h || hFs <= Math.round(PDF_DPI*0.075)) break;
+      hFs -= 2;
     }
+    const need = hLines.length*Math.round(hFs*1.22) +
+                 (sLines.length ? Math.round(hFs*0.30) + sLines.length*Math.round(sFs*1.22) : 0);
+    let y = box.y + Math.max(0, (box.h - need)/2) + hFs*0.92;
     g.fillStyle="#12201a"; g.textAlign="center";
-    g.font = `bold ${Math.round(PDF_DPI*0.17)}px sans-serif`;
-    g.fillText(String(opt.sheetLabel||""), x + half + (col-half)/2, yScale + Math.round(PDF_DPI*0.46));
+    g.font = `bold ${hFs}px ${TPP_FONT}`;
+    hLines.forEach(ln=>{ if(ln) g.fillText(ln, box.cx, y); y += Math.round(hFs*1.22); });
+    if(sLines.length){
+      y += Math.round(hFs*0.30) - Math.round(hFs*1.22) + Math.round(sFs*1.22);
+      g.font = `${sFs}px ${TPP_FONT}`;
+      sLines.forEach(ln=>{ if(ln) g.fillText(ln, box.cx, y); y += Math.round(sFs*1.22); });
+    }
     g.textAlign="left";
   }
 
-  /* ---- date ---- */
-  tppCell(g, x, yDate, col, hDate, "Date");
-  g.fillStyle="#12201a"; g.textAlign="left";
-  g.font = `${Math.round(PDF_DPI*0.075)}px sans-serif`;
-  g.fillText(String(opt.date || tppDateStamp()), x+pad, yDate + Math.round(PDF_DPI*0.31));
+  /* ---- scale | sheet | date ----
+     Laid out as the reference has it: SCALE over DATE on the left, and SHEET on the
+     right spanning both of them. Everything CENTRED in its box — Chris: "ensure the
+     items inside the scale box and sheet number box are centered within the box." */
+  {
+    const lw = Math.round(col*0.60), rw = col - lw;
+    const hBoth = hScale + hDate;
+    tppCell(g, x,      yScale, lw, hScale, "Scale");
+    tppCell(g, x,      yDate,  lw, hDate,  "Date");
+    tppCell(g, x + lw, yScale, rw, hBoth,  "Sheet");
+
+    // the scale figure, centred over the bar
+    const sBox = tppInner(x, yScale, lw, hScale, true);
+    g.fillStyle="#12201a"; g.textAlign="center"; g.textBaseline="alphabetic";
+    g.font = tppF(0.115, "bold");
+    const barH = opt.scaleBar ? Math.round(PDF_DPI*0.20) : 0;
+    g.fillText(opt.scaleText || "N.T.S.", sBox.cx, sBox.y + Math.round(PDF_DPI*0.115));
+    /* THE BAR IS FITTED TO THE BOX. Chris: "using 50m at a scale of 1:1000 causes the
+       bar to spread into the sheet number box which is an error." It is now given the
+       width it may occupy and picks the largest round distance that fits inside it. */
+    if(opt.scaleBar && typeof drawScaleBar === "function"){
+      try{
+        drawScaleBar(g, sBox.cx, sBox.y + sBox.h - Math.round(PDF_DPI*0.06),
+                     opt.scaleBar.sc, opt.scaleBar.z, opt.scaleBar.lat, sBox.w);
+      }catch(err){}
+    }
+
+    // the sheet number, centred in its box both ways
+    const nBox = tppInner(x + lw, yScale, rw, hBoth, true);
+    g.fillStyle="#12201a"; g.textAlign="center"; g.textBaseline="middle";
+    g.font = tppF(0.235, "bold");
+    g.fillText(String(opt.sheetLabel||""), nBox.cx, nBox.y + nBox.h/2);
+
+    // the date, centred in its box
+    const dBox = tppInner(x, yDate, lw, hDate, true);
+    g.fillStyle="#12201a"; g.textAlign="center"; g.textBaseline="middle";
+    g.font = tppF(0.100);
+    g.fillText(String(opt.date || tppDateStamp()), dBox.cx, dBox.y + dBox.h/2);
+  }
 
   g.textAlign="left"; g.textBaseline="alphabetic";
   return tppContentRect(W, H);
