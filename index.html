@@ -494,7 +494,14 @@
      `input,select,textarea{ width:100% }` — meant for the text fields — and a tick box
      obeys it too, so it claimed the whole row and squeezed the section name out of
      existence. That is why the assembly list showed nine anonymous rows of arrows. */
-  /* a note on the live map, and the rows of the screen that manages them */
+  /* the identify popup: one row per feature near the tap */
+.idrow{ display:flex; gap:7px; align-items:flex-start; padding:4px 0; border-top:1px solid rgba(0,0,0,.08) }
+.idrow:first-child{ border-top:0 }
+.idrow .sw{ flex:0 0 auto; width:12px; height:12px; border-radius:3px; margin-top:3px; border:1px solid rgba(0,0,0,.35) }
+.idrow .idn{ flex:1; font-size:12px; line-height:1.35 }
+.idrow .idn .ct{ display:block; color:#4a6b52; font-size:11px }
+
+/* a note on the live map, and the rows of the screen that manages them */
 .annlab{ white-space:pre; text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff; pointer-events:none }
 .annrow{ border:1px solid var(--line); border-radius:10px; padding:8px; margin:0 0 8px }
 .annrow .annmain textarea{ width:100%; resize:vertical; min-height:48px }
@@ -592,6 +599,7 @@
   <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
   <button id="btnSelect" onclick="toggleSelect()" title="Select a group of trees">⬚</button>
   <button id="btnMeasure" onclick="toggleMeasure()" title="Measure distance and area">📏</button>
+  <button id="btnIdent" onclick="toggleIdent()" title="Identify — tap the map to name what is there">❓</button>
   <button id="btnRoads" onclick="toggleRoads()" title="Roads and place names">🛣</button>
   <button id="btnTPZ" onclick="toggleTPZ()" title="Tree protection zones">🛡</button>
   <button id="btnCrown" onclick="toggleCrown()" title="Crown diameter circles">🌳</button>
@@ -2124,7 +2132,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v171";
+const APP_BUILD  = "2026-09-27 · v173";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -10649,6 +10657,130 @@ function toggleMeasure(){
   if(measureOn()){ endMeasure(); return; }
   startMeasure("line");
 }
+
+/* ================================================================== *
+ *  IDENTIFY — WHAT IS THIS LINE?
+ * ================================================================== *
+
+   Chris: "can we add a tool to the map so the user can click on a map feature, such
+   as a line layer and a popup appears to indicate the layer associated with that
+   feature? This would be useful to identify features on the map."
+
+   Tapping a feature DOES already open a popup naming its layer — but only if you hit
+   the geometry itself, and a servicing line on a phone is a two-pixel target under a
+   finger eight millimetres wide. With a dozen engineering layers over one another,
+   the one you hit is rarely the one you meant, and the ones you missed say nothing.
+
+   So this asks a different question: not "what did I touch" but "WHAT IS NEAR HERE".
+   Every visible layer is measured against the tap and everything within a finger's
+   width is listed, nearest first, each named by its layer. That turns a two-pixel
+   target into a generous one, and it answers for all of them at once rather than for
+   whichever happened to be on top.
+
+   THE RADIUS IS IN METRES, WORKED OUT FROM THE ZOOM, so it is a constant distance on
+   the SCREEN — about 22 px — rather than a constant on the ground. Fixed in metres it
+   would catch nothing when zoomed in and everything when zoomed out. */
+let identOn = false, identMarks = [];
+
+function toggleIdent(){
+  identOn = !identOn;
+  const b = $("btnIdent"); if(b) b.classList.toggle("on", identOn);
+  if(identOn){
+    if(typeof measureOn === "function" && measureOn()) endMeasure();
+    if(typeof selMode !== "undefined" && selMode) toggleSelect();
+    if(typeof placeMode !== "undefined" && placeMode) togglePlace();
+    if(drawMode) cancelDraw();
+    if(annMode) cancelAnnot();
+    fmap.on("click", identClick);
+    toast("Tap the map to identify what is there");
+  } else {
+    fmap.off("click", identClick);
+    identClear();
+  }
+}
+function identClear(){ identMarks.forEach(m=>{ try{ fmap.removeLayer(m); }catch(e){} }); identMarks = []; }
+
+/* Metres per screen pixel at this latitude and zoom — the Web Mercator figure, which
+   is exact enough for a hit radius. */
+function mPerPx(){
+  const c = fmap.getCenter();
+  return 156543.03392 * Math.cos(c.lat * Math.PI/180) / Math.pow(2, fmap.getZoom());
+}
+
+/* Distance in metres from the tap to a feature — and ZERO if the tap is INSIDE a
+   polygon. distToFeature measures to the boundary, which is the right answer for a
+   line and the wrong one for a parcel: a tap in the middle of a lot is two hundred
+   metres from its edge and would report nothing there, which is precisely the case
+   somebody taps a parcel to ask about. Both helpers already existed for the parcel
+   address lookup; this only decides which of them applies. */
+function distToFeatureM(la, lo, f){
+  const g = f && f.geom; if(!g) return Infinity;
+  try{
+    if(g.t === "pt") return distM(la, lo, g.c[1], g.c[0]);
+    if(g.t === "pg" && featureContains(f, la, lo)) return 0;
+    return distToFeature(f, la, lo);
+  }catch(e){ return Infinity; }
+}
+
+/* What is within a finger's width of this point, nearest first. */
+function identHits(la, lo){
+  const r = Math.max(2, mPerPx() * 22);
+  const out = [];
+  refLayers.forEach(L2=>{
+    if(!L2.visible) return;
+    L2.features.forEach((f, fi)=>{
+      const bb = featureBBox(f);
+      /* A cheap box test first — a parcel fabric is tens of thousands of features and
+         measuring every one of them on every tap is not a thing a phone can do. */
+      const pad = r / 111320 * 1.6;
+      if(bb && (bb.s - pad > la || bb.n + pad < la || bb.w - pad > lo || bb.e + pad < lo)) return;
+      const d = distToFeatureM(la, lo, f);
+      if(d <= r) out.push({ L:L2, f:f, fi:fi, d:d });
+    });
+  });
+  /* Nearest first — and at equal distance a LINE before a polygon you happen to be
+     standing inside. A parcel you are within is zero metres away from every tap in
+     it; the servicing line you were actually aiming at is the answer, and the parcel
+     is context underneath it. */
+  const rank = h => (h.f.geom && h.f.geom.t === "pg") ? 1 : 0;
+  out.sort((a,b)=> (a.d - b.d) || (rank(a) - rank(b)));
+  return out;
+}
+
+function identClick(e){
+  if(!identOn) return;
+  identClear();
+  const la = e.latlng.lat, lo = e.latlng.lng;
+  const hits = identHits(la, lo);
+  identMarks.push(L.circleMarker([la, lo],
+    { radius:9, color:"#FFD54F", weight:3, fill:false, pane:"labelPane", interactive:false }).addTo(fmap));
+  if(!hits.length){
+    L.popup({ maxWidth:300 }).setLatLng(e.latlng)
+      .setContent(`<div class="tpop"><span class="lyr">Nothing here</span>
+        <div class="rpop">No visible layer feature within a finger's width of that point.
+        A layer that is switched off is not searched.</div></div>`).openOn(fmap);
+    return;
+  }
+  /* AT MOST SIX. A tap in the middle of a servicing corridor can be near twenty
+     things, and a list of twenty is no more use than a list of none. */
+  const rows = hits.slice(0, 6).map(h=>{
+    const bits = Object.keys(h.f.props || {}).slice(0, 4)
+      .map(k => `${esc(prettyField(k))}: ${esc(String(h.f.props[k]))}`)
+      .filter(t => !/: *$/.test(t));
+    return `<div class="idrow">
+      <span class="sw" style="background:${esc(h.L.color)}"></span>
+      <span class="idn"><b>${esc(h.L.name)}</b>
+        <span class="ct">${h.d < 1 ? "under a metre" : h.d.toFixed(1) + " m"} away${
+          bits.length ? " · " + bits.join(" · ") : ""}</span></span>
+    </div>`;
+  }).join("");
+  L.popup({ maxWidth:320, autoPanPadding:[24,24] }).setLatLng(e.latlng)
+    .setContent(`<div class="tpop"><span class="lyr">${hits.length} feature${hits.length===1?"":"s"} here</span>
+      <div class="rpop">${rows}</div>
+      ${hits.length > 6 ? `<div class="ct" style="padding:4px 2px">…and ${hits.length-6} more. Zoom in to narrow it.</div>` : ""}
+      </div>`).openOn(fmap);
+}
+
 function startMeasure(kind){
   closeMenu();
   // One map-click owner at a time. Selection and placing both bind the same event.
@@ -12408,7 +12540,10 @@ function tablePages(rows, title, W, H, M, foot){
      Table 1: "has a font size that is easy to read on the sheet". Thirteen columns
      of sentences cannot be set as large as eight columns of counts, so the face
      follows the column count rather than being one figure for both. */
-  const fs = Math.round(PDF_DPI * (head.length <= 6 ? 0.125 : head.length <= 9 ? 0.110 : 0.092));
+  /* Raised across the board — Schedule A's thirteen columns were set at 0.092 in,
+     about six and a half point on paper, which is a squint on a drawing somebody
+     reads standing up on a site. */
+  const fs = Math.round(PDF_DPI * (head.length <= 6 ? 0.140 : head.length <= 9 ? 0.122 : 0.104));
   const avail = W - M*2;
 
   /* Column widths in two passes. FIRST what each column would like: the widest thing
@@ -12504,7 +12639,7 @@ function tablePages(rows, title, W, H, M, foot){
     const g  = cv.getContext("2d");
     g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
     g.textAlign="left"; g.textBaseline="alphabetic";
-    g.fillStyle=TPP_INK; g.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
+    g.fillStyle=TPP_INK; g.font=`bold ${Math.round(PDF_DPI*0.145)}px ${TPP_FONT}`;
     g.fillText(title, M, M+Math.round(PDF_DPI*0.20));
 
     // header band
@@ -12578,7 +12713,7 @@ function tablePages(rows, title, W, H, M, foot){
         const g2 = cv2.getContext("2d");
         g2.fillStyle="#ffffff"; g2.fillRect(0,0,W,H);
         g2.textAlign="left"; g2.textBaseline="alphabetic";
-        g2.fillStyle=TPP_INK; g2.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
+        g2.fillStyle=TPP_INK; g2.font=`bold ${Math.round(PDF_DPI*0.145)}px ${TPP_FONT}`;
         g2.fillText(title + " (continued)", M, M+Math.round(PDF_DPI*0.20));
         drawFoot(g2, M, topY, tableW);
         pages.push({data:cv2.toDataURL("image/jpeg",0.95), w:W, h:H});
@@ -12771,7 +12906,10 @@ async function buildDocument(){
     }
   }catch(e){ keyBounds = null; keyCells = null; }
 
-  const frame = (label, subject) => ({
+  /* EVERY SHEET THE ASSEMBLER DRAWS ITSELF — the contents, the report pages, the
+     tables, the details — carries the job's totals. A plan sheet does not come
+     through here: runSingleExport builds its own frame from what that sheet drew. */
+  const frame = (label, subject) => (setReportTotals(), {
     sheetLabel: prefix + label,
     date: date,
     title: title,
@@ -17044,8 +17182,13 @@ async function runSingleExport(opt){
     g.textBaseline="alphabetic";
   }
   /* THE NOTES AND ARROWS GO ON LAST, inside the clip, over everything — a note that
-     a tree symbol can cover is a note nobody reads. */
-  try{ drawAnnotsOn(g, P, b); }catch(err){}
+     a tree symbol can cover is a note nobody reads.
+
+     NOT ON THE INDEX. Chris: "do not show the text added to the map on the page that
+     shows the index." The index exists to say which sheet is which; at a tenth of
+     the plan's scale a note written for one lot is a smear across four of them, and
+     the labels are already suppressed there for exactly the same reason. */
+  if(!opt.grid){ try{ drawAnnotsOn(g, P, b); }catch(err){} }
   g.restore();
 
   if(opt.grid) drawSheetGrid(g, opt.grid, P);
@@ -17063,7 +17206,23 @@ async function runSingleExport(opt){
       keyCells: opt.keyCells || null, keyCurrent: opt.keyCurrent || 0,
       legend: sheetLegendRows(shown),
       sheetLabel: opt.sheetLabel || "",
-      scaleText: opt.scaleText || "",
+      /* THE SCALE THIS SHEET IS ACTUALLY DRAWN AT.
+
+         Chris: "the page that shows the index has an incorrect scale number 1:250,
+         the scale bar appears correct 0-50 m."
+
+         Both observations were right, and they disagreed because they came from two
+         different places. The BAR is measured from the projection this sheet was
+         drawn with, so it is true by construction. The NUMBER was handed in by the
+         caller — and the assembler passed the plan series' scale to the index sheet
+         as well, because it builds them in the same loop. A plan cell is sized in
+         ground metres for its scale and then fitted to the frame, so 1:250 there is
+         true; the index is fitted to the whole job and is nothing like 1:250.
+
+         So the number is now MEASURED, the same way the bar is, and the caller's
+         figure is used only when the two agree — which they do on a plan cell, and
+         which is what keeps 1:250 reading as 1:250 rather than as 1:248. */
+      scaleText: sheetScaleText(opt.scaleText, sc, z, b.getCenter().lat),
       scaleBar: { sc: sc, z: z, lat: b.getCenter().lat },
       title: title
     });
@@ -17747,6 +17906,39 @@ function drawNorthArrow(g, x, y, R){
   g.textAlign="left"; g.textBaseline="alphabetic";
 }
 
+/* The scale this sheet is drawn at, as a denominator: ground metres per page metre.
+   One page pixel is 1/PDF_DPI inch, so the ratio follows from the metres each page
+   pixel covers — the same figure the scale bar is built from, which is why the two
+   can no longer disagree. */
+function sheetScaleDenom(sc, z, lat){
+  const mPerPagePx = 156543.03392 * Math.cos(lat*Math.PI/180) / Math.pow(2, z) / sc;
+  return mPerPagePx * PDF_DPI / 0.0254;
+}
+/* What to print in the Scale box. The caller's figure wins when it is right, because
+   a sheet BUILT at 1:250 should say 1:250 and not 1:248 — the fit is to the nearest
+   whole zoom step and a measured figure carries that rounding. It is overruled only
+   when it is not close, which is the index sheet, where it was never this sheet's
+   scale at all. Rounded to two significant figures and then to something a drawing
+   would state: the error in that is a fraction of a per cent, well under the width of
+   a printed line. */
+function sheetScaleText(given, sc, z, lat){
+  const real = sheetScaleDenom(sc, z, lat);
+  if(!isFinite(real) || real <= 0) return given || "";
+  /* THE DENOMINATOR, not every digit in the string. Stripping the non-digits out of
+     "1:872" leaves 1872, which is a different scale and a nine-fold error in the
+     comparison — it read every sheet as wildly out and overruled figures that were
+     right. The number wanted is the one AFTER the colon, commas and all. */
+  const m = /:\s*([\d,. ]+)/.exec(String(given || ""));
+  const asked = m ? parseFloat(m[1].replace(/[, ]/g, "")) : NaN;
+  if(isFinite(asked) && asked > 0 && Math.abs(real - asked) / asked <= 0.08) return given;
+  /* Steps fine enough that the rounding is under one per cent — a stated scale is a
+     claim somebody may measure off the paper, and "about right" is not a scale. */
+  const step = real < 300 ? 5 : real < 1000 ? 10 : real < 2000 ? 25
+             : real < 5000 ? 50 : real < 20000 ? 100 : 500;
+  const tidy = Math.max(step, Math.round(real / step) * step);
+  return "1:" + tidy.toLocaleString();
+}
+
 /* A SCALE BAR THAT FITS ITS BOX.
 
    Chris: "ensure the scale bar is numerically adjusted so it remains small and fits
@@ -18037,7 +18229,14 @@ async function drawTppFrame(g, W, H, opt){
       }
       const ind = r.indent ? Math.round(fs*0.55) : 0;
       const lines = wrapLines(g, r.label, widthAt(y) - ind);
-      if(y + lines.length*lh > floor) break;        // better a short legend than one overflowing its box
+      /* A RING IS TALLER THAN ITS WORDS, above the baseline as well as below it. The
+         rings grew to 0.86 of the face, so a one-line row is 1.72 of it — and the
+         clearance has to be taken at the TOP too, or the first ring under a heading
+         is drawn through the heading. */
+      const symH = (r.kind === "circle") ? fs*1.72 + 4 : 0;
+      const lead = Math.max(0, (symH - lines.length*lh) / 2);
+      y += lead;
+      if(y + Math.max(lines.length*lh, symH - lead) > floor) break;   // better a short legend than one overflowing its box
       const cy = y - fs*0.32;
       g.lineWidth = Math.max(2, fs*0.20);
       const sx = swX + ind, tx = txX + ind;
@@ -18081,8 +18280,7 @@ async function drawTppFrame(g, W, H, opt){
       /* THE ROW IS AS TALL AS ITS SYMBOL, not as tall as its words. The rings grew to
          0.86 of the face — wider than the line height — so advancing by the text
          alone stacked the protection zone and the crown on top of one another. */
-      const symH = (r.kind === "circle") ? fs*1.72 + 4 : 0;
-      y += Math.max(lines.length*lh, symH) + Math.round(fs*0.20);
+      y += Math.max(lines.length*lh, symH - lead) + Math.round(fs*0.20);
     }
     // the base-data credits sit at the foot of the legend box
     const credits = (typeof tppText === "object" && tppText.credits) || "";
@@ -18272,9 +18470,48 @@ function drawFitted(g, im, box, align){
   const s = Math.min(box.w/iw, box.h/ih);
   const w = iw*s, h = ih*s;
   const x = box.x + (box.w-w)/2;
-  const y = (align === "top") ? box.y : box.y + (box.h-h)/2;
+  /* `align` is "top", or a NUMBER meaning "put the image's top edge exactly here" —
+     which is how the contents is made to start on the ink of the page beside it
+     rather than on the edge of its own white margin. Clamped into the box, because a
+     page hung above its own slot would be drawn over the sheet's frame. */
+  let y = (align === "top") ? box.y : box.y + (box.h-h)/2;
+  if(typeof align === "number") y = Math.max(box.y, Math.min(align, box.y + box.h - h));
   g.drawImage(im, x, y, w, h);
   return {x:x, y:y, w:w, h:h};
+}
+
+/* WHERE THE INK STARTS, as a fraction of the image's own height.
+
+   Chris, twice now: "the top of the Contents needs to be slightly higher so it
+   matches the top of the Arborist Report." v168 aligned the two IMAGES; v170
+   trimmed the contents to its own ink. Both were right and it still came out
+   0.087 in low, for a reason neither of them could reach: trimPageWhite adds a
+   1.2% bleed so a scanned drawing's border line cannot be shaved off — and it
+   CLAMPS that bleed at the edge of the canvas. His report cover is a full-bleed
+   blue block, so its ink runs to the page edge and the bleed clamps to nothing;
+   the contents has white above its banner, so it keeps the full 17 px. One page
+   with a margin, one without, and the trim cannot know.
+
+   So the two are lined up by their ink rather than by their edges. Measured on a
+   200 px-wide copy, which is a millisecond and plenty for finding a row. */
+function inkTopFrac(im){
+  try{
+    const w = Math.min(200, im.width || 200);
+    const h = Math.max(1, Math.round((im.height || 1) * w / (im.width || 1)));
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h);
+    g.drawImage(im, 0, 0, w, h);
+    const d = g.getImageData(0, 0, w, h).data;
+    for(let y = 0; y < h; y++){
+      const row = y*w*4;
+      for(let x = 0; x < w; x++){
+        const i = row + x*4;
+        if(d[i] < 244 || d[i+1] < 244 || d[i+2] < 244) return y / h;
+      }
+    }
+  }catch(e){}                                  // tainted canvas: treat the edge as the ink
+  return 0;
 }
 /* One assembled sheet: up to two portrait pages side by side, then the frame. The
    frame goes LAST so nothing can be drawn over the title block. */
@@ -18292,16 +18529,22 @@ async function composeTppSheet(W, H, pages, frameOpt){
      at different heights, and the eye reads that as a mistake rather than as two
      pages that happen to be different shapes. The FIRST page sets the top edge and
      the second is hung from it. */
-  let firstTop = null;
+  let firstInk = null;
   for(let i=0; i<Math.min(2, pages.length); i++){
     const im = await loadImageData(pages[i]);
     if(!im) continue;
     const box = slots[i];
-    const put = (i === 1 && firstTop !== null)
-      ? { x:box.x, y:firstTop, w:box.w, h:box.y + box.h - firstTop }
-      : box;
-    const r = drawFitted(g, im, put, i === 1 && firstTop !== null ? "top" : null);
-    if(i === 0 && r) firstTop = r.y;
+    let r;
+    if(i === 1 && firstInk !== null){
+      /* Where this page's own top edge has to go for its INK to land on the line the
+         first page's ink set. Worked out before drawing, because it decides the
+         scale: the page is fitted to the slot, then hung by that offset. */
+      const s = Math.min(box.w/(im.width||box.w), box.h/(im.height||box.h));
+      r = drawFitted(g, im, box, firstInk - inkTopFrac(im) * (im.height||box.h) * s);
+    } else {
+      r = drawFitted(g, im, box, null);
+    }
+    if(i === 0 && r) firstInk = r.y + inkTopFrac(im) * r.h;
   }
   await drawTppFrame(g, W, H, frameOpt || {});
   return { data: cv.toDataURL("image/jpeg", 0.93), w:W, h:H };
@@ -18332,8 +18575,10 @@ function tppContentsImage(entries, slotW, slotH, note){
   const M   = Math.round(PDF_DPI*0.30);
   const x   = M, w = slotW - M*2;
   const pad = Math.round(PDF_DPI*0.07);
-  const fs  = Math.round(PDF_DPI*0.105);
-  const hdrH = Math.round(PDF_DPI*0.34);
+  /* Chris: "make the text in the table of contents, Table 1 and Schedule A a bit
+     larger, or darker so it is more visible." Darker was v170; this is larger. */
+  const fs  = Math.round(PDF_DPI*0.120);
+  const hdrH = Math.round(PDF_DPI*0.38);
   const pageW = Math.round(w*0.24);
 
   g.textAlign="left"; g.textBaseline="alphabetic";
@@ -18342,7 +18587,7 @@ function tppContentsImage(entries, slotW, slotH, note){
   let y = M;
   // banner
   g.strokeRect(x, y, w, hdrH);
-  g.fillStyle=TPP_INK; g.font=`bold ${Math.round(PDF_DPI*0.15)}px ${TPP_FONT}`;
+  g.fillStyle=TPP_INK; g.font=`bold ${Math.round(PDF_DPI*0.17)}px ${TPP_FONT}`;
   g.textAlign="center";
   g.fillText("CONTENTS", x + w/2, y + hdrH*0.70);
   g.textAlign="left";
@@ -18358,7 +18603,7 @@ function tppContentsImage(entries, slotW, slotH, note){
 
   /* Rows are as tall as they need to be — a long detail name wraps rather than being
      cut, because the contents is the one page a reviewer reads first. */
-  const rowMin = Math.round(PDF_DPI*0.38);
+  const rowMin = Math.round(PDF_DPI*0.42);
   const lh = Math.round(fs*1.28);
   entries.forEach(e=>{
     g.font = `${fs}px ${TPP_FONT}`;
@@ -18712,6 +18957,42 @@ function sheetLegendRaw(shown){
                    kind:layerLegendKind(l), dashed:layerDash(l) }));
   if(pdfOverlay && pdfVisible) present.push({key:"pdf", label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
   return present;
+}
+
+/* THE WHOLE JOB'S FIGURES, for a sheet that is not one cell of the plan.
+
+   Chris: "In the legend on the very first page the quantities for tree protection
+   are not the full quantities shown on the page that shows all trees."
+
+   They were not anybody's figures. `sheetMarks` and `sheetFeats` are set BY a plan
+   sheet as it is drawn, and TPP1 is composed BEFORE the first plan sheet exists — so
+   its key carried whatever was left in those two globals from the last export anyone
+   ran, which is how it came to say 10 removals and 18 m of fence against the real
+   12, 1 and 184. A table sheet or a detail sheet had the same fault one step later:
+   it showed the figures of whichever plan cell happened to be drawn most recently.
+
+   A sheet that is not a plan cell should carry the JOB's totals, which is what the
+   index sheet shows and what he is comparing against. Set here, from the report's own
+   trees and features, so the two agree by construction. */
+function setReportTotals(){
+  const list = reportTrees();
+  const F = featsIn();
+  const lenOf = l => l.reduce((a,f)=> a + (parseFloat(f.length_m) || 0), 0);
+  const fence = F.filter(f=>f.kind==="fence" && !isRootExc(f));
+  const root  = F.filter(f=>f.kind==="fence" && isRootExc(f));
+  const plants = F.filter(f=>f.kind==="planting");
+  sheetMarks = {
+    rem:    marksOn ? list.filter(markRemove).length : 0,
+    prune:  marksOn ? list.filter(t=>!markRemove(t) && markPrune(t)).length : 0,
+    crowns: crownOn ? list.filter(t=> (crownRadiusOf(t) > 0)).length : 0
+  };
+  sheetFeats = {
+    fences: fence.length, rootexc: root.length,
+    fenceM: Math.round(lenOf(fence)), rootexcM: Math.round(lenOf(root)),
+    plantings: plants.length,
+    caliper: plants.filter(f=>(f.pclass||pclassFromStock(f.stock))!=="sapling").length,
+    sapling: plants.filter(f=>(f.pclass||pclassFromStock(f.stock))==="sapling").length
+  };
 }
 
 /* Every key the author could ever want to rename or group, whether or not this
@@ -19202,7 +19483,7 @@ function backToMenu(){ openMenu(); }
    Back that quietly closed a half-typed tree and dropped you on the Menu would be a
    worse bug than the one this fixes. Those keep their own Save and Cancel. */
 const NO_BACK = { menuSheet:1, treeSheet:1, imgSheet:1, lineSheet:1 };
-let sheetStack = [], menuClosedAt = 0, stackFromMenu = false;
+let sheetStack = [], menuClosedAt = 0, stackFromMenu = false, sheetZ = 0;
 
 function sheetTop(){ return sheetStack[sheetStack.length - 1] || ""; }
 function goBack(){
@@ -19244,12 +19525,28 @@ function installBackButtons(){
       const on = el.classList.contains("show");
       const at = sheetStack.indexOf(el.id);
       if(on){
+        /* THE ONE OPENED LAST HAS TO BE THE ONE IN FRONT.
+
+           Chris: "when I click Legend — names and groups, the map screen darkens and
+           nothing happens, then when I select Close I get the legend editing window."
+
+           Every .sheet carries z-index:1000, so when two are open at once the browser
+           falls back to DOCUMENT ORDER — and #legendSheet is written eighty lines
+           above #layersSheet, so it opened BEHIND the screen that opened it. All you
+           saw was its dimming backdrop. Nothing was broken and nothing was missing; it
+           was underneath. Raising it on the way in fixes that pairing and every other
+           one, whatever order the markup happens to be in. */
+        el.style.zIndex = String(1000 + (++sheetZ));
         if(at < 0){
           if(!sheetStack.length) stackFromMenu = (Date.now() - menuClosedAt) < 2000;
           sheetStack.push(el.id);
         }
       } else if(at >= 0){
         sheetStack.splice(at, 1);
+        /* Back to the shared level when it closes, so the counter cannot climb for
+           ever across a long session. */
+        if(!sheetStack.length) sheetZ = 0;
+        el.style.zIndex = "";
       }
     });
   });
