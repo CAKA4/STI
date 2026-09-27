@@ -797,6 +797,8 @@
         <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
         <button class="menuitem" onclick="reconcileWithSheet()">Check what the Sheet already has</button>
         <button class="menuitem" onclick="closeMenu(); kitSync({loud:true});">Project setup — send and fetch now</button>
+        <button class="menuitem" onclick="openHouse()">House standard — what every new project starts from</button>
+        <button class="menuitem" onclick="openPf()">Project files — layers and PDFs across devices</button>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
         <button class="menuitem" onclick="openDiag('')">Sheet &amp; photo check — why a photo will not load</button>
       </div>
@@ -998,6 +1000,64 @@
 </div>
 
 <!-- ===== layers ===== -->
+<!-- ===== project files: the big ones, across devices ===== -->
+<div class="sheet" id="pfSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Project files</h2>
+    <div class="hint">The two things the project setup cannot carry: the reference layer
+      geometry and the pages of uploaded PDFs. They go to a Drive folder for this project,
+      so a second device can pick them up instead of loading the zip and the report again.</div>
+    <div id="pfList"></div>
+    <div class="mini" id="pfStatus" style="margin:8px 0">—</div>
+    <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left">
+      <input type="checkbox" id="pfAuto" onchange="pfAutoSet(this.checked)" style="width:17px;height:17px;padding:0;flex:0 0 auto">
+      <span>Fetch anything missing automatically on this device</span>
+    </label>
+    <div class="mini">Leave that off on a phone in the field — a site plan and a thirty-page
+      report are tens of megabytes. The app always <b>checks</b> and tells you what is
+      missing; downloading is your decision unless you turn this on.</div>
+    <div class="btnrow">
+      <button class="primary" id="pfSend" onclick="pfSendAll()">Send this device's files up</button>
+      <button class="primary" id="pfGet" onclick="pfGetAll()">Get what is missing</button>
+    </div>
+    <div class="btnrow">
+      <button id="pfCheck" onclick="pfRefresh()">Check the folder</button>
+      <button onclick="closePf()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== the house standard: what a new project starts from ===== -->
+<div class="sheet" id="houseSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>House standard</h2>
+    <div class="hint">One saved setup that every new project starts from, on any device.
+      Save it once from a job that is set up the way you want; after that a new project
+      arrives already wearing your wording, your logo, your label style, your layer and
+      fence symbology, your sheet size and your appraisal rates.</div>
+    <div class="idline" id="houseWho">—</div>
+    <div id="houseParts" class="mini" style="margin:8px 0"></div>
+    <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left">
+      <input type="checkbox" id="houseAuto" onchange="houseAutoSet(this.checked)" style="width:17px;height:17px;padding:0;flex:0 0 auto">
+      <span>Start new projects from it, without asking</span>
+    </label>
+    <div class="mini" id="houseStatus" style="margin:8px 0">—</div>
+    <div class="btnrow">
+      <button class="primary" onclick="houseSave()">Save this project's setup as the standard</button>
+    </div>
+    <div class="btnrow">
+      <button onclick="houseApplyNow()">Apply it to this project now</button>
+      <button onclick="houseRefresh()">Check the Sheet</button>
+    </div>
+    <div class="mini">Saving overwrites the standard for everybody. Applying it to a project
+      replaces that project's wording and styling with the standard's — the trees, the
+      photographs and the tables are untouched.</div>
+    <div class="btnrow"><button onclick="closeHouse()">Close</button></div>
+  </div>
+</div>
+
 <div class="sheet" id="layersSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
@@ -1918,7 +1978,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-26 · v160";
+const APP_BUILD  = "2026-09-26 · v163";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -1926,7 +1986,7 @@ const APP_BUILD  = "2026-09-26 · v160";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-26 · v153";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-26 · v154";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -3367,43 +3427,95 @@ function drawRefLayers(){
 function eachRing(co,fn){ if(typeof co[0][0]==="number") fn(co); else co.forEach(c=>eachRing(c,fn)); }
 function eachPoly(co,fn){ if(typeof co[0][0][0]==="number") fn(co); else co.forEach(c=>eachPoly(c,fn)); }
 
+/* The features of ONE shapefile, in the shape refLayers stores them. */
+function refFeaturesOf(fc){
+  const out = [];
+  ((fc && fc.features) || []).forEach(f=>{
+    const g = f.geometry; if(!g) return;
+    const t = /Point/.test(g.type) ? "pt" : (/LineString/.test(g.type) ? "ln" : "pg");
+    if(g.type === "Point" || g.type === "MultiPoint"){
+      (g.type === "Point" ? [g.coordinates] : g.coordinates)
+        .forEach(c=> out.push({ geom:{t:"pt", c:c}, props:f.properties || {} }));
+    } else {
+      out.push({ geom:{t:t, c:g.coordinates}, props:f.properties || {} });
+    }
+  });
+  return out;
+}
+
+/* ONE ZIP, ONE LAYER PER SHAPEFILE IN IT.
+
+   Chris: "Where are my uploaded site plan layers? I uploaded as one zipped file."
+   They were all there — as a SINGLE row, named after the zip, in one colour, with one
+   line in the legend. Everything the zip held was flattened into one features array
+   and given the zip's own name, so a survey, the storm sewer, the curb, the sidewalk
+   and the water main came in as one undifferentiated smear.
+
+   Which defeats the whole point of the layer editor. He asked, back when it was
+   built, to "specifically title each of these layers and have an option to change
+   their symbology, including transparency" — and none of that can be done to a layer
+   that is five layers in a trench coat.
+
+   shpjs already hands back one FeatureCollection per shapefile, each carrying its own
+   fileName. That name is the one thing in the zip that says what each layer IS, and
+   it was being thrown away. */
 async function importRefLayer(file){
   toast("Reading…");
   try{
     const gj = await readGeoFile(file);
-    const cols = Array.isArray(gj)?gj:[gj];
-    const feats=[];
-    cols.forEach(fc=>((fc&&fc.features)||[]).forEach(f=>{
-      const g=f.geometry; if(!g) return;
-      const t = /Point/.test(g.type) ? "pt" : (/LineString/.test(g.type) ? "ln" : "pg");
-      if(g.type==="Point"||g.type==="MultiPoint"){
-        (g.type==="Point"?[g.coordinates]:g.coordinates).forEach(c=>feats.push({geom:{t:"pt",c:c},props:f.properties||{}}));
-      } else {
-        feats.push({geom:{t:t,c:g.coordinates},props:f.properties||{}});
-      }
-    }));
-    if(!feats.length){ toast("Nothing to draw in that file",true); return; }
+    const cols = (Array.isArray(gj) ? gj : [gj]).filter(Boolean);
+    const base = file.name.replace(/\.[^.]+$/,"");
 
-    const id = "ref"+Date.now().toString(36);
-    refLayers.push({
-      id,
-      /* The file it came from, kept unchanged for the life of the layer. The NAME is
-         the legend wording and gets edited; this is what two devices holding the same
-         shapefile can both recognise it by, so the symbology can travel. */
-      src: file.name.replace(/\.[^.]+$/,"").toLowerCase(),
-      name: file.name.replace(/\.[^.]+$/,"").slice(0,40),
-      color: REF_PALETTE[refLayers.length % REF_PALETTE.length],
-      visible: true, features: feats
+    const groups = [];
+    cols.forEach((fc, i)=>{
+      const feats = refFeaturesOf(fc);
+      if(!feats.length) return;
+      /* shpjs names each collection after the .shp it came out of. A single-shapefile
+         zip, a bare .shp, a GeoJSON or a GPX has nothing better than the file itself. */
+      const inner = String((fc && (fc.fileName || fc.name)) || "").replace(/\.[^.]+$/,"").trim();
+      const nm = (cols.length > 1 && inner) ? inner
+               : (cols.length > 1 ? base + " " + (i+1) : base);
+      groups.push({ nm: nm, feats: feats });
     });
+
+    if(!groups.length){ toast("Nothing to draw in that file",true); return; }
+
+    const made = [];
+    groups.forEach((g, i)=>{
+      const id = "ref" + Date.now().toString(36) + (i ? "_" + i : "");
+      refLayers.push({
+        id,
+        /* The file it came from, kept unchanged for the life of the layer. The NAME is
+           the legend wording and gets edited; this is what two devices holding the same
+           shapefile can both recognise it by, so the symbology can travel. */
+        src: g.nm.toLowerCase(),
+        name: g.nm.slice(0,40),
+        color: REF_PALETTE[refLayers.length % REF_PALETTE.length],
+        visible: true, features: g.feats
+      });
+      made.push(id);
+    });
+
     persistRefLayers();
     drawRefLayers();
-    zoomToRef(id);
+    zoomToRef(made[0]);
     renderLayerList();
     buildLegend();
-    toast(`Added ${feats.length} features`);
-    // Ask what it is for while the file is fresh in mind — a parcel layer is only
-    // useful once we know which column holds the address.
-    setTimeout(()=>openRole(id), 600);
+    const nf = groups.reduce((a,g)=>a+g.feats.length, 0);
+    toast(made.length > 1
+      ? `${made.length} layers, ${nf} features — name and colour each one`
+      : `Added ${nf} features`);
+
+    if(made.length > 1){
+      /* Asking what each of six layers is FOR, one dialog after another, is the wrong
+         question at the wrong moment. The list is opened instead, where they can be
+         named and styled in whatever order makes sense. */
+      setTimeout(openLayers, 700);
+    } else {
+      // Ask what it is for while the file is fresh in mind — a parcel layer is only
+      // useful once we know which column holds the address.
+      setTimeout(()=>openRole(made[0]), 600);
+    }
   }catch(e){ toast("Could not read that file",true); }
 }
 
@@ -8038,6 +8150,10 @@ function verifyAndRetry(pass){
 function pullFromSheet(){
   closeMenu();
   kitSync({ loud:false });          // a device joining a job wants the setup with it
+  /* And wants to be TOLD about the layers and the report, which are too large to
+     come down uninvited. A device pulling a job it has never held is exactly the
+     moment that matters. */
+  setTimeout(()=>{ try{ pfAutoCheck(); }catch(e){} }, 3000);
   if(!connected || isOffline()){ toast("No connection",true); return; }
   const cb="__tr"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
   const sc=document.createElement("script");
@@ -14011,12 +14127,436 @@ function kitRemember(project, rev, json){
   persistKitBase();
 }
 
+/* ================= PROJECT FILES THAT TRAVEL ============================ *
+
+   The kit carries settings. These are the two things it cannot: the geometry of the
+   reference layers and the rasterised pages of the uploaded document PDFs. Four
+   spreadsheet cells top out around 180 KB; a site plan's shapefiles run to megabytes
+   and a 31-page arborist report to tens of them. They go to Drive, already sliced,
+   one Drive file per slice — see the PROJECT FILES block in Code.gs for why.
+
+   NOTHING IS FETCHED WITHOUT BEING ASKED FOR, by default. The office desktop can
+   turn that on; a phone on a job site should not spend thirty megabytes of somebody's
+   data plan because a colleague uploaded a site plan. What happens on its own is the
+   CHECK — the app knows what the project has and what this device is missing, and
+   says so, which is the part nobody can do for themselves. */
+const PF_CHUNK = 1500000;                 // characters of base64 per slice
+const PFKEY = "st_pf";
+let pfState = { auto:false };
+try{ const v = JSON.parse(STORE && STORE.getItem(PFKEY)); if(v && typeof v === "object") pfState = Object.assign(pfState, v); }catch(e){}
+function persistPf(){ if(STORE){ try{ STORE.setItem(PFKEY, JSON.stringify(pfState)); }catch(e){} } }
+function pfAutoSet(on){ pfState.auto = !!on; persistPf(); renderPf(); }
+
+/* btoa cannot take a character above 255, and a layer called "Bayview & Hwy 7 —
+   parcelles" is one paste away. Encoded as UTF-8 first, and decoded the same way,
+   or every accented name comes back as rubbish. */
+function pfEnc(text){ return btoa(unescape(encodeURIComponent(String(text)))); }
+function pfDec(b64){  return decodeURIComponent(escape(atob(String(b64)))); }
+
+/* What this device holds that the project should have. The layer's whole record
+   travels, styling included, so a second device draws it the same way. */
+function pfLocalItems(){
+  const out = [];
+  refLayers.forEach(l=>{
+    out.push({ kind:"layer", ref:String(l.id), label:l.name || l.id,
+      text: JSON.stringify({ name:l.name, src:l.src||"", color:l.color, visible:l.visible !== false,
+        role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
+        legend:l.legend !== false, legendKind:l.legendKind || "auto",
+        dashed:!!l.dashed, weight:l.weight || 3,
+        opacity:isFinite(Number(l.opacity)) ? Number(l.opacity) : 90,
+        fill:isFinite(Number(l.fill)) ? Number(l.fill) : 10,
+        features:l.features || [] }) });
+  });
+  docSections().forEach(d=>{
+    if(d && d.kind === "upload") out.push({ kind:"doc", ref:String(d.id), label:d.name || d.id, text:null });
+  });
+  return out;
+}
+
+function pfPutItem(project, it, onProgress){
+  /* A document's pages are fetched only when it is actually being sent — holding
+     thirty megabytes of data URLs in memory to build a list would be absurd. */
+  const textOf = it.text !== null ? Promise.resolve(it.text)
+    : idbGet("doc:" + it.ref).then(r => (r && r.data) ? r.data : null);
+  return textOf.then(text=>{
+    if(!text) throw new Error("nothing stored on this device for " + it.label);
+    const b64 = pfEnc(text);
+    const parts = Math.max(1, Math.ceil(b64.length / PF_CHUNK));
+    let i = 0;
+    const step = ()=>{
+      if(i >= parts) return Promise.resolve(parts);
+      if(onProgress) onProgress(it, i + 1, parts);
+      return postJson({ _action:"pfput", project:project, kind:it.kind, ref:it.ref,
+                        label:it.label, part:i, parts:parts,
+                        data:b64.slice(i*PF_CHUNK, (i+1)*PF_CHUNK),
+                        by:settings.cruiser || "" })
+        .then(()=> new Promise(r=> setTimeout(r, 350)))
+        .then(()=>{ i++; return step(); });
+    };
+    return step();
+  });
+}
+
+function pfGetItem(item, onProgress){
+  const ids = item.ids || [];
+  let i = 0, b64 = "";
+  const step = ()=> new Promise(res=>{
+    if(i >= ids.length){ res(b64); return; }
+    if(onProgress) onProgress(item, i + 1, ids.length);
+    jsonpGet("pfget", { id: ids[i] }, r=>{
+      if(!r || !r.ok || typeof r.data !== "string"){ res(null); return; }
+      b64 += r.data; i++;
+      step().then(res);
+    }, 90000);
+  });
+  return step().then(b => b == null ? null : pfDec(b));
+}
+
+/* Putting a fetched item where the rest of the app already looks for it. The ref is
+   kept as the id on purpose: two devices then agree on what is the same layer, and
+   re-sending it replaces rather than duplicates. */
+function pfInstall(item, text){
+  if(item.kind === "doc"){
+    return idbPut({ filename:"doc:" + item.ref, data:text }).then(()=>{
+      docHere[item.ref] = true;
+      const l = docSections();
+      if(!l.some(d => d && d.id === item.ref)){
+        let pages = 0; try{ pages = (JSON.parse(text) || []).length; }catch(e){}
+        l.splice(docInsertAt(l), 0, { id:item.ref, name:item.label, kind:"upload", on:true, pages:pages });
+        docSave(l);
+      }
+      return true;
+    });
+  }
+  let rec = null;
+  try{ rec = JSON.parse(text); }catch(e){ return Promise.resolve(false); }
+  if(!rec || !Array.isArray(rec.features)) return Promise.resolve(false);
+  const L = Object.assign({}, rec, { id:item.ref });
+  const at = refLayers.findIndex(x => String(x.id) === String(item.ref));
+  if(at >= 0) refLayers[at] = L; else refLayers.push(L);
+  return idbPutLayer(L).then(()=>{ drawRefLayers(); renderLayerList(); buildLegend(); return true; });
+}
+
+/* ---- the screen ---- */
+let pfItems = null, pfBusy = false, pfNote = "";
+function openPf(){ closeMenu(); pfItems = null; pfNote = ""; renderPf(); $("pfSheet").classList.add("show"); pfRefresh(); }
+function closePf(){ $("pfSheet").classList.remove("show"); backToMenu(); }
+function pfSay(m){ pfNote = m; const el = $("pfStatus"); if(el) el.textContent = m; }
+
+function pfRefresh(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ pfSay("Set Showing to one project first."); return; }
+  if(isOffline() || !connected){ pfSay("Offline — this needs a connection."); return; }
+  pfSay("Checking " + project + "…");
+  jsonpGet("pflist", { project:project }, r=>{
+    if(!r || !r.ok){ pfSay("The Sheet did not answer."); return; }
+    pfItems = r.items || [];
+    renderPf();
+    const miss = pfMissingHere().length, up = pfNotSent().length;
+    pfSay(pfItems.length
+      ? `${pfItems.length} on the Sheet · ${miss} not on this device · ${up} here but not sent`
+      : "Nothing sent up for this project yet.");
+  }, 60000);
+}
+
+function pfMissingHere(){
+  if(!pfItems) return [];
+  const haveL = {}; refLayers.forEach(l=> haveL[String(l.id)] = 1);
+  const haveD = {}; docSections().forEach(d=>{ if(d && d.kind==="upload") haveD[String(d.id)] = (docHere[d.id] !== false); });
+  return pfItems.filter(it=> it.complete &&
+    (it.kind === "layer" ? !haveL[it.ref] : !haveD[it.ref]));
+}
+function pfNotSent(){
+  const onSheet = {}; (pfItems||[]).forEach(it=> onSheet[it.kind + "~" + it.ref] = 1);
+  return pfLocalItems().filter(it=> !onSheet[it.kind + "~" + it.ref]);
+}
+
+function pfSendAll(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ toast("Set Showing to one project first", true); return; }
+  if(pfBusy) return;
+  /* Everything local, not only what is missing — re-sending is how a layer you
+     restyled or a report you replaced reaches the other device at all. */
+  const list = pfLocalItems();
+  if(!list.length){ pfSay("Nothing on this device to send."); return; }
+  pfBusy = true; renderPf();
+  let done = 0; const failed = [];
+  const step = ()=>{
+    if(done >= list.length){
+      pfBusy = false;
+      pfSay(failed.length ? ("Sent " + (list.length - failed.length) + " of " + list.length +
+                             " · " + failed.join(" · "))
+                          : ("Sent " + list.length + " to the project folder."));
+      pfRefresh();
+      return;
+    }
+    const it = list[done];
+    pfPutItem(project, it, (x, p, n)=> pfSay(`Sending ${x.label} — part ${p} of ${n}`))
+      .then(()=>{ done++; step(); })
+      .catch(err=>{ failed.push(it.label + ": " + String((err && err.message) || err).slice(0,60));
+                    done++; step(); });
+  };
+  step();
+}
+
+function pfGetAll(){
+  if(pfBusy) return;
+  const miss = pfMissingHere();
+  if(!miss.length){ pfSay("This device already has everything."); return; }
+  const mb = Math.round(miss.reduce((a,i)=>a + (i.kb||0), 0) / 1024);
+  if(mb >= 8 && !confirm("This will download about " + mb + " MB. Continue?")) return;
+  pfBusy = true; renderPf();
+  let i = 0; const failed = [];
+  const step = ()=>{
+    if(i >= miss.length){
+      pfBusy = false;
+      pfSay(failed.length ? ("Fetched " + (miss.length - failed.length) + " of " + miss.length +
+                             " · " + failed.join(" · "))
+                          : ("Fetched " + miss.length + " — they are on this device now."));
+      renderPf();
+      return;
+    }
+    const it = miss[i];
+    pfGetItem(it, (x, p, n)=> pfSay(`Fetching ${x.label} — part ${p} of ${n}`))
+      .then(text=>{
+        if(!text) throw new Error("download failed");
+        return pfInstall(it, text);
+      })
+      .then(ok=>{ if(!ok) failed.push(it.label + ": unreadable"); i++; step(); })
+      .catch(err=>{ failed.push(it.label + ": " + String((err && err.message) || err).slice(0,60));
+                    i++; step(); });
+  };
+  step();
+}
+
+function renderPf(){
+  const box = $("pfList"); if(!box) return;
+  const a = $("pfAuto"); if(a) a.checked = !!pfState.auto;
+  if(!pfItems){ box.innerHTML = `<div class="mini">—</div>`; return; }
+  const haveL = {}; refLayers.forEach(l=> haveL[String(l.id)] = 1);
+  const haveD = {}; docSections().forEach(d=>{ if(d && d.kind==="upload") haveD[String(d.id)] = 1; });
+  const rows = pfItems.map(it=>{
+    const here = it.kind === "layer" ? !!haveL[it.ref] : (!!haveD[it.ref] && docHere[it.ref] !== false);
+    const mb = (it.kb >= 1024) ? (Math.round(it.kb/102.4)/10 + " MB") : (it.kb + " KB");
+    const tag = !it.complete ? `<b class="ct miss">${it.missing} slice${it.missing===1?"":"s"} missing</b>`
+              : here ? `<b class="ct">on this device</b>`
+                     : `<b class="ct miss">not here</b>`;
+    return `<div class="docrow"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
+            <b class="ct">${mb}</b>${tag}</label></div>`;
+  });
+  const extra = pfNotSent().map(it=>
+    `<div class="docrow"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
+     <b class="ct miss">here only — not sent</b></label></div>`);
+  box.innerHTML = (rows.concat(extra).join("")) || `<div class="mini">Nothing yet.</div>`;
+  ["pfSend","pfGet","pfCheck"].forEach(id=>{ const b = $(id); if(b){ b.disabled = pfBusy; b.style.opacity = pfBusy ? ".6" : ""; } });
+}
+
+/* THE CHECK RUNS ON ITS OWN; THE DOWNLOAD DOES NOT. Knowing that the project has a
+   site plan this phone has never seen is the part a person cannot work out for
+   themselves. Spending their data plan on it is a decision only they can make —
+   unless they have said otherwise, which is what the switch is for. */
+function pfAutoCheck(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects || isOffline() || !connected || pfBusy) return;
+  jsonpGet("pflist", { project:project }, r=>{
+    if(!r || !r.ok) return;
+    pfItems = r.items || [];
+    const miss = pfMissingHere();
+    if(!miss.length) return;
+    if(pfState.auto){ pfGetAll(); return; }
+    const mb = Math.round(miss.reduce((a,i)=>a + (i.kb||0), 0) / 1024);
+    toast(miss.length + " project file" + (miss.length===1?"":"s") +
+          (mb >= 1 ? " (" + mb + " MB)" : "") + " not on this device — Menu → Project files");
+  }, 60000);
+}
+
+/* ================= THE HOUSE STANDARD =================================== *
+
+   Chris: "Is there a way to save the settings to ensure text and files, format
+   remain with the project going forward even when a new project is started?"
+
+   The project kit (v152) answered half of it: a setup follows ITS project between
+   devices. What it could not do is give a NEW project a starting point. Starting one
+   on a colleague's phone meant it was seeded with whatever that phone happened to be
+   carrying — quite possibly the shipped defaults — and the title block, the label
+   style and the symbology all had to be typed again.
+
+   So: one reserved row on the same Project setup tab, under a project name no job can
+   have. The same kitget and kitput serve it — no backend change — and the same parts,
+   plus the logo, which is a file and therefore never travelled at all before.
+
+   It is deliberately ONE standard, not a library of templates. A second name to pick
+   from is a second thing to get wrong, and the answer to "which template was this job
+   started from?" should not be a question anybody has to ask. */
+const KIT_HOUSE = "__house standard__";
+const HOUSEKEY  = "st_house";
+let houseState = { rev:0, at:"", by:"", auto:true };
+try{
+  const h = JSON.parse(STORE && STORE.getItem(HOUSEKEY));
+  if(h && typeof h === "object") houseState = Object.assign(houseState, h);
+}catch(e){}
+function persistHouse(){ if(STORE){ try{ STORE.setItem(HOUSEKEY, JSON.stringify(houseState)); }catch(e){} } }
+function houseAutoSet(on){ houseState.auto = !!on; persistHouse(); renderHouse(); }
+
+/* THE LOGO HAS TO BE SHRUNK AGAIN FOR THE TRIP. It is stored at 640 px, which is
+   right for a title block printed at 200 dpi and wrong for a payload that has to fit
+   beside every other setting in four spreadsheet cells. Re-encoded at 360 px, and if
+   it still will not fit it is left out with the reason said out loud rather than
+   quietly truncating the row and corrupting the standard for everybody. */
+const HOUSE_LOGO_MAX = 120000;
+function logoForTransport(){
+  return loadTppLogo().then(d=>{
+    if(!d) return null;
+    return new Promise(res=>{
+      const im = new Image();
+      im.onload = ()=>{
+        try{
+          const sc = Math.min(1, 360/im.width);
+          const cv = document.createElement("canvas");
+          cv.width  = Math.max(1, Math.round(im.width*sc));
+          cv.height = Math.max(1, Math.round(im.height*sc));
+          cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
+          let out = cv.toDataURL("image/png");
+          if(out.length > HOUSE_LOGO_MAX) out = cv.toDataURL("image/jpeg", 0.82);
+          res(out.length > HOUSE_LOGO_MAX ? "" : out);
+        }catch(e){ res(null); }
+      };
+      im.onerror = ()=> res(null);
+      im.src = d;
+    });
+  }).catch(()=> null);
+}
+
+function houseSnapshot(){
+  return logoForTransport().then(logo=>{
+    const k = kitSnapshot(currentProject());
+    /* The value column is the one genuinely per-job part of a kit — which money
+       column THIS report prints. A standard that forced it would be wrong as often
+       as right, so it is left out of the house row entirely. */
+    delete k.value;
+    k.logo = (logo === "") ? "" : (logo || null);
+    return { kit:k, logoTooBig: logo === "" };
+  });
+}
+
+function houseSave(){
+  if(isOffline() || !connected){ toast("Go online first", true); return; }
+  if(showAllProjects){ toast("Set Showing to one project first", true); return; }
+  $("houseStatus").textContent = "Saving…";
+  houseSnapshot().then(({kit, logoTooBig})=>{
+    fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+      headers:{ "Content-Type":"text/plain;charset=utf-8" },
+      body: JSON.stringify({ _action:"kitput", project:KIT_HOUSE, kit:JSON.stringify(kit),
+                             rev:houseState.rev || 0,
+                             by: settings.cruiser || "", device: deviceTag() }) })
+      .then(()=>{
+        houseState.rev = (Number(houseState.rev)||0) + 1;
+        houseState.by  = settings.cruiser || "";
+        houseState.at  = nowStr();
+        persistHouse(); renderHouse();
+        $("houseStatus").textContent = logoTooBig
+          ? "Saved — but the logo was too large to travel. Everything else is in the standard."
+          : "Saved. New projects will start from this.";
+        toast("House standard saved");
+      })
+      .catch(()=>{ $("houseStatus").textContent = "Could not reach the Sheet."; toast("Could not save the standard", true); });
+  });
+}
+
+/* A read of the reserved row. JSONP, like every other read here, because the Apps
+   Script web app cannot be reached with a cross-origin fetch that returns anything. */
+let houseBusy = false;
+function houseFetch(then){
+  if(houseBusy || isOffline() || !connected){ then(null); return; }
+  houseBusy = true;
+  const cb = "__hk" + Date.now(), sep = SCRIPT_URL.indexOf("?") >= 0 ? "&" : "?";
+  const sc = document.createElement("script");
+  let done = false;
+  const finish = resp=>{
+    if(done) return; done = true; houseBusy = false;
+    try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
+    if(sc.parentNode) sc.parentNode.removeChild(sc);
+    then(resp || null);
+  };
+  window[cb] = resp => finish(resp);
+  sc.onerror = ()=> finish(null);
+  setTimeout(()=> finish(null), 20000);
+  sc.src = SCRIPT_URL + sep + "action=kitget&callback=" + cb + "&project=" + encodeURIComponent(KIT_HOUSE);
+  document.body.appendChild(sc);
+}
+
+/* Applied to the project in view. The logo is a file and goes to this device's own
+   store, which is where every other part of the app looks for it. */
+function houseApply(kit, project){
+  if(!kit) return [];
+  const done = kitApply(project, kit);
+  if(typeof kit.logo === "string" && kit.logo.indexOf("data:") === 0 && HAS_IDB){
+    idbPut({ filename:"tpp:logo", data:kit.logo })
+      .then(()=>{ tppLogo = kit.logo; showTppLogo(); })
+      .catch(()=>{});
+    done.push("logo");
+  }
+  return done;
+}
+
+function houseApplyNow(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ toast("Set Showing to one project first", true); return; }
+  if(!confirm("Replace this project's wording, branding and styling with the house standard?")) return;
+  $("houseStatus").textContent = "Fetching…";
+  houseFetch(resp=>{
+    if(!resp || !resp.ok || !resp.rev || !resp.kit){
+      $("houseStatus").textContent = "There is no house standard saved yet.";
+      toast("No house standard saved yet", true); return;
+    }
+    let kit = null; try{ kit = JSON.parse(resp.kit); }catch(e){ kit = null; }
+    if(!kit){ $("houseStatus").textContent = "The saved standard could not be read."; return; }
+    const took = houseApply(kit, project);
+    houseState.rev = Number(resp.rev) || houseState.rev;
+    houseState.by = resp.by || houseState.by; houseState.at = resp.at || houseState.at;
+    persistHouse(); renderHouse();
+    $("houseStatus").textContent = "Applied " + took.length + " part" + (took.length===1?"":"s") + " to " + project + ".";
+    toast("House standard applied");
+    /* The project's own row on the Sheet has to learn about it, or the next sync
+       treats this device as the odd one out and opens the conflict screen. */
+    kitPush(project, kitSnapshot(project), kitRevOf(project), {});
+  });
+}
+
+function houseRefresh(){
+  $("houseStatus").textContent = "Checking…";
+  houseFetch(resp=>{
+    if(!resp || !resp.ok){ $("houseStatus").textContent = "Could not reach the Sheet."; return; }
+    if(!resp.rev){ $("houseStatus").textContent = "Nothing saved on the Sheet yet."; renderHouse(); return; }
+    houseState.rev = Number(resp.rev) || 0;
+    houseState.by  = resp.by || ""; houseState.at = resp.at || "";
+    persistHouse(); renderHouse();
+    $("houseStatus").textContent = "Up to date.";
+  });
+}
+
+function openHouse(){ closeMenu(); renderHouse(); $("houseSheet").classList.add("show"); houseRefresh(); }
+function closeHouse(){ $("houseSheet").classList.remove("show"); backToMenu(); }
+function renderHouse(){
+  const w = $("houseWho"); if(!w) return;
+  w.textContent = houseState.rev
+    ? ("Saved" + (houseState.by ? " by " + houseState.by : "") +
+       (houseState.at ? " · " + String(houseState.at).slice(0,16) : "") +
+       " · revision " + houseState.rev)
+    : "Nothing saved yet";
+  const p = $("houseParts");
+  if(p) p.innerHTML = "<b>What it carries:</b> " +
+    KIT_PARTS.filter(([k])=> k !== "value").map(([,l])=> esc(l)).join(" · ") + " · Logo";
+  const a = $("houseAuto"); if(a) a.checked = !!houseState.auto;
+}
+
 /* ---------- the exchange ---------- */
 let kitBusy = false, kitClash = null;
+let houseSeeded = {};          // projects this session has already tried to seed
 function kitSync(opts){
   opts = opts || {};
   const project = String(currentProject() || "").trim();
-  if(!project || !connected || isOffline() || kitBusy) return;
+  if(!project || project === KIT_HOUSE || !connected || isOffline() || kitBusy) return;
   /* Only with ONE project in view. "All projects" has no single setup to be the
      setup of, and writing one project's title block under another's name is the
      kind of quiet wrong answer that reaches a client. */
@@ -14043,8 +14583,27 @@ function kitDecide(project, resp, opts){
   let theirs = null;
   if(resp.kit){ try{ theirs = JSON.parse(resp.kit); }catch(e){ theirs = null; } }
 
-  // Nothing there yet: this device seeds it.
-  if(!theirRev){ kitPush(project, mine, 0, opts); return; }
+  /* NOTHING THERE YET — a brand-new project. This device seeds it, but seeding it
+     with whatever this device happens to be carrying is how a job ends up wearing
+     the shipped defaults because it was started on the wrong phone. The house
+     standard goes on FIRST, and what gets seeded is the result. Once only: the flag
+     stops a failed push turning into a loop of fetches. */
+  if(!theirRev){
+    if(houseState.auto && houseState.rev && !houseSeeded[project]){
+      houseSeeded[project] = 1;
+      houseFetch(resp=>{
+        let kit = null;
+        if(resp && resp.ok && resp.rev && resp.kit){ try{ kit = JSON.parse(resp.kit); }catch(e){ kit = null; } }
+        if(kit){
+          const took = houseApply(kit, project);
+          if(took.length) toast("Started " + project + " from the house standard");
+        }
+        kitPush(project, kitSnapshot(project), 0, opts);
+      });
+      return;
+    }
+    kitPush(project, mine, 0, opts); return;
+  }
   // First contact with an existing setup, and nothing of ours to lose.
   if(!kitBase[project]){
     const d = kitDiff(mine, theirs);
