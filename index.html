@@ -825,6 +825,7 @@
         <button class="menuitem prime" onclick="syncNow()">⇅ Sync — send and check everything</button>
         <div class="mini" id="syncLine" style="padding:4px 4px 8px">—</div>
         <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
+        <button class="menuitem" onclick="openCompare()">Compare this device with the Sheet</button>
         <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
         <div class="mini" style="padding:10px 4px 6px">If something looks wrong</div>
         <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
@@ -1770,6 +1771,21 @@
   </div>
 </div>
 
+<!-- ===== is what is on the Sheet what is on this device? ===== -->
+<div class="sheet" id="cmpSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Compare with the Sheet</h2>
+    <div class="idline" id="cmpScope">—</div>
+    <div class="mini">Reads the Sheet and lines it up against this device, tree by tree and field by field. It <b>changes nothing</b> — it tells you what differs and which button puts it right, so you can see for yourself rather than take Sync's word for it.</div>
+    <div id="cmpOut" style="margin-top:12px">—</div>
+    <div class="btnrow" style="margin-top:14px">
+      <button class="primary" onclick="runCompare()">Run it again</button>
+      <button onclick="closeCompare()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="sheet" id="toolsSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
@@ -2108,7 +2124,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v169";
+const APP_BUILD  = "2026-09-27 · v171";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -4344,10 +4360,15 @@ const LOCATION_OLD = {
   "PRIVATE (ADJACENT PROPERTY)":        "Private",
   "SUBJECT PROPERTY (SHARED)":          "Shared ownership"
 };
+/* CANONICAL CASING, not the casing it was typed in. Chris set PUBLIC and PRIVATE by
+   hand in the Sheet; "PUBLIC" is the right answer spelled the wrong way, and until
+   this returned "Public" the form's pick list had nothing to land on and the key and
+   the tables treated it as a value of its own. */
 function locationNew(v){
   const k = String(v == null ? "" : v).trim();
   if(!k) return "";
-  if(LOCATION_D.some(p => p[0].toLowerCase() === k.toLowerCase())) return k;
+  const hit = LOCATION_D.find(p => p[0].toLowerCase() === k.toLowerCase());
+  if(hit) return hit[0];
   return LOCATION_OLD[k.toUpperCase()] || "";
 }
 const PROP_ACT_D = [
@@ -6539,7 +6560,8 @@ const DOMAIN_FIELDS = {
 };
 function domainLabel(field, code){
   const d = DOMAIN_FIELDS[field]; if(!d) return code;
-  const hit = d.find(p=>p[0]===code);
+  const hit = d.find(p=>p[0]===code) ||
+              d.find(p=>String(p[0]).toLowerCase() === String(code==null?"":code).toLowerCase());
   return hit ? hit[1] : code;
 }
 /* ---- the tree protection treatments ---------------------------------------- *
@@ -8141,6 +8163,189 @@ async function syncEverything(opts){
 
 /* The button, for when somebody wants to watch it happen. */
 function syncNow(){ closeMenu(); syncEverything({ loud:true }); }
+
+/* ================================================================== *
+ *  COMPARE WITH THE SHEET
+ * ================================================================== *
+
+   Chris: "How do I ensure that everything in the sheet is what I see on the app?"
+
+   Until this, he could not. SYNC only ever asked ONE question — is every tree on
+   this device present on the Sheet, by TREE_ID — and pushed the ones that were not.
+   It never compared a single VALUE, and it never looked the other way at all. So:
+
+     · A row edited by hand in the Sheet is invisible here until it is pulled, and
+       the pull is silent about what it changed.
+     · A tree on the Sheet that this device has never held does not show up as
+       missing; it shows up as nothing.
+     · Two devices can hold the same TREE_ID with different condition ratings and
+       both report "Everything is on the Sheet", because both of them are.
+
+   This asks all three questions and prints the answers. It changes nothing on its
+   own: a comparison that quietly fixes what it finds is a comparison you cannot
+   check, and the whole point is to be able to check.
+
+   THE SCOPE IS THE SHOWING FILTER, because that is what the pull uses and a report
+   that compares a different set of trees from the one the buttons act on is worse
+   than no report. It is named at the top so there is no doubt.
+
+   WHAT IS NOT COMPARED. PHOTO_LINK is resolved by the Sheet from the Drive folder
+   and never posted up, so it differs by design on any tree whose photographs have
+   not been linked yet — reporting it would bury the real differences under it. */
+const CMP_SKIP = { PHOTO_LINK:1 };
+const CMP_FIELDS = KEYS.filter(k => !CMP_SKIP[k]);
+let cmpResult = null;
+
+function openCompare(){
+  closeMenu();
+  $("cmpSheet").classList.add("show");
+  runCompare();
+}
+function closeCompare(){ $("cmpSheet").classList.remove("show"); }
+
+/* The same request the pull makes, returning the rows instead of applying them. */
+function cmpFetchRows(){
+  return new Promise(res=>{
+    if(!connected || isOffline()) return res(null);
+    const cb = "__cmp" + Date.now(), sep = SCRIPT_URL.indexOf("?") >= 0 ? "&" : "?";
+    const sc = document.createElement("script");
+    let done = false;
+    const finish = v => { if(done) return; done = true;
+      try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
+      if(sc.parentNode) sc.parentNode.removeChild(sc);
+      res(v); };
+    window[cb] = r => finish((r && r.trees) || null);
+    sc.onerror = ()=>finish(null);
+    setTimeout(()=>finish(null), 45000);
+    sc.src = SCRIPT_URL + sep + "action=trees&callback=" + cb +
+             (currentProject() && !showAllProjects ? "&project=" + encodeURIComponent(currentProject()) : "");
+    document.body.appendChild(sc);
+  });
+}
+
+/* Two values are the same when they read the same. A number typed as "12" on the
+   phone and returned as 12 by the Sheet is not a difference, and neither is a
+   trailing space — reporting either would make the report useless within a week.
+
+   AND A PICK-LIST VALUE IS THE SAME VALUE WHATEVER CASE IT IS IN. "PRIVATE" typed
+   into the Sheet by hand is Private; the app itself reads it that way now, so a
+   report that called it a difference would be reporting on the app's own tolerance
+   rather than on the data. Free text is NOT treated this way: a comment that differs
+   only in case is a real edit, and worth seeing. */
+function cmpLooseCase(k){
+  return !!DOMAIN_FIELDS[k] || k === "HEALTH" || k === "PROJECT";
+}
+function cmpSame(a, b, k){
+  let A = String(a == null ? "" : a).trim();
+  let B = String(b == null ? "" : b).trim();
+  if(A === B) return true;
+  if(k && cmpLooseCase(k) && A.toLowerCase() === B.toLowerCase()) return true;
+  /* Numerically, but only when BOTH sides are wholly a number. "12" against 12 is
+     the Sheet handing back what it was given; "12 Main St" against 12 is not. */
+  const NUM = /^[+-]?(\d+\.?\d*|\.\d+)$/;
+  if(NUM.test(A) && NUM.test(B)) return parseFloat(A) === parseFloat(B);
+  return false;
+}
+
+/* THE COMPARISON ITSELF, with no fetching and no painting in it — given what this
+   device holds and what the Sheet returned, which trees are only here, which are
+   only there, and which they both hold but disagree about. */
+function cmpDiff(mine, rows){
+  const byId = {}, sheetById = {};
+  (mine||[]).forEach(t => { const id = String(t.TREE_ID||"").trim(); if(id) byId[id] = t; });
+  (rows||[]).forEach(r => { const id = String(r.TREE_ID||"").trim(); if(id) sheetById[id] = r; });
+  const onlyHere = [], onlySheet = [], differ = [];
+  Object.keys(byId).forEach(id=>{
+    const t = byId[id], r = sheetById[id];
+    if(!r){ onlyHere.push(t); return; }
+    const bad = CMP_FIELDS.filter(k => !cmpSame(t[k], r[k], k));
+    if(bad.length) differ.push({ id:id, fields:bad, mine:t, sheet:r });
+  });
+  Object.keys(sheetById).forEach(id=>{ if(!byId[id]) onlySheet.push(sheetById[id]); });
+  return { onlyHere, onlySheet, differ };
+}
+
+async function runCompare(){
+  const out = $("cmpOut");
+  const scope = (showAllProjects || !currentProject()) ? "every project" : currentProject();
+  $("cmpScope").textContent = "Comparing: " + scope;
+  if(!connected){ out.innerHTML = diagLine("bad", "No Sheet address is set", "Nothing can be compared."); return; }
+  if(isOffline()){ out.innerHTML = diagLine("bad", "This device is offline", "Reconnect and run it again."); return; }
+  out.innerHTML = `<div class="mini">Asking the Sheet for its rows…</div>`;
+
+  const rows = await cmpFetchRows();
+  if(!rows){
+    out.innerHTML = diagLine("bad", "The Sheet did not answer",
+      "Nothing has been changed. Try again, and if it keeps happening run " +
+      "<b>Sheet &amp; photo check</b> — it will say whether the deployment is reachable at all.");
+    return;
+  }
+
+  const mine = trees.filter(inCurrentProject);
+  const d = cmpDiff(mine, rows);
+  const onlyHere = d.onlyHere, onlySheet = d.onlySheet, differ = d.differ;
+
+  cmpResult = { onlyHere, onlySheet, differ, scope, rows:rows.length, mine:mine.length };
+
+  const h = [];
+  h.push(diagLine("ok", `${mine.length} tree(s) on this device · ${rows.length} on the Sheet`,
+                  esc(scope === "every project" ? "Showing is set to all projects." : "Project: " + scope)));
+
+  /* EACH FINDING SAYS WHAT TO DO ABOUT IT. A report that tells you something is
+     wrong and leaves you to work out which button fixes it is half a report. */
+  h.push(onlyHere.length
+    ? diagLine("bad", `${onlyHere.length} tree(s) are on this device and NOT on the Sheet`,
+        cmpList(onlyHere.map(t=>t.TREE_ID)) +
+        `<br><b>Tap Sync</b> — this is exactly what it is for. If they are still here ` +
+        `after a sync, run <b>Sheet &amp; photo check</b>.`)
+    : diagLine("ok", "Every tree on this device is on the Sheet", ""));
+
+  h.push(onlySheet.length
+    ? diagLine("bad", `${onlySheet.length} tree(s) are on the Sheet and NOT on this device`,
+        cmpList(onlySheet.map(r=>r.TREE_ID)) +
+        `<br>Recorded on another device, or never downloaded here. ` +
+        `<b>Menu → Load trees from Sheet</b> brings them down.`)
+    : diagLine("ok", "Every tree on the Sheet is on this device", ""));
+
+  if(!differ.length){
+    h.push(diagLine("ok", "Every field matches on every tree they share", ""));
+  } else {
+    const tally = {};
+    differ.forEach(d => d.fields.forEach(k => tally[k] = (tally[k]||0)+1));
+    const named = Object.keys(tally).sort((a,b)=>tally[b]-tally[a])
+                        .map(k => `${prettyField(k)} (${tally[k]})`).join(", ");
+    h.push(diagLine("bad", `${differ.length} tree(s) hold different values here and on the Sheet`,
+      esc(named) +
+      `<br><br>Which is right depends on where the edit was made. A tree edited in the ` +
+      `<b>Sheet</b> should take the Sheet's value; one edited <b>here</b> and not yet sent ` +
+      `should keep this device's. The list below says which of the two this device believes ` +
+      `it has already sent — those are the ones a pull will overwrite.`));
+    h.push(`<div style="margin-top:10px">${differ.slice(0,40).map(cmpDiffRow).join("")}</div>`);
+    if(differ.length > 40) h.push(`<div class="mini">…and ${differ.length-40} more.</div>`);
+  }
+  out.innerHTML = h.join("");
+}
+
+function cmpList(ids){
+  const shown = ids.slice(0, 12).map(esc).join(", ");
+  return `<code>${shown}</code>` + (ids.length > 12 ? ` …and ${ids.length-12} more` : "");
+}
+function cmpDiffRow(d){
+  const rows = d.fields.slice(0, 6).map(k=>
+    `<div style="display:flex;gap:6px;padding:2px 0">
+       <span style="flex:0 0 40%"><b>${esc(prettyField(k))}</b></span>
+       <span style="flex:1">here <i>${esc(String(d.mine[k] == null ? "" : d.mine[k])) || "—"}</i>
+             · Sheet <i>${esc(String(d.sheet[k] == null ? "" : d.sheet[k])) || "—"}</i></span>
+     </div>`).join("");
+  const more = d.fields.length > 6 ? `<div class="mini">…and ${d.fields.length-6} more field(s)</div>` : "";
+  /* "Sent" is this device's own belief, and it is what decides whether a pull will
+     take the Sheet's value over this one — so it is the fact worth printing. */
+  const state = d.mine._sent
+    ? `<span class="mini">this device believes it has sent this tree — a pull WILL overwrite it</span>`
+    : `<span class="mini">this device has an unsent edit — a pull will NOT overwrite it, a sync will send it</span>`;
+  return `<div class="annrow"><b>${esc(d.id)}</b><br>${rows}${more}${state}</div>`;
+}
+
 
 /* AND WITHOUT ANYBODY PRESSING ANYTHING. On opening, when the connection returns,
    and on a quiet timer while something is waiting. Quiet means quiet: nothing is
@@ -10596,10 +10801,15 @@ function openDiag(name){
   runDiag();
 }
 function closeDiag(){ $("diagSheet").classList.remove("show"); backToMenu(); }
+/* COLOURS FOR THE SURFACE IT IS ACTUALLY ON. Every sheet in this app is WHITE — the
+   forms are white on purpose, for sun readability and to keep the screen's power and
+   heat down on a bright day — and these were the dark theme's colours: a mint tick
+   and a salmon cross, both of which wash out on paper-white in daylight, which is
+   the one condition this screen is read in. */
 function diagLine(state, label, detail){
   const mark = state === "ok" ? "✓" : state === "bad" ? "✕" : "…";
-  const col  = state === "ok" ? "#4cc079" : state === "bad" ? "#ff8f7d" : "#9fbcab";
-  return `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+  const col  = state === "ok" ? "#14713e" : state === "bad" ? "#b3261e" : "#5b6b61";
+  return `<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)">
             <span style="color:${col};font-weight:800;width:14px">${mark}</span>
             <span style="flex:1"><b>${esc(label)}</b>${detail ? `<br><span class="mini">${detail}</span>` : ""}</span>
           </div>`;
@@ -10849,10 +11059,20 @@ function openFeatForm(){
   $("featDelete").style.display = f._isNew ? "none" : "block";
   $("featSheet").classList.add("show");
 }
+/* SETTING A VALUE THE LIST DOES NOT HOLD SILENTLY PICKS THE WRONG OPTION. A select
+   given a value none of its options carries goes to index -1 and shows blank — or,
+   worse, the reader assumes it shows what is stored. A value typed into the Sheet in
+   another case is the same value, so it is matched without regard to case; anything
+   still unmatched is ADDED as an option rather than dropped, because a form must
+   never quietly show something other than what is recorded. */
 function fillSelect(el, pairs, val){
   if(!el) return;
   el.innerHTML = pairs.map(p=>`<option value="${esc(p[0])}">${esc(p[1])}</option>`).join("");
-  if(val) el.value = val;
+  if(!val) return;
+  const hit = pairs.find(p => String(p[0]).toLowerCase() === String(val).toLowerCase());
+  if(hit){ el.value = hit[0]; return; }
+  el.insertAdjacentHTML("beforeend", `<option value="${esc(val)}">${esc(val)} — as recorded</option>`);
+  el.value = val;
 }
 function pickFeatSpecies(){
   openSpecies(sp=>{
@@ -11329,17 +11549,51 @@ function exportFeatsGeoJSON(){
 /* ---------- the two summary tables the report needs ---------- */
 /* Table 1: species down the side, ownership across the top — exactly the shape of
    the table in the report, so it can be pasted in. */
+/* THE COLUMNS ARE WHATEVER THE TREES ARE DESIGNATED, not a fixed five.
+
+   Chris: "I changed them in the Sheet and used PRIVATE and PUBLIC ... please ensure
+   these are summarised in the table. I only need to show what is designated."
+
+   It used to carry the five retired values as five hardcoded columns, so a job
+   recorded as Public and Private produced a table of five empty columns and a Total
+   that was the only figure in it. The columns are now built from the designations
+   actually present: the three the pick list offers first, in its order, then anything
+   else a tree carries, alphabetically — an old value still sitting on a few trees
+   gets its own column rather than vanishing into the Total. Case is normalised, so
+   PUBLIC and Public are one column.
+
+   A column for trees with NO designation appears only when there are some. It has to:
+   without it the columns would not add up to the Total, and a table that does not
+   add up is worse than one with an extra column. */
+function locationColumns(list){
+  const seen = {};
+  list.forEach(t=>{
+    const raw = String(t.LOCATION == null ? "" : t.LOCATION).trim();
+    if(!raw) return;
+    const k = locationNew(raw) || raw;
+    if(!seen[k]) seen[k] = 1;
+  });
+  const known = LOCATION_D.map(p=>p[0]).filter(v => seen[v]);
+  const other = Object.keys(seen).filter(v => known.indexOf(v) < 0)
+                      .sort((a,b)=> a.toLowerCase() < b.toLowerCase() ? -1 : 1);
+  const cols = known.concat(other);
+  if(list.some(t => !String(t.LOCATION == null ? "" : t.LOCATION).trim())) cols.push("Not recorded");
+  return cols;
+}
+function locationColumnOf(t){
+  const raw = String(t.LOCATION == null ? "" : t.LOCATION).trim();
+  if(!raw) return "Not recorded";
+  return locationNew(raw) || raw;
+}
 function speciesByLocationRows(list){
-  const cols = ["SUBJECT PROPERTY (OUTSIDE WOODLOT)","SUBJECT PROPERTY (WOODLOT)",
-                "PRIVATE (ADJACENT PROPERTY)","PUBLIC (ROAD ALLOWANCE)","SUBJECT PROPERTY (SHARED)"];
-  const head = ["Species","Botanical name","Outside of woodlot","Woodlot trees",
-                "Adjacent private property","Public property (road allowance)","Shared","Total"];
+  const cols = locationColumns(list);
+  const head = ["Species","Botanical name"].concat(cols, ["Total"]);
   const by = {};
   list.forEach(t=>{
     const k = t.SPECIES || "(blank)";
     if(!by[k]) by[k] = { bot: t.BOTANICAL||"", counts: cols.map(()=>0), total:0 };
     if(!by[k].bot && t.BOTANICAL) by[k].bot = t.BOTANICAL;
-    const i = cols.indexOf(String(t.LOCATION||"").trim());
+    const i = cols.indexOf(locationColumnOf(t));
     if(i>=0) by[k].counts[i]++;
     by[k].total++;
   });
@@ -12384,15 +12638,28 @@ async function docBlocks(W, H){
         else docMissing.push(dsec.name);
 
       } else if(dsec.kind === "details" || dsec.kind === "appendix"){
-        /* ONE BLOCK PER DRAWING, so the contents can name each detail the way the
-           sample names them rather than lumping them as "standard details". The
-           order is the order the project set, not the order they were uploaded. */
+        /* ONE BLOCK FOR THE WHOLE SECTION, so the drawings pair TWO TO A SHEET.
+
+           They used to be pushed one block per drawing, and a block of one page
+           fills half a sheet and leaves the other half empty however "2up" it is
+           labelled — which is what Chris was looking at: nine drawings, nine sheets,
+           each half blank. The contents still names every drawing, because the block
+           carries their names and the entry for each sheet lists the two on it.
+
+           THE NAME IS THE ONE HE TYPED. `det.name` is the library's own label —
+           "Recovered drawing 1" for a page lifted out of a PDF — and the caption is
+           what he wrote for the contents. Caption first, library name only as a
+           fallback. The order is the order the project set. */
         const chosen = chosenDetails(dsec.kind === "appendix" ? "appendix" : "details");
+        const pages = [], names = [];
         for(const det of chosen){
           const pg = await detailPagesReady(slots[0].w, slots[0].h, M, [det]);
-          if(pg.length) out.push({ name: det.name || "Standard detail", lay:"2up",
-                                   pages: pg.map(p => p.data), detail:true });
+          if(!pg.length) continue;
+          pages.push(pg[0].data);
+          names.push(normText(det.cap) || det.name || "Standard detail");
         }
+        if(pages.length) out.push({ name: dsec.name, lay:"2up", pages: pages,
+                                    detail:true, names: names });
 
       } else if(dsec.kind === "photos"){
         const pg = await schedulePhotoPages(rect.w, rect.h);
@@ -12470,7 +12737,17 @@ async function buildDocument(){
     const n = docBlockSheets(b);
     if(!n) return;
     b.start = at;
-    entries.push({ label: tppPageRange(at, n, prefix), name: b.name });
+    /* A BLOCK THAT CARRIES NAMES gets a contents row per SHEET rather than one row
+       for the lot — the standard details are two to a sheet and the reviewer looks
+       them up by name, not by "standard details, TPP27 to TPP31". */
+    if(b.names && b.names.length){
+      for(let i = 0; i < n; i++){
+        const pair = b.names.slice(i*2, i*2 + 2).filter(Boolean);
+        entries.push({ label: prefix + (at + i), name: pair.join("  \u00b7  ") || b.name });
+      }
+    } else {
+      entries.push({ label: tppPageRange(at, n, prefix), name: b.name });
+    }
     at += n;
   });
 
@@ -12538,7 +12815,10 @@ async function buildDocument(){
        sheet, filling the sheet as best as possible." A block of pages is walked two
        at a time and composeTppSheet fits each into its own half; an odd last page
        takes the left half on its own rather than being stretched across both. */
-    const subject = (b.upload || b.detail) ? (b.name || "") : "";
+    /* The title block names an UPLOAD. A detail sheet carries two drawings, each
+       captioned beneath itself, so a single name in the title block would be wrong
+       for one of them. */
+    const subject = b.upload ? (b.name || "") : "";
     if(b.lay === "2up"){
       for(let i = 0; i < b.pages.length; i += 2){
         setStatus("Assembling: " + b.name);
@@ -13673,7 +13953,12 @@ async function detailPagesReady(W,H,M,only){
     if(!src) continue;
     const im = await imgFrom(src);
     if(!im) continue;
-    const cap = String(d.cap == null ? (d.caption || "") : d.cap).trim();
+    /* THE NAME UNDER THE DRAWING, on or off. Chris: "allow me to turn on / off the
+       drawing name." One switch on the assembly screen governs this caption and the
+       title-block line on an uploaded section, because they are the same question
+       asked of two kinds of page. */
+    const cap = (docMap.drawNames === false) ? ""
+              : String(d.cap == null ? (d.caption || "") : d.cap).trim();
     const capH = cap ? Math.round(PDF_DPI * DCAP_PT * 1.7) : 0;
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
     const g = cv.getContext("2d");
@@ -13683,8 +13968,8 @@ async function detailPagesReady(W,H,M,only){
     const iw = im.width*sc, ih = im.height*sc;
     g.drawImage(im, M + (boxW-iw)/2, M + (boxH-ih)/2, iw, ih);
     if(cap){
-      g.fillStyle = "#12201a";
-      g.font = `600 ${Math.round(PDF_DPI*DCAP_PT)}px sans-serif`;
+      g.fillStyle = TPP_INK;
+      g.font = `600 ${Math.round(PDF_DPI*DCAP_PT)}px ${TPP_FONT}`;
       g.textAlign = "center";
       g.fillText(cap, W/2, H - M - Math.round(PDF_DPI*DCAP_PT*0.4), boxW);
       g.textAlign = "left";
@@ -17766,10 +18051,14 @@ async function drawTppFrame(g, W, H, opt){
         g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.strokeRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
       } else if(r.kind === "circle"){
         g.save();
-        if(!r.solid) g.setLineDash([fs*0.30, fs*0.24]);
+        if(!r.solid) g.setLineDash([fs*0.34, fs*0.26]);
         g.strokeStyle = r.color;
-        g.beginPath(); g.arc(sx, cy, fs*0.72, 0, 7);
-        if(r.solid){ g.fillStyle = r.color+"2E"; g.fill(); }
+        g.lineWidth = Math.max(2.5, fs*0.24);
+        g.beginPath(); g.arc(sx, cy, fs*0.86, 0, 7);
+        /* A WASH UNDER EVERY RING THAT HAS ONE, dashed or not — on the plan the
+           protection zone is a filled circle too, and a ring on bare white reads
+           smaller than the same ring over a tint. */
+        if(r.fill || r.solid){ g.fillStyle = (r.fill || r.color) + "38"; g.fill(); }
         g.stroke();
         g.restore();
       } else if(r.kind === "glyph"){
@@ -17789,7 +18078,11 @@ async function drawTppFrame(g, W, H, opt){
       }
       g.fillStyle = TPP_INK;
       lines.forEach((ln,i)=> g.fillText(ln, tx, y + i*lh));
-      y += lines.length*lh + Math.round(fs*0.20);
+      /* THE ROW IS AS TALL AS ITS SYMBOL, not as tall as its words. The rings grew to
+         0.86 of the face — wider than the line height — so advancing by the text
+         alone stacked the protection zone and the crown on top of one another. */
+      const symH = (r.kind === "circle") ? fs*1.72 + 4 : 0;
+      y += Math.max(lines.length*lh, symH) + Math.round(fs*0.20);
     }
     // the base-data credits sit at the foot of the legend box
     const credits = (typeof tppText === "object" && tppText.credits) || "";
@@ -18388,7 +18681,12 @@ function sheetLegendRaw(shown){
                                       (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
     return true;
   }).map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot"}));
-  if(tpzOn) present.push({key:"tpz", label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
+  /* THE COLOUR THE PLAN ACTUALLY DRAWS. The sheet strokes the protection zone in
+     #B8860B over a pale yellow wash; the key was drawing a pale yellow RING on white,
+     which is why Chris read it as smaller and fainter than the crown beside it —
+     same radius, a quarter of the contrast. */
+  if(tpzOn) present.push({key:"tpz", label:"Tree protection zone", color:"#B8860B",
+                          kind:"circle", fill:"#FFD54F"});
   /* Only what the sheet drew. sheetMarks is set by the sheet itself, so a key never
      claims a symbol the paper does not carry. */
   if(sheetMarks.crowns) present.push({key:"crown", label:"Crown diameter", color:CROWN_COLOR, kind:"circle", solid:true});
