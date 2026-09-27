@@ -494,7 +494,17 @@
      `input,select,textarea{ width:100% }` — meant for the text fields — and a tick box
      obeys it too, so it claimed the whole row and squeezed the section name out of
      existence. That is why the assembly list showed nine anonymous rows of arrows. */
-  .docrow input[type=checkbox]{ flex:0 0 auto; width:17px; height:17px; padding:0; margin:0 }
+  /* a note on the live map, and the rows of the screen that manages them */
+.annlab{ white-space:pre; text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff; pointer-events:none }
+.annrow{ border:1px solid var(--line); border-radius:10px; padding:8px; margin:0 0 8px }
+.annrow .annmain textarea{ width:100%; resize:vertical; min-height:48px }
+.annctl{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:7px }
+.annctl select{ width:auto; flex:1 1 130px }
+.annctl input[type=color]{ width:44px; height:32px; padding:0; flex:0 0 auto }
+.annctl .chk{ flex:0 0 auto; margin:0 }
+.annctl .chk input[type=checkbox]{ width:17px; height:17px; flex:0 0 auto }
+.annctl button{ flex:0 0 auto }
+.docrow input[type=checkbox]{ flex:0 0 auto; width:17px; height:17px; padding:0; margin:0 }
   .docrow button{ flex:0 0 auto; padding:4px 8px; font-size:12px; line-height:1 }
   /* Where the next PDF will land, shown in the list itself so nobody has to guess. */
   .docmark{ display:flex; align-items:center; gap:8px; margin:2px 0 6px; font-size:11px;
@@ -863,6 +873,7 @@
         <button class="menuitem" onclick="startFence()">Draw the tree protection fence</button>
         <button class="menuitem" onclick="startPlanting()">Place proposed plantings</button>
         <button class="menuitem" onclick="document.getElementById('lineInput').click()">Fences &amp; protection lines from a layer</button>
+        <button class="menuitem" onclick="openAnn()">Notes &amp; arrows on the map</button>
         <div class="mini" style="padding:10px 4px 8px">Report tables</div>
         <button class="menuitem" onclick="exportScheduleA()">Schedule A — tree inventory table</button>
         <button class="menuitem" onclick="exportSpeciesByLocation()">Table 1 — species by location</button>
@@ -1469,6 +1480,8 @@
 
     <div id="docList"></div>
     <div class="mini" id="docStatus" style="margin:8px 0">—</div>
+    <label class="chk" style="margin:6px 0 10px"><input id="docNames" type="checkbox" checked onchange="docNamesSet(this.checked)"> <span>Print the drawing name in the title block</span></label>
+    <div class="mini" style="margin:-4px 0 10px">Names the uploaded PDF or standard detail on each of its sheets, underneath the document title. Two drawings go on every sheet either way.</div>
     <div class="fld"><label>A PDF you add goes</label>
       <select id="docPlace" onchange="docPlaceSet(this.value)">
         <option value="report">Straight after Contents — the arborist report</option>
@@ -1662,6 +1675,22 @@
       <button class="primary" onclick="confirmLineImport()">Add them</button>
       <button onclick="cancelLineImport()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== notes and arrows drawn on the map ===== -->
+<div class="sheet" id="annSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Notes &amp; arrows on the map</h2>
+    <div class="hint">Anything on the plan that is not a tree or a fence — “proposed driveway”, “shed to be removed”, an arrow at the corner in question. They belong to this project and print on the site plan sheets.</div>
+    <div class="btnrow" style="margin-bottom:10px">
+      <button class="primary" onclick="startAnnotText()">＋ Add a note</button>
+      <button onclick="startAnnotArrow()">＋ Add an arrow</button>
+    </div>
+    <div id="annList"></div>
+    <div class="mini" style="margin-top:10px">The size is the height of the letters <b>on the printed sheet</b>, so a note set to 0.14 in comes out 0.14 in whatever scale the plan is drawn at. The map shows an approximation of it.</div>
+    <div class="btnrow"><button onclick="closeAnn()">Close</button></div>
   </div>
 </div>
 
@@ -2020,6 +2049,12 @@
   <button class="alt" onclick="cancelDraw()">Cancel</button>
   <button onclick="finishDraw()">Done</button>
 </div>
+<div class="repobar" id="annBar">
+  <span class="msg" id="annMsg">—</span>
+  <button class="alt" onclick="annUndoPt()">Undo</button>
+  <button class="alt" onclick="cancelAnnot()">Cancel</button>
+  <button id="annDone" onclick="annCommit()" disabled>Done</button>
+</div>
 <div class="repobar measbar" id="measBar">
   <div class="readout">
     <div class="big" id="measBig">—</div>
@@ -2073,7 +2108,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v168";
+const APP_BUILD  = "2026-09-27 · v169";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2840,7 +2875,9 @@ async function initMap(){
     if(src.type==="export" && src.drawLayer==null) resolveExportLayer(src).then(()=>setBase(0)); }
   loadRefLayers();
   loadCachedPdf_();
+  annLoad();
   renderFeats();
+  renderAnnots();
   renderTPZ();
   renderCrown();
   { const b=$("btnMarks"); if(b) b.classList.toggle("on", marksOn); }
@@ -3211,6 +3248,7 @@ function scheduleRedraw(){
     if(tpzOn) renderTPZ();
     if(crownOn) renderCrown();
     renderFeats();
+    renderAnnots();
     if(refLayers.length) drawRefLayers();
   }, 140);
 }
@@ -3754,7 +3792,7 @@ function saveFeatStyle(){
   F.weight  = Math.max(1, Math.min(8, Number($("lsWeight").value) || 4));
   F.opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
   persistFeatStyle();
-  renderFeats(); renderLayerList(); buildLegend();
+  renderFeats(); renderAnnots(); renderLayerList(); buildLegend();
   closeLayerStyle();
   toast(`“${nm}” updated`);
 }
@@ -9940,6 +9978,7 @@ let drawMode = null, drawPts = [], drawLine = null, drawMarks = [];
 function startFence(){
   closeMenu();
   if(measureOn()) endMeasure();
+  if(typeof annMode !== "undefined" && annMode) cancelAnnot();
   drawMode = "fence"; drawPts = []; clearDrawing();
   $("drawBar").classList.add("show");
   $("drawMsg").textContent = "Tap along the fence line";
@@ -9949,6 +9988,7 @@ function startFence(){
 function startPlanting(){
   closeMenu();
   if(measureOn()) endMeasure();
+  if(typeof annMode !== "undefined" && annMode) cancelAnnot();
   drawMode = "planting"; drawPts = []; clearDrawing();
   $("drawBar").classList.add("show");
   $("drawMsg").textContent = "Tap each planting location";
@@ -10002,6 +10042,297 @@ function finishDraw(){
     return;
   }
   cancelDraw();
+}
+
+/* ================================================================== *
+ *  NOTES AND ARROWS ON THE MAP
+ * ================================================================== *
+
+   Chris: "Provide me an ability to add text and arrows to the map, with an ability
+   to set the text size and bold."
+
+   Every plan of this kind ends up wanting a word on it that is not a tree and not a
+   fence — "proposed driveway", "existing shed to be removed", an arrow pointing at
+   the corner the encroachment is on. Until now that had to be done in a drawing
+   package after the PDF came out, which meant the PDF could not be rebuilt without
+   redoing it.
+
+   An annotation is a project's own, kept on the device with the rest of the project's
+   settings, and drawn twice from one description: on the live map as a div, and on
+   the exported sheet as canvas text. THE SIZE IS HELD IN INCHES ON THE PAPER, not in
+   screen pixels, because the paper is what it is for — a note set to 0.18 in is
+   0.18 in on the sheet at any scale, and the screen shows an approximation of that.
+
+   An arrow is two taps: the tail first, then the head, so the head is where the last
+   tap was. Its head is drawn as a filled triangle sized from the line weight, with a
+   white casing under the shaft for the same reason the fence has one — an orange
+   line on a dark aerial is invisible without it. */
+const ANNKEY = "st_annots";
+const ANN_SIZES = [["s", 0.10, "Small"], ["m", 0.14, "Medium"],
+                   ["l", 0.19, "Large"], ["xl", 0.26, "Extra large"]];
+function annSizeIn(code){
+  const r = ANN_SIZES.find(s => s[0] === code);
+  return r ? r[1] : 0.14;
+}
+let annots = [], annLayer = null, annMode = null, annPts = [], annTmp = [];
+
+function annLoad(){
+  annots = [];
+  if(!STORE) return;
+  try{ const v = JSON.parse(STORE.getItem(ANNKEY) || "[]"); if(Array.isArray(v)) annots = v; }
+  catch(e){ annots = []; }
+}
+function annSave(){
+  if(!STORE) return;
+  try{ STORE.setItem(ANNKEY, JSON.stringify(annots)); }catch(e){}
+}
+/* The project's own, like everything else that is drawn: opening another job must
+   not bring the last one's notes with it. */
+function annMine(){
+  const p = currentProject();
+  return annots.filter(a => a && (a.project || "") === p);
+}
+function annById(id){ return annots.find(a => a && a.id === id) || null; }
+
+/* ---- drawing them on the live map ---------------------------------------- */
+function annEnsureLayer(){
+  if(!annLayer && typeof fmap !== "undefined" && fmap && typeof L !== "undefined"){
+    try{ annLayer = L.layerGroup().addTo(fmap); }catch(e){ annLayer = null; }
+  }
+  return (annLayer && typeof annLayer.clearLayers === "function") ? annLayer : null;
+}
+/* Inches on the paper to pixels on the screen. The sheet is PDF_W_IN wide and shown
+   on a map a few hundred pixels across, so a straight ratio would be unreadable; the
+   figure below is the one that makes a "medium" note look on screen about the size it
+   comes out on the sheet at a normal working zoom. */
+function annScreenPx(a){
+  return Math.max(9, Math.round(annSizeIn(a.size) * 108));
+}
+function renderAnnots(){
+  const lay = annEnsureLayer();
+  if(!lay) return;
+  try{ lay.clearLayers(); }catch(e){ return; }
+  annMine().forEach(a=>{
+    if(a.kind === "arrow"){
+      if(!a.pts || a.pts.length < 2) return;
+      const w = Math.max(2, Math.round(annSizeIn(a.size) * 26));
+      L.polyline(a.pts, { color:"#ffffff", weight:w + 3, opacity:.85, pane:"labelPane" }).addTo(lay);
+      L.polyline(a.pts, { color:a.color || "#D32F2F", weight:w, pane:"labelPane" }).addTo(lay);
+      /* The head is a rotated glyph rather than a polygon, because a polygon in
+         latitude and longitude changes shape as the map is zoomed and this does not. */
+      const n = a.pts.length, p0 = a.pts[n-2], p1 = a.pts[n-1];
+      const ang = Math.atan2(p1[0] - p0[0], (p1[1] - p0[1]) *
+                   Math.cos(p1[0] * Math.PI/180)) * 180/Math.PI;
+      const px = Math.round(annScreenPx(a) * 1.6);
+      /* AN SVG TRIANGLE, NOT A GLYPH. An arrowhead typed as a character is whatever
+         the device's fonts happen to have, which on a phone with no emoji fallback
+         is an empty box on the end of the line. This is the same shape the sheet
+         draws, and it is the same everywhere. */
+      const col = a.color || "#D32F2F";
+      L.marker(p1, { pane:"labelPane", interactive:false, icon: L.divIcon({
+        className:"", iconSize:[px,px], iconAnchor:[px/2, px/2],
+        html:`<svg width="${px}" height="${px}" viewBox="0 0 100 100" style="transform:rotate(${90-ang}deg);overflow:visible">
+                <polygon points="50,6 88,84 50,64 12,84" fill="${col}" stroke="#fff" stroke-width="7" stroke-linejoin="round"></polygon>
+              </svg>` }) }).addTo(lay);
+    } else {
+      if(!a.pts || !a.pts.length || !normBlock(a.text)) return;
+      const fs = annScreenPx(a);
+      const html = `<div class="annlab" style="font:${a.bold?"700":"400"} ${fs}px/${Math.round(fs*1.2)}px sans-serif;
+                    color:${a.color || "#D32F2F"}">${esc(a.text).replace(/\n/g,"<br>")}</div>`;
+      L.marker(a.pts[0], { pane:"labelPane", interactive:false,
+        icon: L.divIcon({ className:"", html:html, iconSize:null, iconAnchor:[0, Math.round(fs*0.6)] }) }).addTo(lay);
+    }
+  });
+}
+
+/* ---- drawing them on the exported sheet ---------------------------------- */
+/* Called from inside the map export's clip, after everything else, so a note is
+   never hidden by a symbol. P is the export's own projection. */
+function drawAnnotsOn(g, P, b){
+  const list = annMine();
+  if(!list.length) return;
+  const inB = (la, lo) => la <= b.getNorth() && la >= b.getSouth() &&
+                          lo >= b.getWest()  && lo <= b.getEast();
+  g.save();
+  g.lineJoin = "round"; g.lineCap = "round";
+  list.forEach(a=>{
+    const col = a.color || "#D32F2F";
+    if(a.kind === "arrow"){
+      if(!a.pts || a.pts.length < 2) return;
+      if(!a.pts.some(p => inB(+p[0], +p[1]))) return;
+      const w = Math.max(2, Math.round(PDF_DPI * annSizeIn(a.size) * 0.34));
+      const pts = a.pts.map(p => P(+p[0], +p[1]));
+      const shaft = ()=>{ g.beginPath();
+        pts.forEach((p,i)=> i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); };
+      shaft(); g.strokeStyle = "rgba(255,255,255,.88)"; g.lineWidth = w*2.1; g.stroke();
+      shaft(); g.strokeStyle = col; g.lineWidth = w; g.stroke();
+      const q0 = pts[pts.length-2], q1 = pts[pts.length-1];
+      const ang = Math.atan2(q1[1]-q0[1], q1[0]-q0[0]);
+      const hl = w*4.2, hw = w*2.2;
+      g.save();
+      g.translate(q1[0], q1[1]); g.rotate(ang);
+      g.beginPath(); g.moveTo(0,0); g.lineTo(-hl, hw); g.lineTo(-hl*0.72, 0); g.lineTo(-hl, -hw);
+      g.closePath();
+      g.strokeStyle = "rgba(255,255,255,.88)"; g.lineWidth = w*1.4; g.stroke();
+      g.fillStyle = col; g.fill();
+      g.restore();
+      return;
+    }
+    if(!a.pts || !a.pts.length) return;
+    /* normBlock, not normText: a note is typed with its line breaks where the
+       arborist wants them, and normText collapses every run of whitespace. */
+    const txt = normBlock(a.text);
+    if(!txt) return;
+    const [la, lo] = [+a.pts[0][0], +a.pts[0][1]];
+    if(!inB(la, lo)) return;
+    const p  = P(la, lo);
+    const fs = Math.round(PDF_DPI * annSizeIn(a.size));
+    const lh = Math.round(fs * 1.20);
+    g.font = `${a.bold ? "bold " : ""}${fs}px ${TPP_FONT}`;
+    g.textAlign = "left"; g.textBaseline = "alphabetic";
+    const lines = String(txt).split(/\n/);
+    lines.forEach((ln, i)=>{
+      const y = p[1] + i*lh;
+      g.strokeStyle = "rgba(255,255,255,.92)"; g.lineWidth = Math.max(2, fs*0.26);
+      g.strokeText(ln, p[0], y);
+      g.fillStyle = col; g.fillText(ln, p[0], y);
+    });
+  });
+  g.restore();
+}
+
+/* ---- placing one ---------------------------------------------------------- */
+function startAnnotText(){
+  closeMenu(); closeAnn();
+  if(typeof measureOn === "function" && measureOn()) endMeasure();
+  /* ONE OWNER OF THE MAP CLICK AT A TIME — the same rule the measuring tool follows. */
+  if(typeof selMode !== "undefined" && selMode) toggleSelect();
+  if(typeof placeMode !== "undefined" && placeMode) togglePlace();
+  if(drawMode) cancelDraw();
+  if(annMode) cancelAnnot();
+  annMode = "text"; annPts = []; annClearTmp();
+  $("annBar").classList.add("show");
+  $("annMsg").textContent = "Tap where the note goes";
+  fmap.on("click", annClick);
+  toast("Tap the map where the note goes");
+}
+function startAnnotArrow(){
+  closeMenu(); closeAnn();
+  if(typeof measureOn === "function" && measureOn()) endMeasure();
+  /* ONE OWNER OF THE MAP CLICK AT A TIME — the same rule the measuring tool follows. */
+  if(typeof selMode !== "undefined" && selMode) toggleSelect();
+  if(typeof placeMode !== "undefined" && placeMode) togglePlace();
+  if(drawMode) cancelDraw();
+  if(annMode) cancelAnnot();
+  annMode = "arrow"; annPts = []; annClearTmp();
+  $("annBar").classList.add("show");
+  $("annMsg").textContent = "Tap the tail of the arrow, then the head";
+  fmap.on("click", annClick);
+  toast("Tap the tail, then the head");
+}
+function annClick(e){
+  if(!annMode) return;
+  annPts.push([e.latlng.lat, e.latlng.lng]);
+  annRedrawTmp();
+  if(annMode === "text"){ annCommit(); return; }
+  $("annMsg").textContent = annPts.length < 2
+    ? "Now tap the head of the arrow"
+    : `${annPts.length} point(s) · Done to keep it`;
+  if(annPts.length >= 2) $("annDone").disabled = false;
+}
+function annRedrawTmp(){
+  annClearTmp();
+  if(annPts.length > 1) annTmp.push(L.polyline(annPts,
+    { color:"#D32F2F", weight:4, dashArray:"8 5", pane:"labelPane" }).addTo(fmap));
+  annPts.forEach(p => annTmp.push(L.circleMarker(p,
+    { radius:5, color:"#fff", weight:2, fillColor:"#D32F2F", fillOpacity:1, pane:"labelPane" }).addTo(fmap)));
+}
+function annClearTmp(){ annTmp.forEach(m => fmap.removeLayer(m)); annTmp = []; }
+function annUndoPt(){
+  annPts.pop(); annRedrawTmp();
+  $("annDone").disabled = annPts.length < 2;
+  $("annMsg").textContent = annPts.length ? `${annPts.length} point(s)` : "Tap the tail of the arrow, then the head";
+}
+function cancelAnnot(){
+  annMode = null; annPts = []; annClearTmp();
+  fmap.off("click", annClick);
+  $("annBar").classList.remove("show");
+  $("annDone").disabled = true;
+}
+function annCommit(){
+  if(annMode === "arrow" && annPts.length < 2){ toast("An arrow needs two taps", true); return; }
+  if(!annPts.length){ cancelAnnot(); return; }
+  const a = { id:"A" + Date.now().toString(36).toUpperCase(),
+              project: currentProject(), kind: annMode,
+              pts: annPts.slice(), text: annMode === "text" ? "" : "",
+              size: "m", bold: false, color: "#D32F2F" };
+  annots.push(a);
+  annSave();
+  const wasText = annMode === "text";
+  cancelAnnot();
+  renderAnnots();
+  openAnn();
+  if(wasText){
+    /* Straight into the box, because a note with no words is not a note — and the
+       screen opens on it rather than asking through a prompt, so the size and the
+       weight can be set in the same breath. */
+    setTimeout(()=>{ const el = $("ann_t_" + a.id); if(el){ el.focus(); } }, 120);
+  }
+}
+
+/* ---- the screen ----------------------------------------------------------- */
+function openAnn(){
+  renderAnnList();
+  $("annSheet").classList.add("show");
+}
+function closeAnn(){ const s = $("annSheet"); if(s) s.classList.remove("show"); }
+function renderAnnList(){
+  const box = $("annList");
+  if(!box) return;
+  const list = annMine();
+  if(!list.length){
+    box.innerHTML = `<div class="mini" style="padding:10px 2px">Nothing on this plan yet. A note is one tap; an arrow is two — tail first, then the head.</div>`;
+    return;
+  }
+  box.innerHTML = list.map(a=>{
+    const opts = ANN_SIZES.map(s =>
+      `<option value="${s[0]}"${a.size === s[0] ? " selected":""}>${s[2]} — ${s[1].toFixed(2)} in</option>`).join("");
+    const body = a.kind === "arrow"
+      ? `<div class="mini">Arrow · ${a.pts.length} point${a.pts.length===1?"":"s"}</div>`
+      : `<textarea id="ann_t_${a.id}" rows="2" placeholder="What does it say? Return starts a new line."
+           oninput="annSetText('${a.id}', this.value)">${esc(a.text||"")}</textarea>`;
+    return `<div class="annrow">
+      <div class="annmain">${body}</div>
+      <div class="annctl">
+        <select onchange="annSetSize('${a.id}', this.value)">${opts}</select>
+        ${a.kind === "arrow" ? "" :
+          `<label class="chk"><input type="checkbox"${a.bold ? " checked":""} onchange="annSetBold('${a.id}', this.checked)"> Bold</label>`}
+        <input type="color" value="${a.color || "#D32F2F"}" onchange="annSetColor('${a.id}', this.value)">
+        <button class="alt" onclick="annGoTo('${a.id}')">Show</button>
+        <button class="alt" onclick="annDelete('${a.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+function annTouch(id, fn){
+  const a = annById(id); if(!a) return;
+  fn(a); annSave(); renderAnnots();
+}
+function annSetText(id, v){ annTouch(id, a => a.text = v); }
+function annSetSize(id, v){ annTouch(id, a => a.size = v); }
+function annSetBold(id, v){ annTouch(id, a => a.bold = !!v); }
+function annSetColor(id, v){ annTouch(id, a => a.color = v); }
+function annGoTo(id){
+  const a = annById(id); if(!a || !a.pts || !a.pts.length) return;
+  closeAnn();
+  if(a.pts.length > 1) fmap.fitBounds(L.latLngBounds(a.pts).pad(0.4));
+  else fmap.setView(a.pts[0], Math.max(fmap.getZoom(), 19));
+}
+function annDelete(id){
+  const a = annById(id); if(!a) return;
+  if(!confirm(a.kind === "arrow" ? "Delete this arrow?" : "Delete this note?")) return;
+  annots = annots.filter(x => x !== a);
+  annSave(); renderAnnots(); renderAnnList();
 }
 
 /* ================================================================== *
@@ -10119,6 +10450,7 @@ function startMeasure(kind){
   if(typeof selMode !== "undefined" && selMode) toggleSelect();
   if(typeof placeMode !== "undefined" && placeMode) togglePlace();
   if(drawMode) cancelDraw();
+  if(typeof annMode !== "undefined" && annMode) cancelAnnot();
   measMode = kind; measPts = [];
   clearMeasure();
   $("btnMeasure").classList.add("on");
@@ -11533,7 +11865,18 @@ function docInsertAt(l){
    first is how a set comes out at 1:1,000 when it was meant to be at 1:250. Kept in
    the project kit, so a job holds its own scale. */
 const DOCMAPKEY = "st_docmap";
-let docMap = { scale:"250", labels:"idsp" };
+/* THE TITLE AND THE PREFIX ARE SETTINGS, NOT SCRATCH.
+
+   Chris: "when I select assemble after restarting the app, the document title is
+   empty. We must ensure all settings related to the layers, map, symbology, text
+   etc are retained."
+
+   The title was read straight off the input at build time and never written down,
+   so it lived exactly as long as the tab did. Everything else on that screen —
+   scale, labelling, key map, value column, sheet size — was already kept; this was
+   the one that was not. It goes in the project kit too, so it follows the job to
+   another device rather than having to be retyped there. */
+let docMap = { scale:"250", labels:"idsp", title:"", prefix:"TPP", drawNames:true };
 try{ const v = JSON.parse(STORE && STORE.getItem(DOCMAPKEY)); if(v && typeof v === "object") docMap = Object.assign(docMap, v); }catch(e){}
 function persistDocMap(){ if(STORE){ try{ STORE.setItem(DOCMAPKEY, JSON.stringify(docMap)); }catch(e){} } }
 function docScaleChanged(){
@@ -11548,6 +11891,15 @@ function docLabelsChanged(){
   if($("mapLabels")) $("mapLabels").value = docMap.labels;
   persistDocMap();
 }
+function docTitleChanged(){
+  docMap.title = normText($("docTitle").value);
+  persistDocMap();
+}
+function docPrefixChanged(){
+  docMap.prefix = normText($("docPrefix").value) || "TPP";
+  persistDocMap();
+}
+function docNamesSet(on){ docMap.drawNames = !!on; persistDocMap(); }
 function docKeyBaseChanged(){
   const v = $("docKeyBase").value;
   keyBase.which = v; persistKeyBase();
@@ -11570,6 +11922,12 @@ function openDoc(){
   $("docSheetSize").value = sheetSize;
   $("docValue").value = valueModeFor(currentProject());
   $("docPlace").value = docPlacement;
+  /* Filled from what was saved, not left blank for the value to be typed again. */
+  if(!normText($("docTitle").value)) $("docTitle").value = docMap.title || "";
+  $("docPrefix").value = docMap.prefix || "TPP";
+  $("docTitle").onchange  = docTitleChanged;
+  $("docPrefix").onchange = docPrefixChanged;
+  { const n = $("docNames"); if(n) n.checked = docMap.drawNames !== false; }
   $("docScale").value  = docMap.scale;
   $("docLabels").value = docMap.labels;
   $("docLabels").onchange = docLabelsChanged;
@@ -11869,9 +12227,9 @@ function tablePages(rows, title, W, H, M, foot){
     gg.save();
     gg.fillStyle = "#f3f5f2";
     gg.fillRect(x0, y0, w0, footLines.length*footLH + pad*2);
-    gg.strokeStyle = "#c8d2c9"; gg.lineWidth = 1;
+    gg.strokeStyle = "#8d998e"; gg.lineWidth = 2;
     gg.strokeRect(x0, y0, w0, footLines.length*footLH + pad*2);
-    gg.fillStyle = "#33443b"; gg.font = `${footFS}px ${TPP_FONT}`;
+    gg.fillStyle = TPP_INK2; gg.font = `${footFS}px ${TPP_FONT}`;
     gg.textAlign = "left"; gg.textBaseline = "alphabetic";
     footLines.forEach((ln,k)=> gg.fillText(ln, x0 + pad, y0 + pad + footFS + k*footLH));
     gg.restore();
@@ -11892,12 +12250,12 @@ function tablePages(rows, title, W, H, M, foot){
     const g  = cv.getContext("2d");
     g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
     g.textAlign="left"; g.textBaseline="alphabetic";
-    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
+    g.fillStyle=TPP_INK; g.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
     g.fillText(title, M, M+Math.round(PDF_DPI*0.20));
 
     // header band
     let y = topY;
-    g.fillStyle="#12201a"; g.fillRect(M, y, colW.reduce((a,b)=>a+b,0), hdrH);
+    g.fillStyle=TPP_INK; g.fillRect(M, y, colW.reduce((a,b)=>a+b,0), hdrH);
     g.fillStyle="#ffffff"; g.font=`bold ${fs}px ${TPP_FONT}`;
     let x = M;
     head.forEach((h,c)=>{
@@ -11918,13 +12276,13 @@ function tablePages(rows, title, W, H, M, foot){
     const limit = (y + restH + footNeed <= H - M) ? (H - M - footNeed) : (H - M);
     while(i < laid.length && y + laid[i].h <= limit){
       const row = laid[i];
-      g.fillStyle="#1d2b23";
+      g.fillStyle=TPP_INK;
       let cx = M;
       row.cells.forEach((lines,c)=>{
         lines.forEach((ln,k)=> g.fillText(ln, cx+pad, y + pad + fs + k*lh));
         cx += colW[c];
       });
-      g.strokeStyle="#c8d2c9"; g.lineWidth=1;
+      g.strokeStyle="#8d998e"; g.lineWidth=2;
       g.beginPath(); g.moveTo(M, y + row.h); g.lineTo(M + colW.reduce((a,b)=>a+b,0), y + row.h); g.stroke();
       y += row.h;
       i++;
@@ -11933,7 +12291,7 @@ function tablePages(rows, title, W, H, M, foot){
        rather than dropped, because a missing tree in Schedule A is a missing tree. */
     if(y === firstRow && i < laid.length){
       const row = laid[i];
-      g.fillStyle="#1d2b23";
+      g.fillStyle=TPP_INK;
       let cx = M;
       const room = Math.floor((H - M - y - pad*2)/lh);
       row.cells.forEach((lines,c)=>{
@@ -11945,10 +12303,10 @@ function tablePages(rows, title, W, H, M, foot){
 
     // column rules, drawn once the page's height is known
     const tableW = colW.reduce((a,b)=>a+b,0);
-    g.strokeStyle="#c8d2c9"; g.lineWidth=1;
+    g.strokeStyle="#8d998e"; g.lineWidth=2;
     let gx = M;
     colW.forEach(w=>{ gx += w; g.beginPath(); g.moveTo(gx, topY); g.lineTo(gx, y); g.stroke(); });
-    g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(M, topY, tableW, y-topY);
+    g.strokeStyle=TPP_INK; g.lineWidth=3; g.strokeRect(M, topY, tableW, y-topY);
 
     /* THE NOTE UNDER THE TABLE, on the last page only and only if it fits there.
        A money column that does not say how it was arrived at is a column the
@@ -11961,20 +12319,20 @@ function tablePages(rows, title, W, H, M, foot){
       if(y + need <= H - M){
         drawFoot(g, M, y + footGap, tableW);
       } else {
-        pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
+        pages.push({data:cv.toDataURL("image/jpeg",0.95), w:W, h:H});
         const cv2 = document.createElement("canvas"); cv2.width=W; cv2.height=H;
         const g2 = cv2.getContext("2d");
         g2.fillStyle="#ffffff"; g2.fillRect(0,0,W,H);
         g2.textAlign="left"; g2.textBaseline="alphabetic";
-        g2.fillStyle="#12201a"; g2.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
+        g2.fillStyle=TPP_INK; g2.font=`bold ${Math.round(PDF_DPI*0.13)}px ${TPP_FONT}`;
         g2.fillText(title + " (continued)", M, M+Math.round(PDF_DPI*0.20));
         drawFoot(g2, M, topY, tableW);
-        pages.push({data:cv2.toDataURL("image/jpeg",0.92), w:W, h:H});
+        pages.push({data:cv2.toDataURL("image/jpeg",0.95), w:W, h:H});
         break;
       }
     }
 
-    pages.push({data:cv.toDataURL("image/jpeg",0.92), w:W, h:H});
+    pages.push({data:cv.toDataURL("image/jpeg",0.95), w:W, h:H});
   }
   return pages;
 }
@@ -12033,7 +12391,7 @@ async function docBlocks(W, H){
         for(const det of chosen){
           const pg = await detailPagesReady(slots[0].w, slots[0].h, M, [det]);
           if(pg.length) out.push({ name: det.name || "Standard detail", lay:"2up",
-                                   pages: pg.map(p => p.data) });
+                                   pages: pg.map(p => p.data), detail:true });
         }
 
       } else if(dsec.kind === "photos"){
@@ -12089,12 +12447,12 @@ async function buildDocument(){
   const W = Math.round(DOC_W_IN*PDF_DPI), H = Math.round(DOC_H_IN*PDF_DPI);
   const rect   = tppContentRect(W, H);
   const slots  = tppSlots(W, H);
-  const prefix = normText($("docPrefix").value) || "TPP";
+  const prefix = normText($("docPrefix").value) || docMap.prefix || "TPP";
   /* Remembered against the project BEFORE the tables are built, because
      schedAColumns reads it — a document must not be assembled with one set of
      headings and another set of cells. */
   if($("docValue")) setValueMode(currentProject(), $("docValue").value);
-  const title  = normText($("docTitle").value) || lastMapTitle || settings.project || "Tree Preservation Plan";
+  const title  = normText($("docTitle").value) || docMap.title || lastMapTitle || settings.project || "Tree Preservation Plan";
   const date   = tppDateStamp();
 
   setStatus("Assembling the document…");
@@ -12136,10 +12494,11 @@ async function buildDocument(){
     }
   }catch(e){ keyBounds = null; keyCells = null; }
 
-  const frame = (label) => ({
+  const frame = (label, subject) => ({
     sheetLabel: prefix + label,
     date: date,
     title: title,
+    subject: (docMap.drawNames !== false) ? (subject || "") : "",
     keyBounds: keyBounds, keyCells: keyCells,
     legend: sheetLegendRows(reportTrees())
   });
@@ -12175,16 +12534,21 @@ async function buildDocument(){
       }
       continue;
     }
+    /* TWO DRAWINGS TO A SHEET, filling it. Chris: "Ensure two drawings are shown per
+       sheet, filling the sheet as best as possible." A block of pages is walked two
+       at a time and composeTppSheet fits each into its own half; an odd last page
+       takes the left half on its own rather than being stretched across both. */
+    const subject = (b.upload || b.detail) ? (b.name || "") : "";
     if(b.lay === "2up"){
       for(let i = 0; i < b.pages.length; i += 2){
         setStatus("Assembling: " + b.name);
         sheets.push(await composeTppSheet(W, H, [b.pages[i], b.pages[i+1]],
-                                          frame(b.start + i/2)));
+                                          frame(b.start + i/2, subject)));
       }
     } else {
       for(let i = 0; i < b.pages.length; i++){
         setStatus("Assembling: " + b.name);
-        sheets.push(await composeTppFull(W, H, b.pages[i], frame(b.start + i)));
+        sheets.push(await composeTppFull(W, H, b.pages[i], frame(b.start + i, subject)));
       }
     }
   }
@@ -14497,7 +14861,8 @@ const KIT_PARTS = [
   ["layers",    "Layer symbology"],
   ["value",     "Value column"],
   ["appraisal", "Appraisal settings"],
-  ["sheet",     "Sheet size & scale"]
+  ["sheet",     "Sheet size & scale"],
+  ["legend",    "Legend names & groups"]
 ];
 function kitSnapshot(project){
   const p = String(project || "").trim();
@@ -14511,7 +14876,10 @@ function kitSnapshot(project){
     appraisal: { hard:apprRCHard, con:apprRCCon, cal:apprCaliper,
                  sp:apprSpecies, loc:apprLocation, f:apprFactors },
     sheet:     { size: sheetSize, scale: ($("mapScale") && $("mapScale").value) || "1000",
-                 prefix: ($("docPrefix") && $("docPrefix").value) || "TPP" }
+                 prefix: docMap.prefix || "TPP", title: docMap.title || "",
+                 labels: docMap.labels, mapscale: docMap.scale,
+                 drawNames: docMap.drawNames !== false, keybase: keyBase.which },
+    legend:    legendCfg
   };
 }
 /* Applied part by part, because the conflict screen lets you take one and keep
@@ -14553,10 +14921,21 @@ function kitApply(project, kit, only){
       cal:apprCaliper, sp:apprSpecies, loc:apprLocation, f:apprFactors })); }catch(e){} }
     done.push("appraisal");
   }
+  if(take("legend") && kit.legend && typeof kit.legend === "object"){
+    legendCfg = Object.assign({ titles:{}, groups:[], counts:true, hidden:{} }, kit.legend);
+    if(!Array.isArray(legendCfg.groups)) legendCfg.groups = [];
+    persistLegendCfg(); done.push("legend");
+  }
   if(take("sheet") && kit.sheet){
     if(kit.sheet.size) setSheetSize(kit.sheet.size);
     if($("mapScale") && kit.sheet.scale) $("mapScale").value = kit.sheet.scale;
-    if($("docPrefix") && kit.sheet.prefix) $("docPrefix").value = kit.sheet.prefix;
+    if(kit.sheet.prefix){ docMap.prefix = kit.sheet.prefix; if($("docPrefix")) $("docPrefix").value = kit.sheet.prefix; }
+    if(typeof kit.sheet.title === "string"){ docMap.title = kit.sheet.title; if($("docTitle")) $("docTitle").value = kit.sheet.title; }
+    if(kit.sheet.labels)   docMap.labels = kit.sheet.labels;
+    if(kit.sheet.mapscale) docMap.scale  = kit.sheet.mapscale;
+    if(typeof kit.sheet.drawNames === "boolean") docMap.drawNames = kit.sheet.drawNames;
+    if(kit.sheet.keybase){ keyBase.which = kit.sheet.keybase; persistKeyBase(); }
+    persistDocMap();
     done.push("sheet");
   }
   return done;
@@ -16379,6 +16758,9 @@ async function runSingleExport(opt){
     if(unplaced) setTimeout(()=>toast(`${unplaced} label(s) had no room on this sheet \u2014 a larger scale will fit them`, true), 400);
     g.textBaseline="alphabetic";
   }
+  /* THE NOTES AND ARROWS GO ON LAST, inside the clip, over everything — a note that
+     a tree symbol can cover is a note nobody reads. */
+  try{ drawAnnotsOn(g, P, b); }catch(err){}
   g.restore();
 
   if(opt.grid) drawSheetGrid(g, opt.grid, P);
@@ -16415,7 +16797,7 @@ async function runSingleExport(opt){
     drawTitleBlock(g, W, H, panelH, shown, z, missing, title, M, opt.sheetNote);
   }
 
-  if(opt.returnPage) return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
+  if(opt.returnPage) return { data: cv.toDataURL("image/jpeg", 0.93), w:W, h:H };
 
   toast("Building the PDF…");
   const pages = [{ data: cv.toDataURL("image/jpeg", 0.92), w:W, h:H }];
@@ -17055,21 +17437,26 @@ function drawNorthArrow(g, x, y, R){
      white, occupying the upper two thirds of the disc. */
   g.fillStyle = "#ffffff";
   g.beginPath();
-  g.moveTo(0, -R*0.82);                 // the point
-  g.lineTo( R*0.40, -R*0.16);           // right shoulder
-  g.lineTo( R*0.12, -R*0.28);           // right of the stem
-  g.lineTo( R*0.12,  R*0.02);
-  g.lineTo(-R*0.12,  R*0.02);
-  g.lineTo(-R*0.12, -R*0.28);           // left of the stem
-  g.lineTo(-R*0.40, -R*0.16);           // left shoulder
+  /* A BROAD, FLAT-BOTTOMED HEAD over a short square stem, matched to the arrow he
+     sent: the head is more than half the disc wide and its underside is level, and
+     the stem is stubby rather than a tail. */
+  g.moveTo(0, -R*0.78);                 // the point
+  g.lineTo( R*0.54, -R*0.22);           // right shoulder
+  g.lineTo( R*0.19, -R*0.22);           // right underside of the head
+  g.lineTo( R*0.19,  R*0.00);           // right of the stem
+  g.lineTo(-R*0.19,  R*0.00);
+  g.lineTo(-R*0.19, -R*0.22);           // left of the stem
+  g.lineTo(-R*0.54, -R*0.22);           // left shoulder
   g.closePath();
   g.fill();
 
   /* The N sits across the foot of the disc, as large as it will go. */
   g.fillStyle = "#ffffff";
-  g.font = `bold ${Math.round(R*0.64)}px ${TPP_FONT}`;
+  /* The N is large and sits across the foot of the disc, its top tucked just under
+     the stem — on the reference the two very nearly touch. */
+  g.font = `bold ${Math.round(R*0.74)}px ${TPP_FONT}`;
   g.textAlign = "center"; g.textBaseline = "middle";
-  g.fillText("N", 0, R*0.43);
+  g.fillText("N", 0, R*0.40);
 
   g.restore();
   g.textAlign="left"; g.textBaseline="alphabetic";
@@ -17157,6 +17544,15 @@ const TPP_GUTTER_IN = 0.10;     // neat line to the column
    Segoe UI, and the platform's own sans as the last resort on a phone. Naming one
    font and hoping is how a sheet comes out in Times on somebody else's machine. */
 const TPP_FONT = '"Calibri","Carlito","Candara","Segoe UI",sans-serif';
+
+/* INK. Chris: "the text seeks faint, please darken."
+
+   Everything on the sheet was set in #12201a, a very dark green that reads as black
+   on a screen and as grey once a 200 dpi canvas has been JPEG'd and then printed.
+   On a drawing there is no reason for text to be anything but black; the green was
+   carried over from the app's own palette, where it belongs. */
+const TPP_INK  = "#000000";
+const TPP_INK2 = "#1a1a1a";     // the few places that are deliberately quieter
 const tppF  = (inches, weight) => `${weight ? weight + " " : ""}${Math.round(PDF_DPI*inches)}px ${TPP_FONT}`;
 
 /* A rectangle with small rounded corners — the outer frame, and the cells. */
@@ -17199,10 +17595,10 @@ function drawWrapped(g, text, x, y, maxW, lineH){
    the draft printed these at 0.070 in, about 5 pt, which on an 11x17 sheet held at
    arm's length is a grey smudge. */
 function tppCell(g, x, y, w, h, label){
-  g.strokeStyle="#12201a"; g.lineWidth=2.5;
+  g.strokeStyle=TPP_INK; g.lineWidth=2.5;
   g.strokeRect(x, y, w, h);
   if(label){
-    g.fillStyle="#12201a";
+    g.fillStyle=TPP_INK;
     g.font = tppF(0.088, "bold");
     g.textAlign="left"; g.textBaseline="alphabetic";
     g.fillText(String(label).toUpperCase(), x + Math.round(PDF_DPI*0.055), y + Math.round(PDF_DPI*0.135));
@@ -17258,7 +17654,7 @@ async function drawTppFrame(g, W, H, opt){
   /* THE OUTER FRAME. Chris: "Add a full strong frame around the entire layout, with
      small rounded corners." Drawn last-but-one at 5 px so it reads as the edge of the
      drawing rather than as another cell border. */
-  g.strokeStyle="#12201a"; g.lineWidth=5;
+  g.strokeStyle=TPP_INK; g.lineWidth=5;
   tppRoundRect(g, e, e, W - e*2, H - e*2, Math.round(PDF_DPI*0.055));
   g.stroke();
 
@@ -17304,7 +17700,7 @@ async function drawTppFrame(g, W, H, opt){
   tppCell(g, x, yLeg, col, hLeg, "");
   {
     const box = tppInner(x, yLeg, col, hLeg, false);
-    g.fillStyle="#12201a";
+    g.fillStyle=TPP_INK;
     g.font = tppF(0.125, "bold");
     g.textAlign="left"; g.textBaseline="alphabetic";
     g.fillText("Legend", box.x, yLeg + Math.round(PDF_DPI*0.19));
@@ -17323,9 +17719,22 @@ async function drawTppFrame(g, W, H, opt){
     const rows = opt.legend || [];
     const fs   = Math.round(PDF_DPI*0.098);
     const lh   = Math.round(fs*1.30);
-    const swX  = box.x + Math.round(PDF_DPI*0.07);
-    const txX  = box.x + Math.round(PDF_DPI*0.26);
-    const txW  = box.x + box.w - txX;
+    /* A LONGER RULE AND A BIGGER RING. Chris: "increase the symbol size in the
+       legend for tree protection zone, crown diameter and make the line symbols
+       longer so those that are dashed are more noticeable." A 0.10 in rule carries
+       one dash and a gap, which is indistinguishable from a solid line. */
+    const swX  = box.x + Math.round(PDF_DPI*0.11);
+    const txX  = box.x + Math.round(PDF_DPI*0.36);
+    const txWide = box.x + box.w - txX;
+    /* THE NORTH ARROW IS IN THE WAY OF THE FIRST FEW ROWS. It sits in the top right
+       of this same box, so a long label — "Tree protection fence — 120 m" with the
+       length switched on — runs under the disc and is unreadable. Rows level with it
+       are wrapped narrower instead; rows below it use the full width. */
+    const naFloor = yLeg + Math.round(PDF_DPI*0.27) + naR*2 + Math.round(PDF_DPI*0.04);
+    const naCut   = naR*2 + Math.round(PDF_DPI*0.06);
+    /* Compared against the TOP of the row, not its baseline: a row whose baseline is
+       just past the disc still has its letters level with it. */
+    const widthAt = yy => (yy - fs < naFloor) ? Math.max(Math.round(PDF_DPI*0.5), txWide - naCut) : txWide;
     let y = yLeg + Math.round(PDF_DPI*0.40);
     const floor = yLeg + hLeg - Math.round(PDF_DPI*0.08);
     g.font = `${fs}px ${TPP_FONT}`;
@@ -17335,31 +17744,31 @@ async function drawTppFrame(g, W, H, opt){
         const hy = y + Math.round(fs*0.30);
         if(hy + lh > floor) break;
         g.font = `bold ${fs}px ${TPP_FONT}`;
-        g.fillStyle = "#12201a";
+        g.fillStyle = TPP_INK;
         g.fillText(String(r.label), box.x, hy);
         g.font = `${fs}px ${TPP_FONT}`;
         y = hy + lh;
         continue;
       }
       const ind = r.indent ? Math.round(fs*0.55) : 0;
-      const lines = wrapLines(g, r.label, txW - ind);
+      const lines = wrapLines(g, r.label, widthAt(y) - ind);
       if(y + lines.length*lh > floor) break;        // better a short legend than one overflowing its box
       const cy = y - fs*0.32;
-      g.lineWidth = Math.max(1.5, fs*0.16);
+      g.lineWidth = Math.max(2, fs*0.20);
       const sx = swX + ind, tx = txX + ind;
       if(r.kind === "line"){
         g.strokeStyle = r.color;
-        g.save(); if(r.dashed) g.setLineDash([fs*0.34, fs*0.26]);
-        g.beginPath(); g.moveTo(sx - fs*0.52, cy); g.lineTo(sx + fs*0.52, cy); g.stroke();
+        g.save(); if(r.dashed) g.setLineDash([fs*0.42, fs*0.30]);
+        g.beginPath(); g.moveTo(sx - fs*1.05, cy); g.lineTo(sx + fs*1.05, cy); g.stroke();
         g.restore();
       } else if(r.kind === "square"){
         g.fillStyle = r.color; g.fillRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
         g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.strokeRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
       } else if(r.kind === "circle"){
         g.save();
-        if(!r.solid) g.setLineDash([fs*0.22, fs*0.18]);
+        if(!r.solid) g.setLineDash([fs*0.30, fs*0.24]);
         g.strokeStyle = r.color;
-        g.beginPath(); g.arc(sx, cy, fs*0.44, 0, 7);
+        g.beginPath(); g.arc(sx, cy, fs*0.72, 0, 7);
         if(r.solid){ g.fillStyle = r.color+"2E"; g.fill(); }
         g.stroke();
         g.restore();
@@ -17378,7 +17787,7 @@ async function drawTppFrame(g, W, H, opt){
         g.beginPath(); g.arc(sx, cy, fs*0.38, 0, 7); g.fill();
         g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.stroke();
       }
-      g.fillStyle = "#12201a";
+      g.fillStyle = TPP_INK;
       lines.forEach((ln,i)=> g.fillText(ln, tx, y + i*lh));
       y += lines.length*lh + Math.round(fs*0.20);
     }
@@ -17391,7 +17800,7 @@ async function drawTppFrame(g, W, H, opt){
       const need = lines.length * Math.round(cfs*1.30);
       let cy = yLeg + hLeg - need - Math.round(PDF_DPI*0.08);
       if(cy > y){
-        g.fillStyle = "#3b4a41";
+        g.fillStyle = TPP_INK2;
         lines.forEach((ln,i)=> g.fillText(ln, box.x, cy + i*Math.round(cfs*1.30)));
       }
     }
@@ -17401,8 +17810,8 @@ async function drawTppFrame(g, W, H, opt){
   tppCell(g, x, yBy, col, hBy, "Prepared by");
   {
     const box = tppInner(x, yBy, col, hBy, true);
-    const fs = Math.round(PDF_DPI*0.092), lh = Math.round(fs*1.32);
-    g.font = `${fs}px ${TPP_FONT}`; g.fillStyle="#12201a"; g.textAlign="center";
+    const fs = Math.round(PDF_DPI*0.115), lh = Math.round(fs*1.30);
+    g.font = `${fs}px ${TPP_FONT}`; g.fillStyle=TPP_INK; g.textAlign="center";
     const lines = wrapLines(g, (typeof tppText==="object" && tppText.preparedBy) || "", box.w);
     let y = box.y + fs;
     lines.forEach(ln=>{ if(ln) g.fillText(ln, box.cx, y); y += lh; });
@@ -17421,9 +17830,19 @@ async function drawTppFrame(g, W, H, opt){
   tppCell(g, x, yFor, col, hFor, "Prepared for");
   {
     const box = tppInner(x, yFor, col, hFor, true);
-    const fs = Math.round(PDF_DPI*0.090), lh = Math.round(fs*1.32);
-    const raw = wrapLines(g, (typeof tppText==="object" && tppText.preparedFor) || "", box.w);
-    g.fillStyle="#12201a"; g.textAlign="center";
+    /* FITTED, LIKE THE TITLE. Chris: "increase the font size of the text in the
+       prepared for, make this automatically fit better." One fixed size is either
+       too small for a three-line client or too big for a six-line one; it starts
+       large and steps down only as far as the box makes it. */
+    let fs = Math.round(PDF_DPI*0.125), lh = 0, raw = [];
+    for(;;){
+      lh = Math.round(fs*1.30);
+      g.font = `${fs}px ${TPP_FONT}`;
+      raw = wrapLines(g, (typeof tppText==="object" && tppText.preparedFor) || "", box.w);
+      if(raw.length*lh <= box.h || fs <= Math.round(PDF_DPI*0.078)) break;
+      fs -= 2;
+    }
+    g.fillStyle=TPP_INK; g.textAlign="center";
     /* Vertically centred in the space it has, so a two-line client and a five-line
        one both sit in the middle of the box instead of hanging from the top. */
     let y = box.y + Math.max(0, (box.h - raw.length*lh)/2) + fs*0.9;
@@ -17445,7 +17864,13 @@ async function drawTppFrame(g, W, H, opt){
     const all = String((typeof tppText==="object" && tppText.title) || opt.title || "");
     const parts = all.split(/\n\s*\n/);
     const head = parts[0] || "";
-    const sub  = parts.slice(1).join("\n");
+    let sub  = parts.slice(1).join("\n");
+    /* THE NAME OF THE DRAWING ON THIS SHEET. Chris: "ensure two drawings per page and
+       allow me to turn on / off the drawing name." A standard detail sheet carrying
+       two details is worth naming; a sheet of a continuous report is not, so the
+       caller passes a name only where there is one and the tick box decides whether
+       it is printed. */
+    if(opt.subject) sub = sub ? (sub + "\n" + opt.subject) : String(opt.subject);
 
     /* FILLING THE BOX. Rather than a fixed size that is too small for a short title
        and too big for a long one, the face is stepped down until the whole thing
@@ -17465,7 +17890,7 @@ async function drawTppFrame(g, W, H, opt){
     const need = hLines.length*Math.round(hFs*1.22) +
                  (sLines.length ? Math.round(hFs*0.30) + sLines.length*Math.round(sFs*1.22) : 0);
     let y = box.y + Math.max(0, (box.h - need)/2) + hFs*0.92;
-    g.fillStyle="#12201a"; g.textAlign="center";
+    g.fillStyle=TPP_INK; g.textAlign="center";
     g.font = `bold ${hFs}px ${TPP_FONT}`;
     hLines.forEach(ln=>{ if(ln) g.fillText(ln, box.cx, y); y += Math.round(hFs*1.22); });
     if(sLines.length){
@@ -17489,10 +17914,10 @@ async function drawTppFrame(g, W, H, opt){
 
     // the scale figure, centred over the bar
     const sBox = tppInner(x, yScale, lw, hScale, true);
-    g.fillStyle="#12201a"; g.textAlign="center"; g.textBaseline="alphabetic";
-    g.font = tppF(0.115, "bold");
+    g.fillStyle=TPP_INK; g.textAlign="center"; g.textBaseline="alphabetic";
+    g.font = tppF(0.145, "bold");
     const barH = opt.scaleBar ? Math.round(PDF_DPI*0.20) : 0;
-    g.fillText(opt.scaleText || "N.T.S.", sBox.cx, sBox.y + Math.round(PDF_DPI*0.115));
+    g.fillText(opt.scaleText || "N.T.S.", sBox.cx, sBox.y + Math.round(PDF_DPI*0.135));
     /* THE BAR IS FITTED TO THE BOX. Chris: "using 50m at a scale of 1:1000 causes the
        bar to spread into the sheet number box which is an error." It is now given the
        width it may occupy and picks the largest round distance that fits inside it. */
@@ -17505,14 +17930,14 @@ async function drawTppFrame(g, W, H, opt){
 
     // the sheet number, centred in its box both ways
     const nBox = tppInner(x + lw, yScale, rw, hBoth, true);
-    g.fillStyle="#12201a"; g.textAlign="center"; g.textBaseline="middle";
+    g.fillStyle=TPP_INK; g.textAlign="center"; g.textBaseline="middle";
     g.font = tppF(0.235, "bold");
     g.fillText(String(opt.sheetLabel||""), nBox.cx, nBox.y + nBox.h/2);
 
     // the date, centred in its box
     const dBox = tppInner(x, yDate, lw, hDate, true);
-    g.fillStyle="#12201a"; g.textAlign="center"; g.textBaseline="middle";
-    g.font = tppF(0.100);
+    g.fillStyle=TPP_INK; g.textAlign="center"; g.textBaseline="middle";
+    g.font = tppF(0.125, "bold");
     g.fillText(String(opt.date || tppDateStamp()), dBox.cx, dBox.y + dBox.h/2);
   }
 
@@ -17586,7 +18011,7 @@ async function composeTppSheet(W, H, pages, frameOpt){
     if(i === 0 && r) firstTop = r.y;
   }
   await drawTppFrame(g, W, H, frameOpt || {});
-  return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
+  return { data: cv.toDataURL("image/jpeg", 0.93), w:W, h:H };
 }
 /* One assembled sheet holding a single landscape page — a table or a photo sheet,
    already drawn at the content rect's size. */
@@ -17597,7 +18022,7 @@ async function composeTppFull(W, H, page, frameOpt){
   const im = await loadImageData(page);
   if(im) drawFitted(g, im, tppContentRect(W, H));
   await drawTppFrame(g, W, H, frameOpt || {});
-  return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
+  return { data: cv.toDataURL("image/jpeg", 0.93), w:W, h:H };
 }
 
 /* ---------- the contents page ----------
@@ -17619,12 +18044,12 @@ function tppContentsImage(entries, slotW, slotH, note){
   const pageW = Math.round(w*0.24);
 
   g.textAlign="left"; g.textBaseline="alphabetic";
-  g.strokeStyle="#12201a"; g.lineWidth=2;
+  g.strokeStyle=TPP_INK; g.lineWidth=3;
 
   let y = M;
   // banner
   g.strokeRect(x, y, w, hdrH);
-  g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.15)}px sans-serif`;
+  g.fillStyle=TPP_INK; g.font=`bold ${Math.round(PDF_DPI*0.15)}px ${TPP_FONT}`;
   g.textAlign="center";
   g.fillText("CONTENTS", x + w/2, y + hdrH*0.70);
   g.textAlign="left";
@@ -17633,7 +18058,7 @@ function tppContentsImage(entries, slotW, slotH, note){
   // column heads
   g.strokeRect(x, y, pageW, hdrH);
   g.strokeRect(x + pageW, y, w - pageW, hdrH);
-  g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+  g.fillStyle=TPP_INK; g.font=`bold ${fs}px ${TPP_FONT}`;
   g.fillText("PAGE", x + pad, y + hdrH*0.68);
   g.fillText("DESCRIPTION", x + pageW + pad, y + hdrH*0.68);
   y += hdrH;
@@ -17643,14 +18068,14 @@ function tppContentsImage(entries, slotW, slotH, note){
   const rowMin = Math.round(PDF_DPI*0.38);
   const lh = Math.round(fs*1.28);
   entries.forEach(e=>{
-    g.font = `${fs}px sans-serif`;
+    g.font = `${fs}px ${TPP_FONT}`;
     const lines = wrapLines(g, String(e.name||"").toUpperCase(), w - pageW - pad*2);
     const h = Math.max(rowMin, lines.length*lh + Math.round(PDF_DPI*0.16));
     if(y + h > slotH - M) return;                 // ran out of sheet; the caller warns
-    g.strokeStyle="#12201a"; g.lineWidth=2;
+    g.strokeStyle=TPP_INK; g.lineWidth=3;
     g.strokeRect(x, y, pageW, h);
     g.strokeRect(x + pageW, y, w - pageW, h);
-    g.fillStyle="#12201a"; g.font=`${fs}px sans-serif`;
+    g.fillStyle=TPP_INK; g.font=`${fs}px ${TPP_FONT}`;
     g.fillText(e.label || "", x + pad, y + h/2 + fs*0.36);
     const ty = y + (h - lines.length*lh)/2 + fs*0.9;
     lines.forEach((ln,i)=> g.fillText(ln, x + pageW + pad, ty + i*lh));
@@ -17658,20 +18083,20 @@ function tppContentsImage(entries, slotW, slotH, note){
   });
 
   if(note){
-    g.font = `bold ${fs}px sans-serif`;
+    g.font = `bold ${fs}px ${TPP_FONT}`;
     const lines = wrapLines(g, note, w - pageW - pad*2);
     const h = Math.max(rowMin, lines.length*lh + Math.round(PDF_DPI*0.16));
     if(y + h <= slotH - M){
-      g.strokeStyle="#12201a"; g.lineWidth=2;
+      g.strokeStyle=TPP_INK; g.lineWidth=3;
       g.strokeRect(x, y, pageW, h);
       g.strokeRect(x + pageW, y, w - pageW, h);
-      g.fillStyle="#12201a";
+      g.fillStyle=TPP_INK;
       g.fillText("Notes:", x + pad, y + h/2 + fs*0.36);
       const ty = y + (h - lines.length*lh)/2 + fs*0.9;
       lines.forEach((ln,i)=> g.fillText(ln, x + pageW + pad, ty + i*lh));
     }
   }
-  return cv.toDataURL("image/jpeg", 0.92);
+  return trimPageWhite(cv);
 }
 
 /* ---------- the landscaping sheet ----------
@@ -19158,7 +19583,8 @@ function clearAllData(){
      "Undo · 40 tree(s)" button that would restore nothing is worse than no button. */
   bulkUndo=[]; persistBulkUndo();
   idbClear().catch(()=>{});
-  renderPins(); renderFeats(); closeMenu();
+  annots=[]; annSave();
+  renderPins(); renderFeats(); renderAnnots(); closeMenu();
   toast("Device data cleared");
 }
 
