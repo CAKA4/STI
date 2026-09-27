@@ -302,12 +302,27 @@
   .dgh{ font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
         color:#2c4638; padding:4px 0 6px; border-bottom:1px solid #d5ded8 }
   .dgh span{ color:#7b8f83; font-weight:600 }
+  /* THUMBNAILS YOU CAN ACTUALLY READ A DRAWING FROM.
+
+     Chris: "I would like the details to be much larger thumbnails so I can see them,
+     or allow me to select to show full detail, this will help me provide a name to
+     them for the table of contents."
+
+     Naming a drawing is the job this screen exists for, and a 146 px card showing a
+     146 px-wide scan of an A1 detail is a grey rectangle. Three sizes, remembered. */
   .dgrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(146px,1fr)); gap:10px; padding-top:10px }
+  .dgrid.big{ grid-template-columns:repeat(auto-fill,minmax(250px,1fr)) }
+  .dgrid.huge{ grid-template-columns:repeat(auto-fill,minmax(420px,1fr)) }
   .dcard{ border:1px solid #cfdad3; border-radius:10px; overflow:hidden; background:#fff;
           display:flex; flex-direction:column }
   .dcard.on{ border-color:#2f9d59; box-shadow:0 0 0 1px #2f9d59 inset; background:#f2faf5 }
+  .dcard.nosend{ border-color:#f2792e }
+  .dflag{ background:#fdf1e7; color:#8a4b16; font-size:10.5px; font-weight:700;
+          padding:3px 8px; border-top:1px solid #f0d6bd }
   .dthumb{ position:relative; height:112px; background:#fff; border-bottom:1px solid #e4ebe6;
            display:flex; align-items:center; justify-content:center; cursor:zoom-in; overflow:hidden }
+  .dgrid.big .dthumb{ height:230px }
+  .dgrid.huge .dthumb{ height:420px }
   .dthumb img{ max-width:100%; max-height:100%; object-fit:contain; display:block }
   .dpg{ position:absolute; right:4px; bottom:4px; background:rgba(18,32,26,.82); color:#e6f2ea;
         font-size:10px; padding:1px 5px; border-radius:4px }
@@ -323,8 +338,9 @@
   .prow{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; padding:9px 0;
          border-bottom:1px solid #e0e7e3 }
   .prow .pn{ width:16px; text-align:right; color:#7b8f83; font-size:11px; font-weight:800; padding-top:8px }
-  .prow .pth{ width:34px; height:44px; object-fit:contain; background:#fff; border:1px solid #dde5e0;
-              border-radius:4px; flex:0 0 34px }
+  /* Naming happens here too, so this thumbnail has to be readable as well. */
+  .prow .pth{ width:96px; height:124px; object-fit:contain; background:#fff; border:1px solid #dde5e0;
+              border-radius:4px; flex:0 0 96px; cursor:zoom-in }
   .prow .pnm{ font-size:12.5px; font-weight:700; color:#17291f; line-height:1.25 }
   .prow .pnm .mini{ font-weight:500 }
   .prow .pcap{ width:100%; margin-top:4px; padding:5px 7px; font-size:11px; border-radius:6px;
@@ -1007,6 +1023,29 @@
 </div>
 
 <!-- ===== layers ===== -->
+<!-- ===== the legend, as the author wants it ===== -->
+<div class="sheet" id="legendSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Legend</h2>
+    <div class="hint">Rename anything, put related layers under a heading, and give a
+      group one colour so a dozen servicing lines read as one entry. What a sheet
+      actually prints is still only what that sheet carries.</div>
+    <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left">
+      <input type="checkbox" id="legCounts" onchange="legCountsSet(this.checked)" style="width:17px;height:17px;padding:0;flex:0 0 auto">
+      <span>Show the figure for each sheet — fence length, trees pruned, trees removed</span>
+    </label>
+    <div class="mini">Counted from what is on that sheet, so a sheet carrying 40 m of
+      fence does not say 340 m.</div>
+    <div class="stath" style="margin:14px 0 6px">Groups</div>
+    <div id="legGroups"></div>
+    <div class="btnrow"><button class="alt" onclick="legGroupAdd()">＋ New group</button></div>
+    <div class="stath" style="margin:14px 0 6px">Every legend item</div>
+    <div id="legItems"></div>
+    <div class="btnrow"><button onclick="closeLegendCfg()">Close</button></div>
+  </div>
+</div>
+
 <!-- ===== project files: the big ones, across devices ===== -->
 <div class="sheet" id="pfSheet">
   <div class="sheet-inner">
@@ -1073,6 +1112,7 @@
     <div id="layerList"></div>
     <div class="btnrow">
       <button onclick="document.getElementById('refInput').click()">＋ Add layer / GPX track</button>
+      <button onclick="openLegendCfg()">🎨 Legend — names &amp; groups</button>
       <button onclick="removeAllRefLayers()">✕ Remove all</button>
     </div>
     <div class="mini">Reference layers are for context — parcels, streets, boundaries, and a GPX track log of where the crew walked. They are drawn and labelled but never edited; ⬇ on any layer sends it back out as a shapefile or GeoJSON. To bring in trees you will edit, use Menu → Import tree points.</div>
@@ -1507,6 +1547,21 @@
       <select id="detailMuni" onchange="setDetailFilter(this.value)" style="flex:1"></select>
     </div>
     <div class="mini" id="detailBusy" style="display:none;margin:8px 0;color:#7fe9dc"></div>
+    <div class="row2" style="margin-top:6px">
+      <div class="fld"><label>Preview size</label>
+        <select id="detailSize" onchange="detailSizeSet(this.value)">
+          <option value="">Small — many at a time</option>
+          <option value="big">Large — read the title block</option>
+          <option value="huge">Full width — read the whole drawing</option>
+        </select>
+      </div>
+      <div class="fld"><label>&nbsp;</label>
+        <button class="alt" style="width:100%;padding:11px" onclick="detailSendMissing()">Send anything missing to the Sheet</button>
+      </div>
+    </div>
+    <div class="mini" style="margin:2px 0 6px">Tap any drawing to see the full page.
+      <a href="javascript:void(0)" onclick="detailRecover()" style="color:#7fe9dc;text-decoration:underline">Recover drawings stored on this device</a>
+      if the list has lost them.</div>
 
     <div id="detailGrid" style="margin-top:12px"></div>
 
@@ -2018,7 +2073,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v166";
+const APP_BUILD  = "2026-09-27 · v168";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -12672,6 +12727,39 @@ function loadDetailLib(){
 function saveDetailLib(){
   return idbPutDetail({ id:DLIB_KEY, items:detailLib, at:Date.now() }).catch(()=>{});
 }
+/* THE SHEET'S ANSWER IS MERGED, NEVER SUBSTITUTED.
+
+   Chris: "when I select standard detail drawings, the PDF images I had selected
+   earlier are 'no longer in the library'. It's odd, when I first opened it they
+   appeared, but then when I returned I see this."
+
+   This line did it:  detailLib = r.items;
+
+   The library is kept on the device AND on the Sheet, and the local copy is written
+   first so a drawing added on site with no signal is usable straight away. The
+   refresh then replaced the whole local index with whatever the Sheet said — so the
+   first look showed his nine drawings from the cache, the refresh came back with an
+   empty list, and the cache was overwritten with nothing. The DRAWINGS were never
+   lost; they are still in this device's own store. Only the index that named them
+   was thrown away, and with it every project's picks.
+
+   An empty answer where we hold entries is not evidence that the library was
+   emptied. It is evidence that the write never landed, or that this deployment
+   cannot read the tab. Local entries the Sheet does not know about are KEPT and
+   marked, so they can be sent again. */
+function mergeDetailLib(remote){
+  const byId = {};
+  (Array.isArray(remote) ? remote : []).forEach(d => { if(d && d.id) byId[d.id] = d; });
+  const out = (Array.isArray(remote) ? remote.slice() : []);
+  let onlyHere = 0;
+  detailLib.forEach(d => {
+    if(!d || !d.id || byId[d.id]) return;
+    const copy = Object.assign({}, d, { notSent: true });
+    out.push(copy);
+    onlyHere++;
+  });
+  return { items: out, onlyHere: onlyHere };
+}
 function refreshDetailLib(){
   return new Promise(res=>{
     if(!connected || isOffline()) return res({ ok:false, why:"offline" });
@@ -12679,12 +12767,79 @@ function refreshDetailLib(){
       if(!r) return res({ ok:false, why:"slow" });
       // An action this deployment has never heard of lands on doGet's own index.
       if(r.service || !Array.isArray(r.items)) return res({ ok:false, why:"stale" });
-      detailLib = r.items;
+      const m = mergeDetailLib(r.items);
+      detailLib = m.items;
       detailLibAt = Date.now();
       saveDetailLib();
-      res({ ok:true, n:detailLib.length });
+      res({ ok:true, n:detailLib.length, fromSheet:r.items.length, onlyHere:m.onlyHere });
     }, 45000);
   });
+}
+
+/* WHAT IS ACTUALLY ON THIS DEVICE.
+
+   The full page of every drawing ever added here is in the detail store under
+   "detail:<id>", put there before anything is sent. So when the index is lost the
+   pictures are not — they are sitting in the store with nothing pointing at them.
+   This walks the store and puts an entry back for every one it finds. */
+function idbAllDetails(){
+  return new Promise(res=>{ idbOpen().then(db=>{
+    const tx = db.transaction(DETAIL_STORE,"readonly");
+    const rq = tx.objectStore(DETAIL_STORE).getAll();
+    rq.onsuccess = ()=>{ db.close(); res(rq.result || []); };
+    rq.onerror   = ()=>{ db.close(); res([]); };
+  }).catch(()=>res([])); });
+}
+function thumbFromFull(dataUrl){
+  return new Promise(res=>{
+    const im = new Image();
+    im.onload = ()=>{
+      try{
+        const W = 300, sc = Math.min(1, W/im.width);
+        const cv = document.createElement("canvas");
+        cv.width = Math.max(1, Math.round(im.width*sc));
+        cv.height = Math.max(1, Math.round(im.height*sc));
+        cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
+        res({ thumb: cv.toDataURL("image/jpeg", 0.7), w: im.width, h: im.height });
+      }catch(e){ res(null); }
+    };
+    im.onerror = ()=> res(null);
+    im.src = dataUrl;
+  });
+}
+async function detailRecover(){
+  const rows = await idbAllDetails();
+  const have = {}; detailLib.forEach(d => { if(d && d.id) have[d.id] = 1; });
+  const lost = rows.filter(r => r && typeof r.id === "string" &&
+                                r.id.indexOf("detail:") === 0 && r.data &&
+                                !have[r.id.slice(7)]);
+  if(!lost.length){
+    toast(rows.length ? "Nothing to recover — every drawing on this device is already listed"
+                      : "No drawings are stored on this device", true);
+    return 0;
+  }
+  if(!confirm(lost.length + " drawing" + (lost.length===1?" is":"s are") +
+              " on this device but not in the list.\n\nPut " +
+              (lost.length===1?"it":"them") + " back?")) return 0;
+  $("detailBusy").style.display = "block";
+  let n = 0;
+  for(const r of lost){
+    const id = r.id.slice(7);
+    $("detailBusy").textContent = `Recovering ${n+1} of ${lost.length}…`;
+    const t = await thumbFromFull(r.data);
+    detailLib.push({ id:id, name:"Recovered drawing " + (n+1), muni:"— untagged —",
+                     caption:"", src:"", page:0, pages:0,
+                     w:(t && t.w) || 0, h:(t && t.h) || 0,
+                     kb: Math.round(String(r.data).length * 0.75 / 1024),
+                     thumb:(t && t.thumb) || "", added: nowStr().slice(0,10),
+                     by: settings.cruiser || "", notSent: true });
+    n++;
+  }
+  await saveDetailLib();
+  $("detailBusy").style.display = "none";
+  renderDetails();
+  toast(n + " drawing(s) recovered — name them, then Send to the Sheet");
+  return n;
 }
 /* The full page: this device first, then Drive, then kept — unlike a photograph,
    because a drawing chosen for a job is about to be drawn into a PDF and may be
@@ -12859,6 +13014,18 @@ function postJson(body){
   return fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify(body) });
 }
+/* SENT IN ORDER, WITH ROOM TO BREATHE.
+
+   postJson is a no-cors fetch: it resolves when the request has been HANDED OVER,
+   not when Apps Script has finished with it, and the reply cannot be read at all.
+   So awaiting it in a tight loop fired a dozen 64 KB parts at the script at once.
+   They are staged under a per-part property and reassembled when the last one
+   arrives — and when the last one arrives before the third, the reassembly finds a
+   hole, returns "part 2 never arrived", and nobody hears it, because no-cors.
+
+   That is how nine drawings could report as sent and leave nothing on the Sheet and
+   nothing in Drive. A pause between parts lets each land, and the caller checks
+   afterwards rather than believing the send. */
 async function uploadDetail(rec, fullDataUrl){
   const b64 = String(fullDataUrl).slice(String(fullDataUrl).indexOf(",") + 1);
   const parts = Math.max(1, Math.ceil(b64.length / DETAIL_CHUNK));
@@ -12869,6 +13036,55 @@ async function uploadDetail(rec, fullDataUrl){
       id:rec.id, name:rec.name, muni:rec.muni, caption:rec.caption, src:rec.src,
       page:rec.page, pages:rec.pages, w:rec.w, h:rec.h, thumb:rec.thumb,
       by: settings.cruiser || "" });
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
+/* SEND EVERYTHING THE SHEET HAS NOT GOT, AND SAY WHAT LANDED.
+
+   The only honest way to know a drawing reached the Sheet is to ask the Sheet
+   afterwards. That is what this does, and it is also the repair for a library that
+   was only ever on one device. */
+async function detailSendMissing(){
+  if(detailBusy){ toast("Still busy", true); return; }
+  if(!connected || isOffline()){ toast("Needs a connection", true); return; }
+  const first = await refreshDetailLib();
+  if(!first.ok){
+    toast(first.why === "stale"
+      ? "The Sheet does not know the detail library — deploy Code.gs"
+      : "Could not reach the Sheet", true);
+    return;
+  }
+  const mine = detailLib.filter(d => d && d.notSent);
+  if(!mine.length){ toast("Everything here is already on the Sheet"); return; }
+  detailBusy = true; $("detailBusy").style.display = "block";
+  let tried = 0;
+  try{
+    for(const d of mine){
+      tried++;
+      $("detailBusy").textContent = `Sending ${d.name} — ${tried} of ${mine.length}…`;
+      const full = await idbGetDetail("detail:" + d.id).then(r => r && r.data).catch(()=>null);
+      if(!full) continue;                       // the picture is not here to send
+      try{ await uploadDetail(d, full); }catch(e){}
+    }
+  } finally {
+    detailBusy = false; $("detailBusy").style.display = "none";
+  }
+  /* Asked, not assumed. */
+  $("detailBusy").style.display = "block";
+  $("detailBusy").textContent = "Checking what reached the Sheet…";
+  await new Promise(r => setTimeout(r, 1500));
+  const after = await refreshDetailLib();
+  $("detailBusy").style.display = "none";
+  renderDetails();
+  const left = detailLib.filter(d => d && d.notSent).length;
+  if(after.ok && !left) toast(tried + " drawing(s) are on the Sheet now");
+  else {
+    toast(left + " of " + tried + " did not reach the Sheet", true);
+    alert("Sent " + tried + ", and " + left + " still are not on the Sheet.\n\n" +
+          "They are safe on this device and marked \u201con this device only\u201d.\n\n" +
+          "The usual cause is that Code.gs is behind: Apps Script \u203a Deploy \u203a " +
+          "Manage deployments \u203a pencil \u203a New version.");
   }
 }
 let detailBusy = false;
@@ -12952,7 +13168,16 @@ function openDetails(){
 }
 function closeDetails(){ $("detailSheet").classList.remove("show"); backToMenu(); }
 function setDetailFilter(v){ detailFilter = v; renderDetails(); }
+const DSIZEKEY = "st_detailsize";
+let detailSize = "";
+try{ detailSize = (STORE && STORE.getItem(DSIZEKEY)) || ""; }catch(e){ detailSize = ""; }
+function detailSizeSet(v){
+  detailSize = (v === "big" || v === "huge") ? v : "";
+  if(STORE){ try{ STORE.setItem(DSIZEKEY, detailSize); }catch(e){} }
+  renderDetails();
+}
 function renderDetails(){
+  { const sel = $("detailSize"); if(sel) sel.value = detailSize; }
   const munis = detailMunis();
   const sel = $("detailMuni");
   if(sel){
@@ -12972,9 +13197,9 @@ function renderDetails(){
     shown.forEach(d => { const m = d.muni || "— untagged —"; (groups[m] = groups[m] || []).push(d); });
     grid.innerHTML = Object.keys(groups).sort().map(m =>
       `<div class="dgroup"><div class="dgh">${esc(m)} <span>${groups[m].length}</span></div>
-       <div class="dgrid">` + groups[m].map(d => {
+       <div class="dgrid ${detailSize}">` + groups[m].map(d => {
         const on = pickIndex(d.id) >= 0;
-        return `<div class="dcard${on?" on":""}">
+        return `<div class="dcard${on?" on":""}${d.notSent?" nosend":""}">
           <div class="dthumb" onclick="detailZoom('${esc(jsq(d.id))}')">
             ${d.thumb ? `<img src="${d.thumb}" alt="${esc(d.name)}">` : `<span class="mini">no preview</span>`}
             ${d.pages > 1 ? `<span class="dpg">p${d.page}/${d.pages}</span>` : ""}
@@ -12983,9 +13208,11 @@ function renderDetails(){
              onchange="togglePick('${esc(jsq(d.id))}',this.checked);renderDetails()">
             <span>${esc(d.name)}</span></label>
           <div class="dact">
-            <a href="javascript:void(0)" onclick="detailEdit('${esc(jsq(d.id))}')">Edit</a>
+            <a href="javascript:void(0)" onclick="detailEdit('${esc(jsq(d.id))}')">Rename</a>
+            <a href="javascript:void(0)" onclick="detailZoom('${esc(jsq(d.id))}')">Full page</a>
             <a href="javascript:void(0)" onclick="detailDelete('${esc(jsq(d.id))}')">Remove</a>
           </div>
+          ${d.notSent ? `<div class="dflag">On this device only — not on the Sheet</div>` : ""}
         </div>`; }).join("") + `</div></div>`).join("");
   }
   renderPicks();
@@ -13002,7 +13229,9 @@ function renderPicks(){
         const where = p.where || "details";
         return `<div class="prow">
           <span class="pn">${i+1}</span>
-          ${d && d.thumb ? `<img class="pth" src="${d.thumb}" alt="">` : `<span class="pth"></span>`}
+          ${d && d.thumb
+              ? `<img class="pth" src="${d.thumb}" alt="" onclick="detailZoom('${esc(jsq(p.id))}')">`
+              : `<span class="pth"></span>`}
           <div class="pnw">
             <div class="pnm">${esc(nm)}${d && d.muni ? ` <span class="mini">· ${esc(d.muni)}</span>` : ""}</div>
             <input class="pcap" type="text" placeholder="Caption (optional — leave blank if the drawing has one)"
@@ -15810,8 +16039,18 @@ async function runSingleExport(opt){
      never hide a pin. */
   const sheetF = featsOnSheet(b);
   const sheetPlants = sheetF.filter(f=>f.kind==="planting");
-  sheetFeats = { fences: sheetF.filter(f=>f.kind==="fence" && !isRootExc(f)).length,
-                 rootexc: sheetF.filter(f=>f.kind==="fence" && isRootExc(f)).length,
+  /* THE LENGTHS AS WELL AS THE COUNTS. Chris: "be able to turn on/off the length of
+     tree protection fence shown beside the legend item (e.g. 120m) ... This number
+     changed to represent what is shown on the map sheet." So it is measured from the
+     features ON THIS SHEET, not from the project — a key that says 340 m on a sheet
+     carrying 40 m of it is worse than no figure at all. */
+  const lenOf = list => list.reduce((a,f)=> a + (parseFloat(f.length_m) || 0), 0);
+  const fenceOnly = sheetF.filter(f=>f.kind==="fence" && !isRootExc(f));
+  const rootOnly  = sheetF.filter(f=>f.kind==="fence" && isRootExc(f));
+  sheetFeats = { fences: fenceOnly.length,
+                 rootexc: rootOnly.length,
+                 fenceM: Math.round(lenOf(fenceOnly)),
+                 rootexcM: Math.round(lenOf(rootOnly)),
                  plantings: sheetPlants.length,
                  caliper: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))!=="sapling").length,
                  sapling: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))==="sapling").length };
@@ -16153,6 +16392,7 @@ async function runSingleExport(opt){
          and picks out this one, rather than showing a lone red box in a field of
          grey that tells a reviewer nothing about which sheet they are holding. */
       keyBounds: opt.keyBounds || b, keyZoom: z,
+      keyStyle: opt.keyStyle || "index",
       keyCells: opt.keyCells || null, keyCurrent: opt.keyCurrent || 0,
       legend: sheetLegendRows(shown),
       sheetLabel: opt.sheetLabel || "",
@@ -16265,11 +16505,35 @@ async function drawKeyMap(g, x, y, w, h, opt){
   /* A zoom at which the whole extent fits the box, rather than a guess derived from
      the sheet's own zoom — which on a 1:250 sheet put the index map at street level
      and showed one driveway. */
-  const c = bounds.getCenter();
+  /* TWO KEY MAPS, FOR TWO DIFFERENT QUESTIONS.
+
+     Chris: "the key map showing the entire project area at a small scale (zoomed
+     out) to provide context to the landscape setting is wanted on all pages except
+     the pages showing the site plan. The zoomed out key map can be a simple Esri map
+     which clearly shows road names, no aerial photo needed. But the key map should
+     change to aerial ... as you have already shown."
+
+     On a plan sheet the question is WHICH of the nine sheets is this — an aerial
+     index with the sheets numbered. On the report, the tables and the details the
+     question is WHERE IN THE TOWN is this job at all, and the answer wants roads and
+     their names, not a rooftop. So the context map is a street map pulled back well
+     past the site. */
+  const context = opt.style === "context";
+  let show = bounds;
+  if(context){
+    /* Three times the job's own extent. On a 600 m frontage that is about two
+       kilometres across: enough arterial road for somebody who knows the town to
+       place it at a glance, and not so much that the site is a dot. */
+    const c0 = bounds.getCenter();
+    const dLat = Math.max((bounds.getNorth()-bounds.getSouth())*1.5, 0.006);
+    const dLon = Math.max((bounds.getEast()-bounds.getWest())*1.5, 0.008);
+    show = L.latLngBounds([c0.lat-dLat, c0.lng-dLon],[c0.lat+dLat, c0.lng+dLon]);
+  }
+  const c = show.getCenter();
   let kz = 19;
   for(; kz > 5; kz--){
-    const pw = Math.abs(lonToPx(bounds.getEast(),kz) - lonToPx(bounds.getWest(),kz));
-    const ph = Math.abs(latToPx(bounds.getSouth(),kz) - latToPx(bounds.getNorth(),kz));
+    const pw = Math.abs(lonToPx(show.getEast(),kz) - lonToPx(show.getWest(),kz));
+    const ph = Math.abs(latToPx(show.getSouth(),kz) - latToPx(show.getNorth(),kz));
     if(pw <= w*0.86 && ph <= h*0.86) break;
   }
   const cx = lonToPx(c.lng,kz), cy = latToPx(c.lat,kz);
@@ -16279,7 +16543,7 @@ async function drawKeyMap(g, x, y, w, h, opt){
   g.save();
   g.fillStyle="#eef2ee"; g.fillRect(x,y,w,h);
   g.beginPath(); g.rect(x,y,w,h); g.clip();
-  const url = keyBaseUrl();
+  const url = context ? KEY_BASES[1][2] : keyBaseUrl();
   const t0=Math.floor((cx-w/2)/256), t1=Math.floor((cx+w/2)/256);
   const u0=Math.floor((cy-h/2)/256), u1=Math.floor((cy+h/2)/256);
   const jobs=[];
@@ -16290,7 +16554,7 @@ async function drawKeyMap(g, x, y, w, h, opt){
   });
 
   /* every sheet of the series, numbered */
-  const cells = Array.isArray(opt.cells) ? opt.cells : [];
+  const cells = context ? [] : (Array.isArray(opt.cells) ? opt.cells : []);
   if(cells.length){
     const fs = Math.max(9, Math.round(Math.min(w,h)*0.085));
     cells.forEach(cell=>{
@@ -16315,8 +16579,10 @@ async function drawKeyMap(g, x, y, w, h, opt){
     // no series: just the extent of what this sheet shows
     const x1 = X(lonToPx(bounds.getWest(),kz)),  x2 = X(lonToPx(bounds.getEast(),kz));
     const y1 = Y(latToPx(bounds.getNorth(),kz)), y2 = Y(latToPx(bounds.getSouth(),kz));
-    g.strokeStyle="#FF1744"; g.lineWidth=3;
-    g.strokeRect(x1, y1, Math.max(x2-x1,6), Math.max(y2-y1,6));
+    const bw = Math.max(x2-x1, 8), bh = Math.max(y2-y1, 8);
+    g.fillStyle = "rgba(255,23,68,.15)"; g.fillRect(x1, y1, bw, bh);
+    g.strokeStyle="#FF1744"; g.lineWidth=context ? 4 : 3;
+    g.strokeRect(x1, y1, bw, bh);
   }
   g.restore();
   g.strokeStyle="#12201a"; g.lineWidth=2; g.strokeRect(x,y,w,h);
@@ -16774,25 +17040,41 @@ async function buildPhotoPages(shown, W, H, M, title){
    north arrow." The radius is now a parameter, because the one place it is drawn —
    the top right of the legend box — has to place it by its own size to stay inside
    the paper. The draft hung half of it off the edge. */
+/* THE NORTH ARROW CHRIS SENT: a solid black disc, a white arrowhead over a white
+   stem, and a white N filling the lower half. Drawn rather than placed as an image
+   so it is crisp at any size on a 200 dpi sheet — a 60 px PNG scaled up on an 11x17
+   is a smudge, and that is the whole of his "so it is high resolution and clear". */
 function drawNorthArrow(g, x, y, R){
   R = R || Math.round(PDF_DPI*0.26);
-  g.save(); g.translate(x,y);
-  g.fillStyle="#ffffff"; g.strokeStyle="#12201a"; g.lineWidth=Math.max(2, R*0.09);
-  g.beginPath(); g.arc(0,0,R,0,7); g.fill(); g.stroke();
-  // the needle: solid to the east of the axis, hollow to the west, as the sample has it
-  g.beginPath(); g.moveTo(0,-R*0.72); g.lineTo(R*0.26,R*0.46); g.lineTo(0,R*0.18);
-  g.closePath(); g.fillStyle="#12201a"; g.fill();
-  g.beginPath(); g.moveTo(0,-R*0.72); g.lineTo(-R*0.26,R*0.46); g.lineTo(0,R*0.18);
-  g.closePath(); g.fillStyle="#ffffff"; g.fill();
-  g.strokeStyle="#12201a"; g.lineWidth=Math.max(1, R*0.05); g.stroke();
-  g.fillStyle="#12201a"; g.font=`bold ${Math.round(R*0.62)}px ${TPP_FONT}`;
-  g.textAlign="center"; g.textBaseline="alphabetic";
-  g.fillText("N", 0, -R*0.80);
+  g.save();
+  g.translate(x, y);
+  g.fillStyle = "#000000";
+  g.beginPath(); g.arc(0, 0, R, 0, 7); g.fill();
+
+  /* The needle: a broad arrowhead at the top with a tapering stem beneath it, in
+     white, occupying the upper two thirds of the disc. */
+  g.fillStyle = "#ffffff";
+  g.beginPath();
+  g.moveTo(0, -R*0.82);                 // the point
+  g.lineTo( R*0.40, -R*0.16);           // right shoulder
+  g.lineTo( R*0.12, -R*0.28);           // right of the stem
+  g.lineTo( R*0.12,  R*0.02);
+  g.lineTo(-R*0.12,  R*0.02);
+  g.lineTo(-R*0.12, -R*0.28);           // left of the stem
+  g.lineTo(-R*0.40, -R*0.16);           // left shoulder
+  g.closePath();
+  g.fill();
+
+  /* The N sits across the foot of the disc, as large as it will go. */
+  g.fillStyle = "#ffffff";
+  g.font = `bold ${Math.round(R*0.64)}px ${TPP_FONT}`;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("N", 0, R*0.43);
+
   g.restore();
   g.textAlign="left"; g.textBaseline="alphabetic";
 }
 
-// Rounded to a sensible round number, the way a map scale bar should be.
 /* A SCALE BAR THAT FITS ITS BOX.
 
    Chris: "ensure the scale bar is numerically adjusted so it remains small and fits
@@ -17010,6 +17292,9 @@ async function drawTppFrame(g, W, H, opt){
     try{
       await drawKeyMap(g, box.x, box.y, box.w, box.h, {
         bounds: opt.keyBounds, z: opt.keyZoom || 16,
+        /* Only a plan sheet gets the numbered aerial index; everything else gets the
+           zoomed-out street map that says where in the town this job is. */
+        style: opt.keyStyle || "context",
         cells: opt.keyCells || null, current: opt.keyCurrent || 0
       });
     }catch(err){}
@@ -17045,21 +17330,36 @@ async function drawTppFrame(g, W, H, opt){
     const floor = yLeg + hLeg - Math.round(PDF_DPI*0.08);
     g.font = `${fs}px ${TPP_FONT}`;
     for(const r of rows){
-      const lines = wrapLines(g, r.label, txW);
+      /* A GROUP HEADING: no swatch, bold, and the members beneath it indented. */
+      if(r.heading){
+        const hy = y + Math.round(fs*0.30);
+        if(hy + lh > floor) break;
+        g.font = `bold ${fs}px ${TPP_FONT}`;
+        g.fillStyle = "#12201a";
+        g.fillText(String(r.label), box.x, hy);
+        g.font = `${fs}px ${TPP_FONT}`;
+        y = hy + lh;
+        continue;
+      }
+      const ind = r.indent ? Math.round(fs*0.55) : 0;
+      const lines = wrapLines(g, r.label, txW - ind);
       if(y + lines.length*lh > floor) break;        // better a short legend than one overflowing its box
       const cy = y - fs*0.32;
       g.lineWidth = Math.max(1.5, fs*0.16);
+      const sx = swX + ind, tx = txX + ind;
       if(r.kind === "line"){
         g.strokeStyle = r.color;
-        g.beginPath(); g.moveTo(swX - fs*0.52, cy); g.lineTo(swX + fs*0.52, cy); g.stroke();
+        g.save(); if(r.dashed) g.setLineDash([fs*0.34, fs*0.26]);
+        g.beginPath(); g.moveTo(sx - fs*0.52, cy); g.lineTo(sx + fs*0.52, cy); g.stroke();
+        g.restore();
       } else if(r.kind === "square"){
-        g.fillStyle = r.color; g.fillRect(swX - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
-        g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.strokeRect(swX - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
+        g.fillStyle = r.color; g.fillRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
+        g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.strokeRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
       } else if(r.kind === "circle"){
         g.save();
         if(!r.solid) g.setLineDash([fs*0.22, fs*0.18]);
         g.strokeStyle = r.color;
-        g.beginPath(); g.arc(swX, cy, fs*0.44, 0, 7);
+        g.beginPath(); g.arc(sx, cy, fs*0.44, 0, 7);
         if(r.solid){ g.fillStyle = r.color+"2E"; g.fill(); }
         g.stroke();
         g.restore();
@@ -17069,17 +17369,17 @@ async function drawTppFrame(g, W, H, opt){
         g.textAlign = "center"; g.textBaseline = "middle";
         g.lineJoin = "round"; g.miterLimit = 2;
         g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = Math.max(1.5, fs*0.26);
-        g.strokeText(r.glyph, swX, cy);
-        g.fillStyle = r.color; g.fillText(r.glyph, swX, cy);
+        g.strokeText(r.glyph, sx, cy);
+        g.fillStyle = r.color; g.fillText(r.glyph, sx, cy);
         g.restore();
         g.font = `${fs}px ${TPP_FONT}`; g.textAlign="left"; g.textBaseline="alphabetic";
       } else {
         g.fillStyle = r.color;
-        g.beginPath(); g.arc(swX, cy, fs*0.38, 0, 7); g.fill();
+        g.beginPath(); g.arc(sx, cy, fs*0.38, 0, 7); g.fill();
         g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.stroke();
       }
       g.fillStyle = "#12201a";
-      lines.forEach((ln,i)=> g.fillText(ln, txX, y + i*lh));
+      lines.forEach((ln,i)=> g.fillText(ln, tx, y + i*lh));
       y += lines.length*lh + Math.round(fs*0.20);
     }
     // the base-data credits sit at the foot of the legend box
@@ -17246,12 +17546,15 @@ function loadImageData(src){
     im.src = src;
   });
 }
-// Fitted, never filled: the aspect ratio of the page is the page.
-function drawFitted(g, im, box){
+/* Fitted, never filled: the aspect ratio of the page is the page. `align` of "top"
+   hangs it from the top of the box instead of centring it, which is how the contents
+   is made to start on the same line as the title page beside it. */
+function drawFitted(g, im, box, align){
   const iw = im.width || box.w, ih = im.height || box.h;
   const s = Math.min(box.w/iw, box.h/ih);
   const w = iw*s, h = ih*s;
-  const x = box.x + (box.w-w)/2, y = box.y + (box.h-h)/2;
+  const x = box.x + (box.w-w)/2;
+  const y = (align === "top") ? box.y : box.y + (box.h-h)/2;
   g.drawImage(im, x, y, w, h);
   return {x:x, y:y, w:w, h:h};
 }
@@ -17262,9 +17565,25 @@ async function composeTppSheet(W, H, pages, frameOpt){
   const g = cv.getContext("2d");
   g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
   const slots = tppSlots(W, H);
+  /* TOP-ALIGNED, NOT EACH CENTRED IN ITS OWN SLOT.
+
+     Chris: "on TPP1 move the top of the CONTENTS table, the top line, so it is in
+     line with the top of the Arborist Report — to ensure symmetry in layout."
+
+     Two pages of different proportions, each centred in its own half, start and end
+     at different heights, and the eye reads that as a mistake rather than as two
+     pages that happen to be different shapes. The FIRST page sets the top edge and
+     the second is hung from it. */
+  let firstTop = null;
   for(let i=0; i<Math.min(2, pages.length); i++){
     const im = await loadImageData(pages[i]);
-    if(im) drawFitted(g, im, slots[i]);
+    if(!im) continue;
+    const box = slots[i];
+    const put = (i === 1 && firstTop !== null)
+      ? { x:box.x, y:firstTop, w:box.w, h:box.y + box.h - firstTop }
+      : box;
+    const r = drawFitted(g, im, put, i === 1 && firstTop !== null ? "top" : null);
+    if(i === 0 && r) firstTop = r.y;
   }
   await drawTppFrame(g, W, H, frameOpt || {});
   return { data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H };
@@ -17504,32 +17823,240 @@ function tppDateStamp(d){
   return TPP_MONTHS[t.getMonth()] + String(t.getDate()).padStart(2,"0") + "/" + t.getFullYear();
 }
 
-function sheetLegendRows(shown){
+/* ================= THE LEGEND, AS THE AUTHOR WANTS IT ==================== *
+
+   Chris: "I want to be able to adjust all legend item titles, group legend item
+   headings and group layers within headings, and be able to group layers and assign
+   the group the same symbology." And: "be able to turn on/off the length of tree
+   protection fence shown beside the legend item (e.g. 120m), the number of trees to
+   be pruned, # to be removed, and # of root sensitive excavation ... This number
+   changed to represent what is shown on the map sheet."
+
+   Everything here hangs off a KEY. A legend row has always been built fresh for each
+   sheet from what that sheet happens to carry, which is right — a key must not claim
+   a symbol the paper does not have — but it left nothing to hang a setting on. Each
+   row now carries a stable key, and the author's choices are stored against those
+   keys rather than against a position in a list that changes from sheet to sheet. */
+const LEGKEY = "st_legend";
+let legendCfg = { titles:{}, groups:[], counts:true, hidden:{} };
+try{
+  const v = JSON.parse(STORE && STORE.getItem(LEGKEY));
+  if(v && typeof v === "object") legendCfg = Object.assign(legendCfg, v);
+}catch(e){}
+if(!Array.isArray(legendCfg.groups)) legendCfg.groups = [];
+if(!legendCfg.titles || typeof legendCfg.titles !== "object") legendCfg.titles = {};
+if(!legendCfg.hidden || typeof legendCfg.hidden !== "object") legendCfg.hidden = {};
+function persistLegendCfg(){ if(STORE){ try{ STORE.setItem(LEGKEY, JSON.stringify(legendCfg)); }catch(e){} } }
+
+/* The rows this sheet actually carries, each with a key and, where there is one, a
+   figure for what is on THIS sheet. */
+/* ---- the legend editor ---- */
+function openLegendCfg(){ renderLegendCfg(); $("legendSheet").classList.add("show"); }
+function closeLegendCfg(){ $("legendSheet").classList.remove("show"); buildLegend(); }
+function legCountsSet(on){ legendCfg.counts = !!on; persistLegendCfg(); }
+
+function legGroupAdd(){
+  const nm = normText(prompt("Heading for this group, as it prints in the legend:\n\n" +
+    "e.g. Existing services, Proposed works, Tree protection", "") || "");
+  if(!nm) return;
+  legendCfg.groups.push({ id:"g"+Date.now().toString(36), name:nm, keys:[], color:"", kind:"", dashed:false, merge:false });
+  persistLegendCfg(); renderLegendCfg();
+}
+function legGroupSet(i, field, v){
+  const gp = legendCfg.groups[i]; if(!gp) return;
+  if(field === "merge" || field === "dashed") gp[field] = !!v; else gp[field] = v;
+  persistLegendCfg(); renderLegendCfg();
+}
+function legGroupRename(i){
+  const gp = legendCfg.groups[i]; if(!gp) return;
+  const nm = normText(prompt("Heading:", gp.name || "") || "");
+  if(!nm) return;
+  gp.name = nm; persistLegendCfg(); renderLegendCfg();
+}
+function legGroupMove(i, d){
+  const j = i + d;
+  if(j < 0 || j >= legendCfg.groups.length) return;
+  const t = legendCfg.groups[i]; legendCfg.groups[i] = legendCfg.groups[j]; legendCfg.groups[j] = t;
+  persistLegendCfg(); renderLegendCfg();
+}
+function legGroupRemove(i){
+  const gp = legendCfg.groups[i]; if(!gp) return;
+  if(!confirm("Remove the heading “" + gp.name + "”? Its layers go back to the ungrouped list.")) return;
+  legendCfg.groups.splice(i,1); persistLegendCfg(); renderLegendCfg();
+}
+/* A row belongs to at most one group, so joining one leaves any other. */
+function legAssign(key, gid){
+  legendCfg.groups.forEach(gp=>{
+    if(!Array.isArray(gp.keys)) gp.keys = [];
+    const at = gp.keys.indexOf(key);
+    if(at >= 0) gp.keys.splice(at,1);
+  });
+  const gp = legendCfg.groups.find(x => x.id === gid);
+  if(gp) gp.keys.push(key);
+  persistLegendCfg(); renderLegendCfg();
+}
+function legRename(key, v){
+  const t = normText(v);
+  if(t) legendCfg.titles[key] = t; else delete legendCfg.titles[key];
+  persistLegendCfg();
+}
+function legHide(key, on){
+  if(on) delete legendCfg.hidden[key]; else legendCfg.hidden[key] = true;
+  persistLegendCfg(); renderLegendCfg();
+}
+
+function renderLegendCfg(){
+  { const c = $("legCounts"); if(c) c.checked = legendCfg.counts !== false; }
+  const rows = legendAllRows();
+
+  $("legGroups").innerHTML = !legendCfg.groups.length
+    ? `<div class="mini">No groups yet. A group gives its members a heading, and can give
+       them all one colour — useful for a set of servicing layers that should read as one
+       thing in the key.</div>`
+    : legendCfg.groups.map((gp,i)=>`
+      <div class="layerrow">
+        <span class="sw sq" style="width:14px;height:14px;background:${gp.color||"transparent"};border:1px solid #9fb0a5"></span>
+        <span class="nm">${esc(gp.name||"Group")}<br><span class="ct">${(gp.keys||[]).length} item(s)${gp.merge?" · one row":""}</span></span>
+        <button onclick="legGroupRename(${i})" title="Rename">✎</button>
+        <button onclick="legGroupColour(${i})" title="One colour for the group">🎨</button>
+        <button class="${gp.merge?"on":""}" onclick="legGroupSet(${i},'merge',${gp.merge?"false":"true"})"
+                title="Print the whole group as one row">${gp.merge?"1 row":"rows"}</button>
+        <button onclick="legGroupMove(${i},-1)">↑</button>
+        <button onclick="legGroupMove(${i},1)">↓</button>
+        <button onclick="legGroupRemove(${i})">✕</button>
+      </div>`).join("");
+
+  const opts = key => `<option value="">— no group —</option>` +
+    legendCfg.groups.map(gp=>{
+      const on = (gp.keys||[]).indexOf(key) >= 0;
+      return `<option value="${esc(gp.id)}"${on?" selected":""}>${esc(gp.name||"Group")}</option>`;
+    }).join("");
+
+  $("legItems").innerHTML = rows.map(r=>`
+    <div class="docrow" style="flex-wrap:wrap">
+      <label class="nm" style="flex:1 1 100%">
+        <input type="checkbox" ${legendCfg.hidden[r.key]?"":"checked"}
+               onchange="legHide('${esc(jsq(r.key))}',this.checked)">
+        <span class="ct">${esc(r.label)}</span></label>
+      <input type="text" style="flex:1 1 55%;min-width:150px;padding:7px 9px;font-size:13px"
+             placeholder="${esc(r.label)}" value="${esc(legendCfg.titles[r.key]||"")}"
+             onchange="legRename('${esc(jsq(r.key))}',this.value)">
+      <select style="flex:1 1 35%;min-width:120px;padding:7px 9px;font-size:13px"
+              onchange="legAssign('${esc(jsq(r.key))}',this.value)">${opts(r.key)}</select>
+    </div>`).join("") || `<div class="mini">Nothing to list yet.</div>`;
+}
+function legGroupColour(i){
+  const gp = legendCfg.groups[i]; if(!gp) return;
+  const v = prompt("One colour for every layer in “" + (gp.name||"Group") +
+                   "”, as a hex code.\n\nLeave empty to let each keep its own.",
+                   gp.color || "");
+  if(v === null) return;
+  const t = String(v).trim();
+  gp.color = /^#?[0-9a-fA-F]{6}$/.test(t) ? (t[0]==="#" ? t : "#"+t) : "";
+  persistLegendCfg(); renderLegendCfg();
+}
+
+function sheetLegendRaw(shown){
   const present = legendRows().filter(r=>{
     if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
     if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
                                       (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
     return true;
-  }).map(r=>({label:r[0], color:r[1], kind:"dot"}));
-  if(tpzOn) present.push({label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
+  }).map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot"}));
+  if(tpzOn) present.push({key:"tpz", label:"Tree protection zone", color:"#FFD54F", kind:"circle"});
   /* Only what the sheet drew. sheetMarks is set by the sheet itself, so a key never
      claims a symbol the paper does not carry. */
-  if(sheetMarks.crowns) present.push({label:"Crown diameter", color:CROWN_COLOR, kind:"circle", solid:true});
-  if(sheetMarks.rem)    present.push({label:"Tree to be removed", color:MARK_REMOVE, kind:"glyph", glyph:"✕", big:true});
-  if(sheetMarks.prune)  present.push({label:"Tree to be pruned", color:MARK_PRUNE, kind:"glyph", glyph:"P"});
-  if(sheetFeats.fences)    present.push({label:fenceName("fence"),   color:featStyle.fence.color,
-                                         kind:"line", dashed:!!featStyle.fence.dashed});
-  if(sheetFeats.rootexc)   present.push({label:fenceName("rootexc"), color:featStyle.rootexc.color,
-                                         kind:"line", dashed:!!featStyle.rootexc.dashed});
-  if(sheetFeats.caliper) present.push({label:"Proposed caliper tree, outside the woodlot", color:"#66BB6A", kind:"dot"});
-  if(sheetFeats.sapling) present.push({label:"Proposed sapling, within the woodlot", color:"#66BB6A", kind:"dot"});
+  if(sheetMarks.crowns) present.push({key:"crown", label:"Crown diameter", color:CROWN_COLOR, kind:"circle", solid:true});
+  if(sheetMarks.rem)    present.push({key:"rem",   label:"Tree to be removed", color:MARK_REMOVE,
+                                      kind:"glyph", glyph:"✕", big:true, count:sheetMarks.rem, unit:""});
+  if(sheetMarks.prune)  present.push({key:"prune", label:"Tree to be pruned", color:MARK_PRUNE,
+                                      kind:"glyph", glyph:"P", count:sheetMarks.prune, unit:""});
+  if(sheetFeats.fences)  present.push({key:"feat:fence", label:fenceName("fence"), color:featStyle.fence.color,
+                                       kind:"line", dashed:!!featStyle.fence.dashed,
+                                       count:sheetFeats.fenceM, unit:"m"});
+  if(sheetFeats.rootexc) present.push({key:"feat:rootexc", label:fenceName("rootexc"), color:featStyle.rootexc.color,
+                                       kind:"line", dashed:!!featStyle.rootexc.dashed,
+                                       count:sheetFeats.rootexcM, unit:"m"});
+  if(sheetFeats.caliper) present.push({key:"caliper", label:"Proposed caliper tree, outside the woodlot",
+                                       color:"#66BB6A", kind:"dot", count:sheetFeats.caliper, unit:""});
+  if(sheetFeats.sapling) present.push({key:"sapling", label:"Proposed sapling, within the woodlot",
+                                       color:"#66BB6A", kind:"dot", count:sheetFeats.sapling, unit:""});
   /* A LAYER CAN BE ON THE MAP AND OFF THE LEGEND. Base information — a parcel
      fabric, an aerial index — belongs on the drawing and not in the key, and a legend
      with twelve rows nobody needs is a legend nobody reads. */
   refLayers.filter(l => l.visible && layerInLegend(l)).forEach(l =>
-    present.push({ label:l.name, color:l.color, kind:layerLegendKind(l), dashed:layerDash(l) }));
-  if(pdfOverlay && pdfVisible) present.push({label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
+    present.push({ key:"lyr:"+layerKitKey(l), label:l.name, color:l.color,
+                   kind:layerLegendKind(l), dashed:layerDash(l) }));
+  if(pdfOverlay && pdfVisible) present.push({key:"pdf", label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
   return present;
+}
+
+/* Every key the author could ever want to rename or group, whether or not this
+   particular sheet carries it — the editor has to list them all, or a row can only
+   be set up on the one sheet that happens to show it. */
+function legendAllRows(){
+  const save = { marks: sheetMarks, feats: sheetFeats };
+  sheetMarks = { prune:1, rem:1, crowns:1 };
+  sheetFeats = { fences:1, rootexc:1, fenceM:0, rootexcM:0, plantings:1, caliper:1, sapling:1 };
+  let rows;
+  try{ rows = sheetLegendRaw(visibleTrees()); }
+  finally { sheetMarks = save.marks; sheetFeats = save.feats; }
+  return rows;
+}
+
+function legendTitle(row){
+  const t = legendCfg.titles[row.key];
+  return (t == null || t === "") ? row.label : t;
+}
+function legendGroupOf(key){
+  for(const gp of legendCfg.groups){ if(gp && Array.isArray(gp.keys) && gp.keys.indexOf(key) >= 0) return gp; }
+  return null;
+}
+
+/* What the sheet prints: the author's titles, the author's order, group headings
+   where there are groups, a figure where one is wanted, and a group's own symbology
+   where the group carries one. */
+function sheetLegendRows(shown){
+  const raw = sheetLegendRaw(shown).filter(r => !legendCfg.hidden[r.key]);
+  const withCount = r => {
+    const nm = legendTitle(r);
+    if(!legendCfg.counts || r.count == null || !r.count) return nm;
+    /* A metre figure reads "120 m"; a count of trees reads "(12)" so it cannot be
+       mistaken for part of the name. */
+    return r.unit === "m" ? nm + " — " + r.count + " m" : nm + " (" + r.count + ")";
+  };
+
+  const out = [];
+  const used = {};
+  /* Groups first, in the order the author put them, each as a heading with its
+     members under it. A group with its own colour lends it to every member, which is
+     the point of grouping a dozen servicing layers. */
+  legendCfg.groups.forEach(gp=>{
+    if(!gp || !Array.isArray(gp.keys)) return;
+    const mine = raw.filter(r => gp.keys.indexOf(r.key) >= 0);
+    if(!mine.length) return;
+    if(gp.merge){
+      /* ONE ROW FOR THE WHOLE GROUP. Twelve servicing lines in one colour do not
+         need twelve identical lines in the key. */
+      out.push({ label: gp.name || "Group", color: gp.color || mine[0].color,
+                 kind: gp.kind || mine[0].kind, dashed: !!gp.dashed });
+      mine.forEach(r => { used[r.key] = 1; });
+      return;
+    }
+    out.push({ heading: true, label: gp.name || "Group" });
+    mine.forEach(r=>{
+      used[r.key] = 1;
+      out.push(Object.assign({}, r, {
+        label: withCount(r),
+        color: gp.color || r.color,
+        kind:  gp.kind  || r.kind,
+        dashed: gp.color ? !!gp.dashed : r.dashed,
+        indent: true
+      }));
+    });
+  });
+  raw.forEach(r=>{ if(!used[r.key]) out.push(Object.assign({}, r, { label: withCount(r) })); });
+  return out;
 }
 
 function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
