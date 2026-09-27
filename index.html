@@ -2132,7 +2132,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v173";
+const APP_BUILD  = "2026-09-27 · v174";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -4883,8 +4883,60 @@ try{ speciesITree = JSON.parse(STORE&&STORE.getItem("st_itree")) || {}; }catch(e
 try{ speciesBotanical = JSON.parse(STORE&&STORE.getItem("st_botanical")) || {}; }catch(e){ speciesBotanical={}; }
 /* [botanical, family, genus] from the Species tab. Stamped on every tree but never
    shown on the form — the field crew works in common names. */
+/* ONE SPECIES, HOWEVER IT WAS TYPED.
+
+   Chris: "I corrected the TREES sheet to ensure common names matched those in the
+   species list, but Table 1 still shows Ash sp and Ash sp. as well as Willow sp and
+   Willow sp."
+
+   "Ash sp" and "Ash sp." are one species, and every lookup in this app compared them
+   character for character — so one of them found its botanical name and the other
+   did not, and Table 1 counted them as two species with two sets of totals. It is
+   the same fault as PUBLIC against Public, in the one column where a trailing full
+   stop is a matter of house style rather than of meaning.
+
+   The key is deliberately CONSERVATIVE. Case, runs of whitespace and a trailing full
+   stop go; "spp" reads as "sp", since they are the same abbreviation. Nothing else —
+   no stemming, no plural folding — because "Red Maple" and "Red Maples" might be a
+   typo and might be two entries somebody meant, and a lookup that guesses is worse
+   than one that misses. */
+function speciesKey(v){
+  return String(v == null ? "" : v)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\.+$/, "")
+    .replace(/\bspp\b/g, "sp")
+    .trim();
+}
+/* The species list's own spelling of a name, so a table prints "Ash sp." and not
+   whichever variant the first tree happened to carry. */
+let _spKeyed = null, _spKeyedFrom = null;
+function speciesCanon(v){
+  const k = speciesKey(v);
+  if(!k) return String(v == null ? "" : v).trim();
+  if(_spKeyedFrom !== species){          // rebuilt when the list itself changes
+    _spKeyed = {};
+    species.forEach(n => { const kk = speciesKey(n); if(kk && !_spKeyed[kk]) _spKeyed[kk] = n; });
+    _spKeyedFrom = species;
+  }
+  return _spKeyed[k] || String(v).trim();
+}
+let _botKeyed = null, _botKeyedFrom = null;
 function taxonFor(sp){
-  const v = speciesBotanical[String(sp||"").trim()];
+  let v = speciesBotanical[String(sp||"").trim()];
+  if(!v){
+    /* Not under that exact spelling. Keyed, then — the Species tab holds "Ash sp."
+       and the tree may say "Ash sp". */
+    if(_botKeyedFrom !== speciesBotanical){
+      _botKeyed = {};
+      Object.keys(speciesBotanical).forEach(n => {
+        const k = speciesKey(n); if(k && !_botKeyed[k]) _botKeyed[k] = speciesBotanical[n];
+      });
+      _botKeyedFrom = speciesBotanical;
+    }
+    v = _botKeyed[speciesKey(sp)];
+  }
   if(!v) return ["","",""];
   return Array.isArray(v) ? v : [v,"",""];      // tolerate the older string-only form
 }
@@ -9004,6 +9056,15 @@ function updatePlan(recs, o){
       const v = updValue(f, r.props[map[f]]);
       if(v === null) return;
       if(String(t[f] == null ? "" : t[f]) === String(v)) return;
+      /* A SPELLING IS NOT A CHANGE. matchSpecies now lands an incoming name on the
+         species list's own spelling, so a file saying "Ash sp" about a tree recorded
+         as "Ash sp." would be reported as a species correction on every such tree —
+         a hundred rows of noise in the change list, hiding the handful that matter.
+         The tidying belongs on the way OUT, in the tables, where it changes nothing
+         on the record; an import that quietly rewrites what it was not asked to
+         touch is how data drifts. A genuine species correction still comes through,
+         because it keys differently. */
+      if(f === "SPECIES" && speciesKey(t[f]) === speciesKey(v)) return;
       want[f] = v; counts[f]++;
       /* The fields that are DERIVED from the one being written have to follow it or
          the tree contradicts itself: a Dead tree still carrying health code 1 is
@@ -9197,7 +9258,12 @@ function confirmUpdate(){
 function matchSpecies(v){
   if(!v) return "";
   const hit = species.find(s=>s.toLowerCase()===v.toLowerCase());
-  return hit || v;
+  if(hit) return hit;
+  /* Keyed, so a shapefile carrying "Ash sp" lands on the list's "Ash sp." rather
+     than adding a second spelling of a species that is already there. */
+  const k = speciesKey(v);
+  const near = species.find(s => speciesKey(s) === k);
+  return near || v;
 }
 function matchHealth(v){
   if(!v) return "";
@@ -11720,20 +11786,28 @@ function locationColumnOf(t){
 function speciesByLocationRows(list){
   const cols = locationColumns(list);
   const head = ["Species","Botanical name"].concat(cols, ["Total"]);
+  /* GROUPED BY THE SPECIES, NOT BY THE SPELLING. "Ash sp" and "Ash sp." are one
+     species and were being counted as two, with two sets of totals and a botanical
+     name on only one of them. The row is named the way the SPECIES LIST names it,
+     so the table reads the same whichever variant the trees happen to carry. */
   const by = {};
   list.forEach(t=>{
-    const k = t.SPECIES || "(blank)";
-    if(!by[k]) by[k] = { bot: t.BOTANICAL||"", counts: cols.map(()=>0), total:0 };
-    if(!by[k].bot && t.BOTANICAL) by[k].bot = t.BOTANICAL;
+    const raw = t.SPECIES || "(blank)";
+    const k = speciesKey(raw) || "(blank)";
+    if(!by[k]) by[k] = { name: speciesCanon(raw), bot:"", counts: cols.map(()=>0), total:0 };
+    /* The botanical name from the species list first — it is the authority and it is
+       there even when the tree's own cell is empty, which is the whole reason half
+       these rows printed blank. */
+    if(!by[k].bot) by[k].bot = botanicalFor(raw) || t.BOTANICAL || "";
     const i = cols.indexOf(locationColumnOf(t));
     if(i>=0) by[k].counts[i]++;
     by[k].total++;
   });
   const rows = [head];
   const tot = cols.map(()=>0); let grand = 0;
-  Object.keys(by).sort().forEach(k=>{
+  Object.keys(by).sort((a,b)=> by[a].name.toLowerCase() < by[b].name.toLowerCase() ? -1 : 1).forEach(k=>{
     const r = by[k];
-    rows.push([k, r.bot].concat(r.counts.map(n=>n||""), [r.total]));
+    rows.push([r.name, r.bot].concat(r.counts.map(n=>n||""), [r.total]));
     r.counts.forEach((n,i)=>tot[i]+=n); grand += r.total;
   });
   rows.push(["Grand Total",""].concat(tot.map(n=>n||""), [grand]));
@@ -14125,8 +14199,15 @@ const SCHED_A_COLS = [
   ["Tree #",                     (t,i)=>treeNoFor(t, i+1)],
   ["Tag #",                      t=>t.TAG_NO  || "NT"],
   ["Address",                    t=>(t.ADDRESS||"").toUpperCase()],
-  ["Common Name",                t=>t.SPECIES || ""],
-  ["Botanical Name",             t=>t.BOTANICAL || ""],
+  /* THE SPECIES LIST'S OWN SPELLING, so Schedule A and Table 1 cannot name the same
+     tree two different ways on facing pages. */
+  ["Common Name",                t=>speciesCanon(t.SPECIES || "")],
+  /* FILLED FROM THE SPECIES LIST WHEN THE TREE'S OWN CELL IS EMPTY, which is what
+     the Sheet's own exports have always done and the app's Schedule A never did —
+     so the emailed workbook came out right and the PDF came out with gaps. The name
+     is not a judgement: it follows from the common name by the Sheet's species list.
+     A value recorded on the tree still wins. */
+  ["Botanical Name",             t=>t.BOTANICAL || botanicalFor(t.SPECIES) || ""],
   ["DBH (cm)",                   t=>t.DBH || ""],
   ["Crown Radius (m)",           t=>reportShow(t, "CROWN_RAD")],
   ["Condition Rating",           t=>t.HEALTH || ""],
@@ -14137,7 +14218,9 @@ const SCHED_A_COLS = [
      owner's appraisal without being recorded twice. */
   ["__VALUE__",                  t=>""],
   ["Tree Preservation Zone (m)", t=>reportTPZ(t)],
-  ["Location",                   t=>t.LOCATION || ""],
+  /* Canonical, so a designation typed into the Sheet in capitals prints as the
+     designation and not as a shout. */
+  ["Location",                   t=>locationNew(t.LOCATION) || t.LOCATION || ""],
   ["Proposed Action",            t=>t.PROP_ACT || ""],
   ["Potential long term impact", t=>t.LT_IMPACT || (tppRemoval(t) ? "-" : "")],
   ["Notes",                      t=>t.COMMENTS || ""]
@@ -17002,8 +17085,22 @@ async function runSingleExport(opt){
      excluding that too would push every single-line label onto a leader line. */
   /* The two glyph faces, declared HERE because a marked tree's box has to cover its
      mark and not just its dot — the X now reaches past the symbol. */
-  const MARK_FS  = { X: Math.max(9, Math.round(R*2.5)), P: Math.max(9, Math.round(R*1.55)) };
-  const MARK_CAS = { X: 0.18, P: 0.24 };
+  /* THE P HAS TO BE SEEN, and at 1.55 it was not.
+
+     Chris: "the pruning symbol on the tree point is very small and not noticeable."
+
+     It was sized to sit INSIDE the tree symbol so a ring of colour still showed
+     round it — the symbol carries the condition colouring, and covering it loses
+     half of what the plan says. That reasoning was sound and the answer was wrong:
+     a letter drawn inside a five-pixel dot is a smudge, and a pruning is a decision
+     somebody has to act on. It is 2.2 now, over the symbol rather than inside it,
+     with a heavier white casing so it still reads over a dark aerial — and, below,
+     a ring drawn around it so the mark is found by its shape before its letter.
+
+     The X stays larger still: a removal must never be mistaken for a pruning at a
+     glance, and the two have to be told apart by size as well as by letter. */
+  const MARK_FS  = { X: Math.max(11, Math.round(R*2.5)), P: Math.max(10, Math.round(R*2.2)) };
+  const MARK_CAS = { X: 0.18, P: 0.30 };
   const pinBoxes = shown.map(t=>{
     const p = P(num(t.LAT), num(t.LON));
     const mk = marksOn ? treatMark(t) : "";
@@ -17047,9 +17144,18 @@ async function runSingleExport(opt){
       const p = P(num(t.LAT), num(t.LON));
       const ch = mk === "X" ? "✕" : "P";
       const fs = MARK_FS[mk];
+      /* A RING ROUND THE P. A letter on a busy aerial is found by reading it; a
+         ring is found by looking. The circle is what catches the eye at arm's
+         length and the P is what tells you which decision it is. */
+      if(mk === "P"){
+        const rr = fs*0.62;
+        g.beginPath(); g.arc(p[0], p[1], rr, 0, 7);
+        g.fillStyle = "rgba(255,255,255,.90)"; g.fill();
+        g.strokeStyle = MARK_PRUNE; g.lineWidth = Math.max(2, fs*0.16); g.stroke();
+      }
       g.font = `800 ${fs}px sans-serif`;
       g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = Math.max(2, fs*MARK_CAS[mk]);
-      g.strokeText(ch, p[0], p[1]);
+      if(mk !== "P") g.strokeText(ch, p[0], p[1]);   // the ring is the P's casing
       g.fillStyle = mk === "X" ? MARK_REMOVE : MARK_PRUNE;
       g.fillText(ch, p[0], p[1]);
       if(mk === "X") sheetRem++; else sheetPrune++;
