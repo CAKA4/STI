@@ -467,6 +467,13 @@
      31 pp swallowed tells the user nothing about whether the right file went in. */
   .docrow .nm b.ct{ flex:0 0 auto; font-weight:600 }
   .docrow .nm b.miss{ color:var(--blaze) }
+  /* ‹ Back, on every screen that is a step rather than a destination. In the flow
+     above the heading rather than floating over it: a pill absolutely positioned in
+     the corner sits on top of a long title on a narrow phone, which is exactly where
+     the titles are longest. */
+  .sheet-back{ display:inline-block; margin:0 0 10px; padding:7px 14px 7px 11px;
+    border-radius:999px; border:1px solid var(--line2); background:var(--surface2);
+    color:var(--text); font-size:13px; font-weight:700; cursor:pointer; line-height:1 }
   /* THE CHECKBOX HAS TO BE TOLD ITS WIDTH. The global rule a few hundred lines up is
      `input,select,textarea{ width:100% }` — meant for the text fields — and a tick box
      obeys it too, so it claimed the whole row and squeezed the section name out of
@@ -1978,7 +1985,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-26 · v163";
+const APP_BUILD  = "2026-09-27 · v165";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3730,25 +3737,6 @@ function removeImportBatch(id){
   toast(`Removed ${ids.length} imported tree(s)`);
 }
 
-// Trees imported before batches were tracked, or whose batch record is gone.
-function untrackedImports(){
-  const known = {}; importBatches.forEach(b=>known[b.id]=1);
-  return trees.filter(t=>t.SOURCE==="import" && (!t._imp || !known[t._imp]));
-}
-function removeUntrackedImports(){
-  const mine = untrackedImports();
-  if(!mine.length) return;
-  if(!confirm(`Remove ${mine.length} imported tree(s) from an earlier session?\n\nThis cannot be undone.`)) return;
-  const synced = mine.filter(t=>t._sent).map(t=>t.TREE_ID);
-  const drop = {}; mine.forEach(t=>drop[t.TREE_ID]=1);
-  trees = trees.filter(t=>!drop[t.TREE_ID]);
-  persistTrees(); renderPins(); renderLayerList();
-  if(synced.length && connected && !isOffline()){
-    fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"deletebatch", ids:synced})}).catch(()=>{});
-  }
-  toast(`Removed ${mine.length} imported tree(s)`);
-}
 function removeAllRefLayers(){
   if(!refLayers.length) return;
   if(!confirm(`Remove all ${refLayers.length} reference layer(s)? Trees are not affected.`)) return;
@@ -3803,9 +3791,19 @@ function renderLayerList(){
     }
   }
 
-  // imported tree points, removable as the batch they arrived in
-  const untracked = untrackedImports();
-  if(importBatches.length || untracked.length){
+  /* IMPORTED TREE POINTS — only the batches whose contents are actually known.
+
+     There used to be one more row here: "Earlier imports — N trees, batch not
+     recorded", with a Remove beside it. It had no record of which trees it meant, so
+     it matched EVERY tree whose SOURCE is "import" — on this job, the whole
+     inventory. On 25 September that button removed 726 rows from the Sheet and cost
+     147 Phase 1 trees, and the only thing between a finger and that outcome was one
+     confirm dialog that said "earlier session".
+
+     It is gone, function and all. A tracked batch below knows exactly which trees it
+     brought in and can still be taken back out. Anything older is ordinary
+     inventory now and is not something a list of LAYERS should offer to delete. */
+  if(importBatches.length){
     h += `<div class="stath" style="margin:14px 0 7px">Imported tree points</div>`;
     h += importBatches.map(b=>`
       <div class="layerrow">
@@ -3813,13 +3811,6 @@ function renderLayerList(){
         <span class="nm">${esc(b.name)}<br><span class="ct">${b.n} trees · ${esc(b.when)}${b.project?" · "+esc(b.project):""}</span></span>
         <button onclick="removeImportBatch('${b.id}')">✕ Remove</button>
       </div>`).join("");
-    if(untracked.length){
-      h += `<div class="layerrow">
-        <span class="sw" style="width:14px;height:14px;border-radius:50%;background:#9e9e9e;border:2px solid #fff"></span>
-        <span class="nm">Earlier imports<br><span class="ct">${untracked.length} trees · batch not recorded</span></span>
-        <button onclick="removeUntrackedImports()">✕ Remove</button>
-      </div>`;
-    }
   }
   $("layerList").innerHTML = h;
   $("layerStats").textContent = `${refLayers.length} reference layer(s) · ${trees.length} trees`;
@@ -11271,6 +11262,44 @@ function clearTppLogo(){
 /* Uploaded PDFs are rasterised page by page with pdf.js — the same library the
    georeferenced plans use. Merging PDF objects properly would mean a full writer;
    rasterising gives a faithful page at print resolution and keeps one code path. */
+/* THE PDF READER, AND THE FUNCTION THAT WAS NOT THERE.
+
+   Chris: "When I load the arborist report in Assemble the document, below the list I
+   see 'reading arborist report.pdf…' but it doesn't load into the list."
+
+   `loadPdfJs()` was called in three places — here, the site plan overlay and the
+   standard-detail thumbnail — and DEFINED IN NONE. Calling it threw a ReferenceError
+   on the first line of pdfToPages, SYNCHRONOUSLY, before any promise existed. The
+   .catch() in addDocPdfs is attached to the promise pdfToPages returns, and there
+   was no promise to attach it to, so the error flew straight past every bit of
+   error handling v159 added and the status line sat on "Reading …" for ever.
+
+   That is why the report never appeared, why no reason was ever given, and why three
+   builds of diagnostics found nothing: they were all watching the wrong channel. The
+   test that would have caught it — every name called must be a name defined — now
+   exists in harness/defined.js, because a whole app's worth of careful failure
+   reporting is worth nothing if the failure never reaches it. */
+const PDFJS_URL    = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+let _pdfjsReady = null;
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(_pdfjsReady) return _pdfjsReady;
+  _pdfjsReady = loadScript(PDFJS_URL)
+    .then(()=>{
+      if(!window.pdfjsLib) throw new Error("the PDF reader loaded but did not register");
+      /* Without a worker, pdf.js renders on the main thread and a thirty-page scan
+         locks the phone until it finishes. */
+      try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; }catch(e){}
+      return window.pdfjsLib;
+    })
+    .catch(()=>{
+      _pdfjsReady = null;                 // so a later attempt can try again
+      throw new Error("could not load the PDF reader — it needs a connection the first time");
+    });
+  return _pdfjsReady;
+}
+
 function pdfToPages(file, onProgress){
   return loadPdfJs()
     .then(()=>file.arrayBuffer())
@@ -11512,7 +11541,12 @@ function addDocPdfs(files){
     if(given === null){ trouble.push(f.name + ": skipped"); next(); return; }
     const label = normText(given) || suggested || "Untitled";
     docSay("Reading " + f.name + "…");
-    pdfToPages(f, (p,n)=> docSay(`${label} — page ${p} of ${n}`))
+    /* STARTED INSIDE A PROMISE ON PURPOSE. A throw on the first line of pdfToPages —
+       which is exactly what a missing loadPdfJs did — happens before any promise
+       exists, so the .catch() below never sees it and the status line hangs. This
+       way every failure, synchronous or not, lands in the same place. */
+    Promise.resolve()
+      .then(()=> pdfToPages(f, (p,n)=> docSay(`${label} — page ${p} of ${n}`)))
       .then(pages=>{
         if(!pages || !pages.length) throw new Error("no pages came back");
         const id = "u"+Date.now().toString(36)+Math.floor(Math.random()*1000);
@@ -17454,7 +17488,9 @@ function openMenu(){
   paintGroups();
   $("menuSheet").classList.add("show");
 }
-function closeMenu(){ $("menuSheet").classList.remove("show"); }
+/* When the Menu closes it is nearly always because a screen is opening in its
+   place. Noting when tells goBack where an empty trail should land. */
+function closeMenu(){ menuClosedAt = Date.now(); $("menuSheet").classList.remove("show"); }
 /* COMING BACK.
 
    Every screen reached from the Menu closes the Menu on its way in, so finishing
@@ -17466,6 +17502,81 @@ function closeMenu(){ $("menuSheet").classList.remove("show"); }
    a fence, opening a tree — those end on the map on purpose, because the map is what
    you look at next. */
 function backToMenu(){ openMenu(); }
+
+/* ================= GOING BACK ONE ======================================= *
+
+   Chris: "When I click the menu and any item or further sub item in the menu, I
+   would like a back button to go back one. In sub items, the Close brings me back
+   out to the map and I need to select Menu again."
+
+   v155 patched five screens by hand — each one's own Close was taught to re-open the
+   Menu. That does not scale and it was never the right shape: Close means close, and
+   a sub-screen opened from another sub-screen should come back to THAT, not to the
+   Menu.
+
+   So this is generic and it touches none of the thirty-odd openers. A MutationObserver
+   watches every sheet's class attribute, and the order in which they gain "show" IS
+   the trail. Back hides the top of it and reveals whatever was under it. Nothing had
+   to be registered, and a screen added later gets it for nothing.
+
+   NOT ON EVERY SHEET. The tree form, the photograph viewer and the fence line sheet
+   are opened from the MAP, not from the Menu, and they hold work in progress — a
+   Back that quietly closed a half-typed tree and dropped you on the Menu would be a
+   worse bug than the one this fixes. Those keep their own Save and Cancel. */
+const NO_BACK = { menuSheet:1, treeSheet:1, imgSheet:1, lineSheet:1 };
+let sheetStack = [], menuClosedAt = 0, stackFromMenu = false;
+
+function sheetTop(){ return sheetStack[sheetStack.length - 1] || ""; }
+function goBack(){
+  const id = sheetTop();
+  if(!id){ openMenu(); return; }
+  const el = $(id);
+  if(el) el.classList.remove("show");
+  /* The observer runs on a microtask, so the stack is still stale here. Popped now
+     and the observer's own splice becomes a no-op — the alternative is a back button
+     that does nothing on the first tap. */
+  const at = sheetStack.indexOf(id);
+  if(at >= 0) sheetStack.splice(at, 1);
+  const next = sheetTop();
+  if(next){ const n = $(next); if(n) n.classList.add("show"); return; }
+  /* Nothing underneath. The Menu is the right place to land only if that is where
+     this started; a screen opened from the map goes back to the map. */
+  if(stackFromMenu) openMenu();
+}
+
+function installBackButtons(){
+  const sheets = Array.prototype.slice.call(document.querySelectorAll(".sheet"));
+  sheets.forEach(el=>{
+    if(NO_BACK[el.id]) return;
+    const inner = el.querySelector(".sheet-inner");
+    if(!inner || inner.querySelector(".sheet-back")) return;
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "sheet-back"; b.textContent = "‹ Back";
+    b.addEventListener("click", goBack);
+    const grab = inner.querySelector(".grab");
+    if(grab && grab.nextSibling) inner.insertBefore(b, grab.nextSibling);
+    else inner.insertBefore(b, inner.firstChild);
+  });
+  if(typeof MutationObserver !== "function") return;
+  const obs = new MutationObserver(list=>{
+    list.forEach(m=>{
+      const el = m.target;
+      if(!el || !el.id || !el.classList || !el.classList.contains("sheet")) return;
+      if(el.id === "menuSheet") return;
+      const on = el.classList.contains("show");
+      const at = sheetStack.indexOf(el.id);
+      if(on){
+        if(at < 0){
+          if(!sheetStack.length) stackFromMenu = (Date.now() - menuClosedAt) < 2000;
+          sheetStack.push(el.id);
+        }
+      } else if(at >= 0){
+        sheetStack.splice(at, 1);
+      }
+    });
+  });
+  sheets.forEach(el=> obs.observe(el, { attributes:true, attributeFilter:["class"] }));
+}
 
 /* ---------- shared crew list ---------- */
 function userSelect(){
@@ -18335,6 +18446,7 @@ window.addEventListener("offline", netDot);
   }
   syncBarHeight();
   watchBarHeight();
+  installBackButtons();
   window.addEventListener("resize", syncBarHeight);
   window.addEventListener("orientationchange", ()=>setTimeout(syncBarHeight,250));
   if(window.visualViewport) window.visualViewport.addEventListener("resize", syncBarHeight);
