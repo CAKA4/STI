@@ -1918,7 +1918,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-26 · v159";
+const APP_BUILD  = "2026-09-26 · v160";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -17664,16 +17664,74 @@ function showHelp(){
 }
 function closeInfo(){ $("infoSheet").classList.remove("show"); }
 
+/* WHAT THE SERVER IS ACTUALLY SERVING. Asked before anything is cleared, because
+   "the app will not update" has two completely different causes and they need two
+   completely different answers: either the new file never reached the host, or it did
+   and this device is holding a cached copy. Without this the user cannot tell which,
+   and neither could I. The query string and cache:"reload" between them defeat the
+   service worker, the browser's HTTP cache and GitHub Pages' ten-minute max-age. */
+async function serverBuild(){
+  try{
+    const r = await fetch("./index.html?ts=" + Date.now(), { cache:"reload" });
+    if(!r.ok) return null;
+    const t = await r.text();
+    const m = /const APP_BUILD\s*=\s*"([^"]+)"/.exec(t);
+    return m ? m[1] : null;
+  }catch(e){ return null; }
+}
+
+/* NOBODY SHOULD HAVE TO KNOW TO CHECK. The build line lives inside the Menu, so a
+   crew member could run a month-old build and never see a reason to look. Asked once
+   a few seconds after opening, when the connection has settled. */
+let newBuildOnServer = "";
+async function checkForNewBuild(){
+  if(isOffline()) return;
+  const srv = await serverBuild();
+  if(!srv || srv === APP_BUILD) return;
+  newBuildOnServer = srv;
+  const el = $("buildStamp");
+  if(el){
+    el.textContent = "Build " + APP_BUILD + " · " + srv + " is ready — tap to update";
+    el.style.color = "var(--blaze)";
+    el.style.fontWeight = "700";
+  }
+  toast(srv + " is available — Menu, then tap the build line at the bottom");
+}
+
 async function forceUpdate(){
   if(isOffline()){ toast("Go online first — clearing the cache offline would blank the app",true); return; }
+  setStatus("Checking the server…");
+  const srv = await serverBuild();
+  setStatus("");
+
+  /* THE FILE NEVER GOT THERE. Clearing the cache would reinstall the same build and
+     look like the update had failed a second time, so say so and stop. */
+  if(srv && srv === APP_BUILD){
+    alert("This device is already running what the server has.\n\n" +
+          "  This device:  " + APP_BUILD + "\n" +
+          "  The server:   " + srv + "\n\n" +
+          "If you expected a newer build, the new index.html has not reached the site " +
+          "yet. Check that it is in the repository root, and that the upload finished " +
+          "— GitHub Pages can take a minute or two to publish.");
+    return;
+  }
   try{
     if("serviceWorker" in navigator){
       const regs=await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r=>r.unregister()));
     }
     if(window.caches){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
-    toast("Updating…");
-    setTimeout(()=>location.reload(true),400);
+    toast(srv ? ("Updating to " + srv + "…") : "Updating…");
+    /* A PLAIN RELOAD IS NOT ENOUGH ON A PHONE. reload(true) has been ignored for
+       years, and GitHub Pages serves index.html with a ten-minute max-age — so a
+       reload inside that window hands back the same old file out of the browser's
+       own cache, service worker or no service worker. A query string it has never
+       seen cannot be answered from any cache. The boot strips it again so the
+       address does not collect them. */
+    setTimeout(()=>{
+      const base = location.pathname + (location.pathname.slice(-1) === "/" ? "" : "");
+      location.replace(base + "?u=" + Date.now());
+    }, 400);
   }catch(e){ toast("Update failed",true); }
 }
 
@@ -17710,6 +17768,12 @@ window.addEventListener("offline", netDot);
 
 (function start(){
   $("buildStamp").textContent = "Build " + APP_BUILD + " · tap to update";
+  /* The cache-busting query forceUpdate reloads with has done its job by now. Taken
+     back off so the address bar does not collect one per update, and so a bookmark
+     or a home-screen shortcut made afterwards is the clean URL. */
+  if(location.search.indexOf("u=") >= 0 && window.history && history.replaceState){
+    try{ history.replaceState({}, "", location.pathname); }catch(e){}
+  }
   syncBarHeight();
   watchBarHeight();
   window.addEventListener("resize", syncBarHeight);
@@ -17759,6 +17823,7 @@ window.addEventListener("offline", netDot);
     setTimeout(()=>verifySync(true), 6000);   // catch anything a previous session only thought it sent
   }
   if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  setTimeout(()=>{ try{ checkForNewBuild(); }catch(e){} }, 6000);
 })();
 </script>
 </body>
