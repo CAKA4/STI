@@ -827,20 +827,21 @@
 
     <button class="menuitem prime" onclick="toggleProjectFilter()" id="projFilterBtn">🗂 Showing: —</button>
 
+    <!-- Is the work safe to walk away from? One line, before any group is opened. -->
+    <div id="menuReady" style="margin:10px 0 4px"></div>
+
     <div class="mgroup" id="g_sync">
       <button class="mhead" onclick="toggleGroup('sync')">⇅ Sync &amp; the Sheet<span class="caret">▸</span></button>
       <div class="mbody">
         <button class="menuitem prime" onclick="syncNow()">⇅ Sync — send and check everything</button>
         <div class="mini" id="syncLine" style="padding:4px 4px 8px">—</div>
+        <button class="menuitem" onclick="openCompare()">Check this device against the Sheet</button>
         <button class="menuitem" onclick="pullFromSheet()">Load trees from Sheet</button>
-        <button class="menuitem" onclick="openCompare()">Compare this device with the Sheet</button>
-        <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
-        <div class="mini" style="padding:10px 4px 6px">If something looks wrong</div>
-        <button class="menuitem" onclick="verifySync(false)">Verify what reached the Sheet</button>
-        <button class="menuitem" onclick="reconcileWithSheet()">Check what the Sheet already has</button>
         <button class="menuitem" onclick="closeMenu(); kitSync({loud:true});">Project setup — send and fetch now</button>
         <button class="menuitem" onclick="openHouse()">House standard — what every new project starts from</button>
         <button class="menuitem" onclick="openPf()">Project files — layers and PDFs across devices</button>
+        <button class="menuitem" onclick="openTools()">Tree tools — tidy, addresses, downloads</button>
+        <div class="mini" style="padding:10px 4px 6px">If something looks wrong</div>
         <button class="menuitem" onclick="refreshPhotoLinks()">Refresh photo links</button>
         <button class="menuitem" onclick="openDiag('')">Sheet &amp; photo check — why a photo will not load</button>
       </div>
@@ -895,6 +896,7 @@
         <button class="menuitem" onclick="openTppText()">TPP wording &amp; branding</button>
         <button class="menuitem" onclick="openSchedB()">Schedule B — tree photographs (PDF)</button>
         <button class="menuitem" onclick="openDetails()">Standard detail drawings</button>
+        <button class="menuitem" onclick="openVersions()">🗂 Plan versions — save this arrangement, or bring one in</button>
         <button class="menuitem prime" onclick="openDoc()">📄 Assemble the final document — add your arborist report here</button>
       </div>
     </div>
@@ -1063,6 +1065,45 @@
     <div class="stath" style="margin:14px 0 6px">Every legend item</div>
     <div id="legItems"></div>
     <div class="btnrow"><button onclick="closeLegendCfg()">Close</button></div>
+  </div>
+</div>
+
+<!-- ===== plan versions: the whole arrangement, named and dated ===== -->
+<div class="sheet" id="pvSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Plan versions</h2>
+    <div class="hint">A version is everything that shapes the document — wording, branding, layer
+      symbology, the legend, the chosen standard drawings, the notes and arrows, and what the plan
+      draws. Save one and every device on the project can bring in exactly that arrangement, change
+      it, and save a new one. <b>Nothing is ever overwritten.</b></div>
+    <div class="mini" style="margin:8px 0"><b>It is a recipe, not an archive.</b> The trees are not
+      copied into it — they live on the Sheet and are the live job, so a version brought in months
+      later draws the plan the old way from today's trees.</div>
+    <div class="btnrow" style="margin-bottom:10px">
+      <button class="primary" id="pvSave" onclick="pvPublish()">＋ Save a version &amp; send everything up</button>
+      <button onclick="pvRefresh()">Check the folder</button>
+    </div>
+    <div class="mini" id="pvStatus" style="margin:6px 0">—</div>
+
+    <div class="stath" style="margin:14px 0 4px">Ready to hand over?</div>
+    <div id="pvReady"></div>
+    <div class="mini" style="margin:8px 0">Four ticks and anybody on this project can produce
+      the same document. The one button above does all of it — you do not have to send anything
+      separately.</div>
+
+    <div class="stath" style="margin:16px 0 4px">Picking a project up on another device</div>
+    <div class="mini" style="margin-bottom:10px">
+      <b>1.</b> Set <b>Showing</b> to this project.<br>
+      <b>2.</b> Menu → <b>Load trees from Sheet</b>.<br>
+      <b>3.</b> Come back here and tap <b>Bring this in</b> on the version you want. It fetches
+      the layers and the report by itself.<br>
+      <b>4.</b> Menu → <b>Assemble the final document</b>.
+    </div>
+
+    <div class="stath" style="margin:16px 0 4px">Versions</div>
+    <div id="pvList"></div>
+    <div class="btnrow"><button onclick="closeVersions()">Close</button></div>
   </div>
 </div>
 
@@ -1783,9 +1824,9 @@
 <div class="sheet" id="cmpSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
-    <h2>Compare with the Sheet</h2>
+    <h2>This device against the Sheet</h2>
     <div class="idline" id="cmpScope">—</div>
-    <div class="mini">Reads the Sheet and lines it up against this device, tree by tree and field by field. It <b>changes nothing</b> — it tells you what differs and which button puts it right, so you can see for yourself rather than take Sync's word for it.</div>
+    <div class="mini">Reads the Sheet and lines it up against this device, record by record and field by field — <b>the trees, the fences and plantings, the notes and arrows, and the synced marks</b>. Looking <b>changes nothing</b>. It tells you what differs and which button puts it right, and where it can put something right itself the button is here in the report and says how many it would touch.</div>
     <div id="cmpOut" style="margin-top:12px">—</div>
     <div class="btnrow" style="margin-top:14px">
       <button class="primary" onclick="runCompare()">Run it again</button>
@@ -2132,7 +2173,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-27 · v174";
+const APP_BUILD  = "2026-09-28 · v182";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2140,7 +2181,7 @@ const APP_BUILD  = "2026-09-27 · v174";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-26 · v154";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-28 · v156";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5922,7 +5963,13 @@ function nearestTree(lat,lon,ignoreIdx){
 /* ---------- 1. sync verification ----------
    Posts go out in no-cors mode, so a failure at the Sheet end is invisible and the
    app would keep showing everything as synced. This asks the Sheet which IDs it
-   actually holds and un-marks anything that never arrived. */
+   actually holds and un-marks anything that never arrived.
+
+   NO LONGER A MENU ITEM. It runs quietly six seconds after a start, which is where it
+   earns its keep — catching what a previous session only thought it had sent, before
+   anybody asks. On demand the same finding is the first line of Compare's synced-marks
+   section, with the repair as a button and a count beside it. Keep `quiet` honest:
+   the startup call must say nothing when there is nothing to say. */
 function verifySync(quiet){
   if(!connected || isOffline()){ if(!quiet) toast("No connection",true); return; }
   const sent = trees.filter(t=>t._sent);
@@ -8171,6 +8218,7 @@ async function syncEverything(opts){
     // 1 — everything that is not a tree
     flushPhotos(); flushUsers(); flushProjects(); flushSettings();
     flushDomains(); flushInspections(); syncFeats(); flushFeatDeletes();
+    syncAnnots(); flushAnnDeletes();
     kitSync({ loud:false });
 
     // 2 — what the Sheet holds
@@ -8283,6 +8331,20 @@ function cmpFetchRows(){
   });
 }
 
+/* The other two the Sheet now holds. Both routes already return records in the
+   shape the app keeps them in, so the comparison is like with like — nothing is
+   reshaped on the way in, which is where a comparison would otherwise invent
+   differences of its own. */
+function cmpFetchOne(action){
+  return new Promise(res=>{
+    if(!connected || isOffline()) return res(null);
+    jsonpGet(action, (currentProject() && !showAllProjects) ? { project: currentProject() } : {},
+      r => res(r && r.ok ? r : null), 45000);
+  });
+}
+function cmpFetchFeats(){ return cmpFetchOne("featlist").then(r => r ? (r.feats || []) : null); }
+function cmpFetchNotes(){ return cmpFetchOne("notelist").then(r => r ? (r.notes || []) : null); }
+
 /* Two values are the same when they read the same. A number typed as "12" on the
    phone and returned as 12 by the Sheet is not a difference, and neither is a
    trailing space — reporting either would make the report useless within a week.
@@ -8307,18 +8369,96 @@ function cmpSame(a, b, k){
   return false;
 }
 
+/* GEOMETRY IS A VALUE TOO. A fence moved by a metre is a real difference and the one
+   somebody most wants to know about — but a raw float that has been through a
+   spreadsheet cell and back will not equal the one on the phone, so they are compared
+   at six decimal places, which is about a tenth of a metre: finer than anything on a
+   1:250 drawing and coarser than the noise. */
+function cmpPts(a, b){
+  const fix = v => (Array.isArray(v) ? v : []).map(p =>
+    [Number(p && p[0]).toFixed(6), Number(p && p[1]).toFixed(6)].join(","));
+  const A = fix(a), B = fix(b);
+  return A.length === B.length && A.every((x,i)=> x === B[i]);
+}
+
 /* THE COMPARISON ITSELF, with no fetching and no painting in it — given what this
-   device holds and what the Sheet returned, which trees are only here, which are
-   only there, and which they both hold but disagree about. */
-function cmpDiff(mine, rows){
+   device holds and what the Sheet returned, which records are only here, which are
+   only there, and which they both hold but disagree about.
+
+   `spec` says what a record IS for this comparison: how to find its id, which fields
+   to check, and how to name one in a report. Three kinds of record go through it —
+   trees, fences and plantings, notes and arrows — and one implementation is the only
+   way they cannot drift into disagreeing about what "the same" means. */
+const CMP_TREE = { id: r => String((r && r.TREE_ID) || "").trim(),
+                   fields: null,                       // CMP_FIELDS, set below
+                   label: "tree" };
+const CMP_FEAT = { id: r => String((r && r.id) || "").trim(),
+                   fields: ["kind","project","type","length_m","species","stock","pclass",
+                            "address","notes","pts"],
+                   label: "fence, excavation line or planting" };
+const CMP_NOTE = { id: r => String((r && r.id) || "").trim(),
+                   fields: ["kind","project","text","size","bold","color","pts"],
+                   label: "note or arrow" };
+/* THE SYNCED MARK ITSELF, which is what two separate menu items used to be about.
+
+   "Verify what reached the Sheet" and "Check what the Sheet already has" were one
+   question asked in two directions, and both made the SAME request — action=ids. A
+   crew had to work out which of the two they needed before they had been told
+   anything, which is asking somebody to diagnose before they have measured.
+
+   The mark on a tree can be wrong two ways, and only two:
+
+     GHOST — marked sent, and the Sheet has never heard of it. This is the dangerous
+       one: the app believes the work is safe, and because it believes that, no sync
+       will ever send it. It sits there looking finished until the phone is lost.
+
+     LOST MARK — not marked sent, and the Sheet has it already. Harmless to the data
+       and endless in the queue: every sync re-posts it, for ever, and the unsynced
+       count never comes down.
+
+   THE THIRD CASE IS THE ONE THAT MADE THE OLD ITEM DANGEROUS. A tree not marked sent
+   that the Sheet also has may be a lost mark — or it may be a real edit made here
+   after the upload, which is exactly what an unsent mark is for. Marking that as sent
+   would stop the edit ever reaching the Sheet. reconcileWithSheet had only the ids to
+   go on, so it could not tell the two apart and had to put the judgement back on the
+   user in a confirm box.
+
+   Here that is not necessary, because the comparison has already read the values. A
+   tree whose fields all match the Sheet carries no edit to lose; one whose fields
+   differ does, and is held back and reported separately rather than offered up. That
+   is the whole reason these belong inside the report and not beside it.
+
+   SCOPE IS INHERITED, and that matters more than it looks. The 592-of-750 fault came
+   from asking the Sheet about one project and then testing every tree on the device
+   against the answer. Here the set tested is `mine` and the set asked for is the rows
+   Compare fetched, which are scoped identically by construction — the two cannot come
+   apart the way they did. */
+function cmpFlags(mine, rows, differ){
+  const have = {};
+  (rows || []).forEach(r => { const id = CMP_TREE.id(r); if(id) have[id] = 1; });
+  const edited = {};
+  (differ || []).forEach(d => { edited[d.id] = 1; });
+  const ghost = [], lost = [], held = [];
+  (mine || []).forEach(t => {
+    const id = CMP_TREE.id(t); if(!id) return;
+    if(t._sent && !have[id]) ghost.push(t);
+    else if(!t._sent && have[id]) (edited[id] ? held : lost).push(t);
+  });
+  return { ghost, lost, held };
+}
+
+function cmpDiff(mine, rows, spec){
+  spec = spec || CMP_TREE;
+  const fields = spec.fields || CMP_FIELDS;
+  const getId = spec.id;
   const byId = {}, sheetById = {};
-  (mine||[]).forEach(t => { const id = String(t.TREE_ID||"").trim(); if(id) byId[id] = t; });
-  (rows||[]).forEach(r => { const id = String(r.TREE_ID||"").trim(); if(id) sheetById[id] = r; });
+  (mine||[]).forEach(t => { const id = getId(t); if(id) byId[id] = t; });
+  (rows||[]).forEach(r => { const id = getId(r); if(id) sheetById[id] = r; });
   const onlyHere = [], onlySheet = [], differ = [];
   Object.keys(byId).forEach(id=>{
     const t = byId[id], r = sheetById[id];
     if(!r){ onlyHere.push(t); return; }
-    const bad = CMP_FIELDS.filter(k => !cmpSame(t[k], r[k], k));
+    const bad = fields.filter(k => k === "pts" ? !cmpPts(t[k], r[k]) : !cmpSame(t[k], r[k], k));
     if(bad.length) differ.push({ id:id, fields:bad, mine:t, sheet:r });
   });
   Object.keys(sheetById).forEach(id=>{ if(!byId[id]) onlySheet.push(sheetById[id]); });
@@ -8331,79 +8471,227 @@ async function runCompare(){
   $("cmpScope").textContent = "Comparing: " + scope;
   if(!connected){ out.innerHTML = diagLine("bad", "No Sheet address is set", "Nothing can be compared."); return; }
   if(isOffline()){ out.innerHTML = diagLine("bad", "This device is offline", "Reconnect and run it again."); return; }
-  out.innerHTML = `<div class="mini">Asking the Sheet for its rows…</div>`;
+  out.innerHTML = `<div class="mini">Asking the Sheet…</div>`;
 
-  const rows = await cmpFetchRows();
+  /* ALL THREE, not just the trees. Fences, excavation lines, plantings, notes and
+     arrows are all synced data now, and a report that checked a third of the job
+     while showing three green ticks would be worse than no report — it would be a
+     clean bill of health for something nobody had looked at. */
+  const rows  = await cmpFetchRows();
   if(!rows){
     out.innerHTML = diagLine("bad", "The Sheet did not answer",
       "Nothing has been changed. Try again, and if it keeps happening run " +
       "<b>Sheet &amp; photo check</b> — it will say whether the deployment is reachable at all.");
     return;
   }
+  out.innerHTML = `<div class="mini">Asking the Sheet — the fences and the notes…</div>`;
+  const sFeats = await cmpFetchFeats();
+  const sNotes = await cmpFetchNotes();
 
-  const mine = trees.filter(inCurrentProject);
-  const d = cmpDiff(mine, rows);
-  const onlyHere = d.onlyHere, onlySheet = d.onlySheet, differ = d.differ;
+  const mine  = trees.filter(inCurrentProject);
+  const mineF = (typeof featsIn === "function") ? featsIn() : [];
+  const mineN = (typeof annMine === "function") ? annMine() : [];
 
-  cmpResult = { onlyHere, onlySheet, differ, scope, rows:rows.length, mine:mine.length };
+  const dT = cmpDiff(mine,  rows,   CMP_TREE);
+  const dF = sFeats ? cmpDiff(mineF, sFeats, CMP_FEAT) : null;
+  const dN = sNotes ? cmpDiff(mineN, sNotes, CMP_NOTE) : null;
+
+  const fl = cmpFlags(mine, rows, dT.differ);
+
+  cmpResult = { onlyHere:dT.onlyHere, onlySheet:dT.onlySheet, differ:dT.differ,
+                feats:dF, notes:dN, flags:fl,
+                scope:scope, rows:rows.length, mine:mine.length };
 
   const h = [];
-  h.push(diagLine("ok", `${mine.length} tree(s) on this device · ${rows.length} on the Sheet`,
+  h.push(diagLine("ok", `${mine.length} ${mine.length === 1 ? "tree" : "trees"} on this device · ` +
+                        `${rows.length} on the Sheet`,
                   esc(scope === "every project" ? "Showing is set to all projects." : "Project: " + scope)));
+  h.push(cmpSection(dT, CMP_TREE, "tree", "trees",
+                    "<b>Tap Sync</b> — this is exactly what it is for. If they are still here " +
+                    "after a sync, run <b>Sheet &amp; photo check</b>.",
+                    "Recorded on another device, or never downloaded here. " +
+                    "<b>Menu → Load trees from Sheet</b> brings them down.",
+                    d => cmpDiffRow(d)));
 
-  /* EACH FINDING SAYS WHAT TO DO ABOUT IT. A report that tells you something is
-     wrong and leaves you to work out which button fixes it is half a report. */
-  h.push(onlyHere.length
-    ? diagLine("bad", `${onlyHere.length} tree(s) are on this device and NOT on the Sheet`,
-        cmpList(onlyHere.map(t=>t.TREE_ID)) +
-        `<br><b>Tap Sync</b> — this is exactly what it is for. If they are still here ` +
-        `after a sync, run <b>Sheet &amp; photo check</b>.`)
-    : diagLine("ok", "Every tree on this device is on the Sheet", ""));
+  h.push(`<div class="stath" style="margin:14px 0 4px">Fences, excavation lines and plantings</div>`);
+  h.push(dF
+    ? cmpSection(dF, CMP_FEAT, "fence, excavation line or planting",
+                 "fences, excavation lines and plantings",
+                 "<b>Tap Sync</b> — they go up with the trees.",
+                 "Drawn on another device. <b>Menu → Load trees from Sheet</b> brings them down.",
+                 d => cmpDiffRow(d, f => f.type || f.species || f.kind))
+    : diagLine("bad", "The Sheet could not be asked about them",
+               "The deployment may be behind — run <b>Sheet &amp; photo check</b>."));
 
-  h.push(onlySheet.length
-    ? diagLine("bad", `${onlySheet.length} tree(s) are on the Sheet and NOT on this device`,
-        cmpList(onlySheet.map(r=>r.TREE_ID)) +
-        `<br>Recorded on another device, or never downloaded here. ` +
-        `<b>Menu → Load trees from Sheet</b> brings them down.`)
-    : diagLine("ok", "Every tree on the Sheet is on this device", ""));
+  h.push(`<div class="stath" style="margin:14px 0 4px">Notes and arrows</div>`);
+  h.push(dN
+    ? cmpSection(dN, CMP_NOTE, "note or arrow", "notes and arrows",
+                 "<b>Tap Sync</b> — they go up with the trees.",
+                 "Drawn on another device. <b>Menu → Load trees from Sheet</b> brings them down.",
+                 d => cmpDiffRow(d, a => a.text || a.kind))
+    : diagLine("bad", "The Sheet could not be asked about them",
+               "The deployment may be behind — run <b>Sheet &amp; photo check</b>."));
 
-  if(!differ.length){
-    h.push(diagLine("ok", "Every field matches on every tree they share", ""));
+  h.push(`<div class="stath" style="margin:14px 0 4px">The synced marks</div>`);
+  h.push(cmpFlagSection(fl));
+
+  out.innerHTML = h.join("");
+}
+
+/* The two repairs, offered only where there is something to repair, and each one
+   saying how many trees it would touch before it is pressed. */
+function cmpFlagSection(fl){
+  /* The rest of the report counts in proper English — "1 tree holds", "2 trees hold" —
+     and a section that did not would read as bolted on, which is what it would be. */
+  const n = (a, one, many) => `${a.length} ${a.length === 1 ? one : many}`;
+  const h = [];
+  h.push(fl.ghost.length
+    ? diagLine("bad", `${n(fl.ghost, "tree is", "trees are")} marked as sent but NOT on the Sheet`,
+        cmpList(fl.ghost.map(CMP_TREE.id)) +
+        `<br>This is the finding worth acting on. Nothing will send ` +
+        `${fl.ghost.length === 1 ? "it" : "them"} while the mark says it is already ` +
+        `there, so ${fl.ghost.length === 1 ? "it" : "they"} will sit here looking finished.` +
+        `<div class="btnrow" style="margin-top:8px"><button class="primary" ` +
+        `onclick="cmpQueueGhosts()">Put ${fl.ghost.length === 1 ? "it" : `the ${fl.ghost.length}`}` +
+        ` back in the queue</button></div>`)
+    : diagLine("ok", "Every tree marked as sent really is on the Sheet", ""));
+
+  h.push(fl.lost.length
+    ? diagLine("bad", `${n(fl.lost, "tree is", "trees are")} queued to send, but the Sheet has ` +
+        `${fl.lost.length === 1 ? "it" : "them"} already`,
+        cmpList(fl.lost.map(CMP_TREE.id)) +
+        `<br>Every field matches the Sheet, so there is no edit here to lose — the mark ` +
+        `was dropped, and every sync re-posts ${fl.lost.length === 1 ? "it" : "them"}.` +
+        `<div class="btnrow" style="margin-top:8px"><button class="primary" ` +
+        `onclick="cmpClearLost()">Mark ${fl.lost.length === 1 ? "it" : `the ${fl.lost.length}`}` +
+        ` as already sent</button></div>`)
+    : diagLine("ok", "Nothing is queued that the Sheet already has", ""));
+
+  /* NOT offered as a fix, on purpose — see the note above cmpFlags. */
+  if(fl.held.length)
+    h.push(diagLine("warn", `${n(fl.held, "tree is", "trees are")} queued and ` +
+      `${fl.held.length === 1 ? "DOES" : "DO"} differ from the Sheet`,
+      cmpList(fl.held.map(CMP_TREE.id)) +
+      `<br>${fl.held.length === 1 ? "This is" : "These are"} left alone. A queued tree ` +
+      `whose values differ is an edit made here ` +
+      `that has not gone up yet, and marking it sent would throw that edit away. ` +
+      `<b>Tap Sync</b> and ${fl.held.length === 1 ? "up it goes" : "up they go"}.`));
+  return h.join("");
+}
+
+function cmpQueueGhosts(){
+  const list = (cmpResult && cmpResult.flags && cmpResult.flags.ghost) || [];
+  if(!list.length) return;
+  list.forEach(t => { t._sent = false; });
+  persistTrees(); renderPins();
+  toast(`${list.length} tree(s) back in the queue — tap Sync`);
+  runCompare();
+}
+
+function cmpClearLost(){
+  const list = (cmpResult && cmpResult.flags && cmpResult.flags.lost) || [];
+  if(!list.length) return;
+  list.forEach(markSent);
+  persistTrees(); renderPins();
+  toast(`${list.length} tree(s) marked as already sent`);
+  runCompare();
+}
+
+/* One kind of record's three findings, worded for that kind. Each says what to do
+   about it — a report that tells you something is wrong and leaves you to work out
+   which button fixes it is half a report. */
+function cmpSection(d, spec, one, many, fixHere, fixThere, rowFn){
+  const h = [];
+  h.push(d.onlyHere.length
+    ? diagLine("bad", `${d.onlyHere.length} ${d.onlyHere.length===1?one:many} on this device and NOT on the Sheet`,
+        cmpList(d.onlyHere.map(spec.id)) + "<br>" + fixHere)
+    : diagLine("ok", `Every ${one} on this device is on the Sheet`, ""));
+  h.push(d.onlySheet.length
+    ? diagLine("bad", `${d.onlySheet.length} ${d.onlySheet.length===1?one:many} on the Sheet and NOT on this device`,
+        cmpList(d.onlySheet.map(spec.id)) + "<br>" + fixThere)
+    : diagLine("ok", `Every ${one} on the Sheet is on this device`, ""));
+  if(!d.differ.length){
+    h.push(diagLine("ok", `Every field matches on every ${one} they share`, ""));
   } else {
     const tally = {};
-    differ.forEach(d => d.fields.forEach(k => tally[k] = (tally[k]||0)+1));
+    d.differ.forEach(x => x.fields.forEach(k => tally[k] = (tally[k]||0)+1));
     const named = Object.keys(tally).sort((a,b)=>tally[b]-tally[a])
-                        .map(k => `${prettyField(k)} (${tally[k]})`).join(", ");
-    h.push(diagLine("bad", `${differ.length} tree(s) hold different values here and on the Sheet`,
+                        .map(k => `${cmpFieldName(k)} (${tally[k]})`).join(", ");
+    h.push(diagLine("bad", `${d.differ.length} ${d.differ.length===1?one:many} ` +
+      `${d.differ.length===1?"holds":"hold"} different values here and on the Sheet`,
       esc(named) +
-      `<br><br>Which is right depends on where the edit was made. A tree edited in the ` +
+      `<br><br>Which is right depends on where the edit was made. One edited in the ` +
       `<b>Sheet</b> should take the Sheet's value; one edited <b>here</b> and not yet sent ` +
       `should keep this device's. The list below says which of the two this device believes ` +
       `it has already sent — those are the ones a pull will overwrite.`));
-    h.push(`<div style="margin-top:10px">${differ.slice(0,40).map(cmpDiffRow).join("")}</div>`);
-    if(differ.length > 40) h.push(`<div class="mini">…and ${differ.length-40} more.</div>`);
+    h.push(`<div style="margin-top:10px">${d.differ.slice(0,40).map(rowFn).join("")}</div>`);
+    if(d.differ.length > 40) h.push(`<div class="mini">…and ${d.differ.length-40} more.</div>`);
   }
-  out.innerHTML = h.join("");
+  return h.join("");
 }
 
 function cmpList(ids){
   const shown = ids.slice(0, 12).map(esc).join(", ");
   return `<code>${shown}</code>` + (ids.length > 12 ? ` …and ${ids.length-12} more` : "");
 }
-function cmpDiffRow(d){
-  const rows = d.fields.slice(0, 6).map(k=>
-    `<div style="display:flex;gap:6px;padding:2px 0">
-       <span style="flex:0 0 40%"><b>${esc(prettyField(k))}</b></span>
-       <span style="flex:1">here <i>${esc(String(d.mine[k] == null ? "" : d.mine[k])) || "—"}</i>
-             · Sheet <i>${esc(String(d.sheet[k] == null ? "" : d.sheet[k])) || "—"}</i></span>
-     </div>`).join("");
+/* `name` gives a record something readable beside its id — a fence's type, a note's
+   words — because "F1K3J9A" tells nobody which fence is being talked about. */
+function cmpVal(v){
+  if(Array.isArray(v)) return v.length + " point" + (v.length === 1 ? "" : "s");
+  if(typeof v === "boolean") return v ? "yes" : "no";
+  return String(v == null ? "" : v);
+}
+/* WHY TWO GEOMETRIES DIFFER, in words. "here 2 points · Sheet 2 points" is true and
+   tells nobody anything: the counts are equal and the line has MOVED, which is the
+   one thing worth saying. Measured on the ground, because a fence eight metres out
+   is a different fence and a fence a hand's width out is a redraw. */
+function cmpPtsWhy(a, b){
+  const A = Array.isArray(a) ? a : [], B = Array.isArray(b) ? b : [];
+  if(A.length !== B.length) return `${A.length} point(s) here, ${B.length} on the Sheet`;
+  if(!A.length) return "no position either side";
+  let worst = 0;
+  for(let i = 0; i < A.length; i++){
+    const d = distM(+A[i][0], +A[i][1], +B[i][0], +B[i][1]);
+    if(isFinite(d) && d > worst) worst = d;
+  }
+  /* Drawn the other way round is the same line on paper and a different arrow: the
+     head is at the far end. Worth naming rather than reporting as a large move. */
+  if(A.length > 1){
+    const rev = B.slice().reverse();
+    let same = true;
+    for(let i = 0; i < A.length && same; i++){
+      const d = distM(+A[i][0], +A[i][1], +rev[i][0], +rev[i][1]);
+      if(!isFinite(d) || d > 0.2) same = false;
+    }
+    if(same) return "the same line, drawn the other way round";
+  }
+  return worst < 1 ? `moved about ${worst.toFixed(1)} m`
+                   : `moved about ${Math.round(worst)} m`;
+}
+/* prettyField knows the TREE columns. A fence and a note have fields of their own,
+   and "Pts" printed as a heading tells nobody anything. */
+const CMP_NAMES = { pts:"Where it is", kind:"Kind", type:"Type", length_m:"Length (m)",
+                    species:"Species", stock:"Stock size", pclass:"Planting class",
+                    text:"Wording", size:"Text size", bold:"Bold", color:"Colour",
+                    project:"Project", address:"Address", notes:"Notes" };
+function cmpFieldName(k){ return CMP_NAMES[k] || prettyField(k); }
+function cmpDiffRow(d, name){
+  const rows = d.fields.slice(0, 6).map(k=>{
+    const said = (k === "pts")
+      ? esc(cmpPtsWhy(d.mine[k], d.sheet[k]))
+      : `here <i>${esc(cmpVal(d.mine[k])) || "—"}</i> · Sheet <i>${esc(cmpVal(d.sheet[k])) || "—"}</i>`;
+    return `<div style="display:flex;gap:6px;padding:2px 0">
+       <span style="flex:0 0 40%"><b>${esc(cmpFieldName(k))}</b></span>
+       <span style="flex:1">${said}</span>
+     </div>`; }).join("");
   const more = d.fields.length > 6 ? `<div class="mini">…and ${d.fields.length-6} more field(s)</div>` : "";
   /* "Sent" is this device's own belief, and it is what decides whether a pull will
      take the Sheet's value over this one — so it is the fact worth printing. */
   const state = d.mine._sent
-    ? `<span class="mini">this device believes it has sent this tree — a pull WILL overwrite it</span>`
+    ? `<span class="mini">this device believes it has sent this one — a pull WILL overwrite it</span>`
     : `<span class="mini">this device has an unsent edit — a pull will NOT overwrite it, a sync will send it</span>`;
-  return `<div class="annrow"><b>${esc(d.id)}</b><br>${rows}${more}${state}</div>`;
+  const who = name ? (" — " + esc(String(name(d.mine) || "").slice(0, 40))) : "";
+  return `<div class="annrow"><b>${esc(d.id)}</b>${who}<br>${rows}${more}${state}</div>`;
 }
 
 
@@ -8414,7 +8702,9 @@ function cmpDiffRow(d){
 function syncPending(){
   return trees.filter(t=>!t._sent).length +
          (typeof feats !== "undefined" ? feats.filter(f=>!f._sent).length : 0) +
-         (typeof featDeletes !== "undefined" ? featDeletes.length : 0);
+         (typeof featDeletes !== "undefined" ? featDeletes.length : 0) +
+         (typeof annots !== "undefined" ? annots.filter(a=>a && !a._sent).length : 0) +
+         (typeof annDeletes !== "undefined" ? annDeletes.length : 0);
 }
 const AUTO_SYNC_MS = 4 * 60 * 1000;
 function autoSyncTick(){
@@ -8431,55 +8721,14 @@ function startAutoSync(){
 }
 /* Verifies what actually landed and automatically re-sends the rest. Runs a couple of
    passes: a chunk that failed on a busy Sheet usually succeeds on the retry. */
-/* Reconciling the other way.
-
-   verifyAndRetry only ever looked at trees ALREADY MARKED SENT, asking whether the
-   Sheet still had them. It never asked the opposite question — is a tree marked
-   unsynced in fact already on the Sheet? — so a row that uploaded successfully but
-   whose flag was never cleared stayed "unsynced" for good, and every later sync
-   re-posted it.
-
-   Deliberate rather than automatic, because an unsynced flag can also mean a real
-   local edit made after the upload. Marking that as sent would stop the edit ever
-   reaching the Sheet, so the count is shown and the decision is the user's. */
-function reconcileWithSheet(){
-  closeMenu();
-  if(!connected || isOffline()){ toast("Needs a connection",true); return; }
-  const cb="__rc"+Date.now(), sep=SCRIPT_URL.indexOf("?")>=0?"&":"?";
-  const sc=document.createElement("script");
-  const cleanup=()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
-                      if(sc.parentNode) sc.parentNode.removeChild(sc); };
-  setStatus("Asking the Sheet what it already has…");
-  window[cb]=resp=>{
-    try{
-      const have={}; ((resp&&resp.ids)||[]).forEach(id=>have[String(id).trim()]=1);
-      const pending = trees.filter(t=>!t._sent);
-      const onSheet = pending.filter(t=>have[t.TREE_ID]);
-      const notThere = pending.length - onSheet.length;
-      setStatus(`${visibleTrees().length} trees on device`);
-      if(!pending.length){ toast("Nothing was waiting to sync"); cleanup(); return; }
-      if(!onSheet.length){
-        toast(`${pending.length} tree(s) really are missing from the Sheet — tap Sync`,true);
-        cleanup(); return;
-      }
-      if(confirm(`${onSheet.length} of the ${pending.length} tree(s) marked unsynced are already on the Sheet.\n\n` +
-        `Mark them as synced?\n\n` +
-        `Only do this if you have not edited them since. Any edit made after they were ` +
-        `uploaded would stop being sent.` +
-        (notThere ? `\n\n${notThere} genuinely missing tree(s) stay queued.` : ""))){
-        onSheet.forEach(markSent);
-        persistTrees();
-        renderPins();          // the header count is written here
-        toast(`${onSheet.length} marked as synced` + (notThere?` · ${notThere} still queued`:""));
-      }
-    }catch(e){ toast("Could not read the Sheet",true); }
-    cleanup();
-  };
-  sc.onerror=()=>{ setStatus(`${visibleTrees().length} trees on device`);
-                   toast("Could not reach the Sheet",true); cleanup(); };
-  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
-  document.body.appendChild(sc);
-}
+/* reconcileWithSheet USED TO LIVE HERE, as a menu item of its own beside
+   "Verify what reached the Sheet". Both asked action=ids and both repaired the same
+   flag in opposite directions, so a crew had to work out which of the two they needed
+   before anything had told them. Both are findings inside Compare now, which already
+   reads the Sheet and already carries the scope — and, unlike this function, knows the
+   VALUES, so it can tell a dropped mark from a real unsent edit rather than putting
+   that judgement back on the user in a confirm box. See cmpFlags.
+   DO NOT PUT EITHER BACK ON THE MENU. */
 
 function verifyAndRetry(pass){
   if(!connected || isOffline()) return;
@@ -8532,6 +8781,8 @@ function verifyAndRetry(pass){
 function pullFromSheet(){
   closeMenu();
   kitSync({ loud:false });          // a device joining a job wants the setup with it
+  fetchFeats();                     // the fences, excavation lines and plantings
+  fetchAnnots();                    // and the notes drawn on it
   /* And wants to be TOLD about the layers and the report, which are too large to
      come down uninvited. A device pulling a job it has never held is exactly the
      moment that matters. */
@@ -10354,6 +10605,14 @@ function annSizeIn(code){
   return r ? r[1] : 0.14;
 }
 let annots = [], annLayer = null, annMode = null, annPts = [], annTmp = [];
+/* DELETED ONES HAVE TO TRAVEL TOO. A note removed here and not removed on the Sheet
+   comes straight back on the next pull, which reads as the app ignoring you. The
+   queue is the same one the fences use: taken off before sending and put back if
+   the send fails, so two quick taps cannot send the same deletion twice. */
+const ANNDELKEY = "st_anndel";
+let annDeletes = [];
+try{ annDeletes = JSON.parse((STORE && STORE.getItem(ANNDELKEY)) || "[]") || []; }catch(e){ annDeletes = []; }
+function persistAnnDeletes(){ if(STORE){ try{ STORE.setItem(ANNDELKEY, JSON.stringify(annDeletes)); }catch(e){} } }
 
 function annLoad(){
   annots = [];
@@ -10365,6 +10624,9 @@ function annSave(){
   if(!STORE) return;
   try{ STORE.setItem(ANNKEY, JSON.stringify(annots)); }catch(e){}
 }
+/* Marking one changed is separate from saving, because a note arriving FROM the
+   Sheet must not be queued straight back up to it. */
+function annTouched(a){ if(a){ a._sent = false; a.by = a.by || settings.cruiser || ""; a.date = nowStr(); } }
 /* The project's own, like everything else that is drawn: opening another job must
    not bring the last one's notes with it. */
 function annMine(){
@@ -10541,12 +10803,14 @@ function cancelAnnot(){
 function annCommit(){
   if(annMode === "arrow" && annPts.length < 2){ toast("An arrow needs two taps", true); return; }
   if(!annPts.length){ cancelAnnot(); return; }
-  const a = { id:"A" + Date.now().toString(36).toUpperCase(),
+  const a = { id:"A" + Date.now().toString(36).toUpperCase() +
+                  Math.floor(Math.random()*1296).toString(36).toUpperCase(),
               project: currentProject(), kind: annMode,
               pts: annPts.slice(), text: annMode === "text" ? "" : "",
-              size: "m", bold: false, color: "#D32F2F" };
+              size: "m", bold: false, color: "#D32F2F",
+              by: settings.cruiser || "", date: nowStr(), _sent: false };
   annots.push(a);
-  annSave();
+  annSave(); updateSubLine();
   const wasText = annMode === "text";
   cancelAnnot();
   renderAnnots();
@@ -10595,7 +10859,7 @@ function renderAnnList(){
 }
 function annTouch(id, fn){
   const a = annById(id); if(!a) return;
-  fn(a); annSave(); renderAnnots();
+  fn(a); annTouched(a); annSave(); renderAnnots(); updateSubLine();
 }
 function annSetText(id, v){ annTouch(id, a => a.text = v); }
 function annSetSize(id, v){ annTouch(id, a => a.size = v); }
@@ -10611,7 +10875,10 @@ function annDelete(id){
   const a = annById(id); if(!a) return;
   if(!confirm(a.kind === "arrow" ? "Delete this arrow?" : "Delete this note?")) return;
   annots = annots.filter(x => x !== a);
-  annSave(); renderAnnots(); renderAnnList();
+  /* Only one that REACHED the Sheet needs deleting from it. */
+  if(a._sent){ annDeletes.push(a.id); persistAnnDeletes(); }
+  annSave(); renderAnnots(); renderAnnList(); updateSubLine();
+  if(connected && !isOffline()) flushAnnDeletes();
 }
 
 /* ================================================================== *
@@ -11395,6 +11662,110 @@ function syncFeats(){
     .then(()=>{ pending.forEach(f=>f._sent=true); persistFeats(); updateSubLine(); })
     .catch(()=>{});
 }
+/* AND THE FENCES COME BACK DOWN.
+
+   Chris: "When a user makes an edit to the tree protection layers, such as fencing,
+   root sensitive excavation, plantings — are these edits available for other users
+   to see?"
+
+   They were not. syncFeats has written them to the Sheet since the beginning and
+   featRows_ has read them back — but only ever to BUILD something: a GeoJSON, a
+   shapefile, the emailed package. Nothing handed them to the app. So they were
+   upload-only, and a second device drew a tree protection plan with no protection
+   on it: no fence, no excavation lines, no proposed plantings, and a legend saying
+   0 m of everything.
+
+   The merge is the one the notes use, for the same four reasons — an unsent local
+   edit wins, an arriving record is not queued straight back up, a deletion this
+   device has not managed to report yet does not come back, and nothing touches
+   another project. */
+function fetchFeats(){
+  if(!connected || isOffline()) return;
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects) return;
+  jsonpGet("featlist", { project: project }, r=>{
+    if(!r || !r.ok || !Array.isArray(r.feats)) return;
+    const pendingDel = {};
+    (featDeletes || []).forEach(d => { const id = String((d && d.id) || d || "").trim();
+                                       if(id) pendingDel[id] = 1; });
+    let added = 0, kept = 0;
+    r.feats.forEach(n=>{
+      const id = String(n.id || "").trim();
+      if(!id || pendingDel[id]) return;
+      const at = feats.findIndex(f => f && String(f.id) === id);
+      if(at < 0){ feats.push(Object.assign({}, n, { _sent:true })); added++; return; }
+      if(feats[at]._sent) feats[at] = Object.assign({}, n, { _sent:true });
+      else kept++;
+    });
+    if(added || kept){ persistFeats(); renderFeats(); buildLegend(); updateSubLine(); }
+    if(added) toast(added + " fence, excavation or planting came down from the Sheet");
+  }, 45000);
+}
+
+/* NOTES AND ARROWS GO TO THE SHEET LIKE THE FENCES DO.
+
+   Chris: "Does the saved data include the text and arrows added to the map?"
+
+   They did — but only inside a plan version, which meant that between versions they
+   were the one thing on a plan that was not backed up anywhere. A lost phone lost
+   them, and Compare with the Sheet could not see them, because that screen only
+   knows about trees. Now they sync on the same four-minute tick as everything else.
+
+   THE PAYLOAD IS BUILT, NOT THE RECORD POSTED RAW — the same rule the fences follow.
+   Posting the object would send the phone's own _sent flag to the Sheet and would
+   send whatever a record happened to be missing; every field the Sheet reads is
+   named here, so a gap is a gap in one place. */
+function syncAnnots(){
+  if(isOffline() || !connected) return;
+  const pending = annots.filter(a => a && !a._sent);
+  if(!pending.length) return;
+  const rows = pending.map(a => ({
+    id: a.id, project: a.project || "", kind: a.kind || "text",
+    text: a.text || "", size: a.size || "m", bold: !!a.bold,
+    color: a.color || "", pts: a.pts || [],
+    by: a.by || "", date: a.date || ""
+  }));
+  fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({ _action:"notes", rows: rows }) })
+    .then(()=>{ pending.forEach(a=> a._sent = true); annSave(); updateSubLine(); })
+    .catch(()=>{});
+}
+function flushAnnDeletes(){
+  if(isOffline() || !connected || !annDeletes.length) return;
+  const batch = annDeletes.slice();
+  annDeletes = []; persistAnnDeletes();
+  fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body: JSON.stringify({ _action:"notedel", ids: batch }) })
+    .then(()=>{ updateSubLine(); })
+    .catch(()=>{ annDeletes = batch.concat(annDeletes); persistAnnDeletes(); });
+}
+/* Bringing down what another device drew. A note this phone has an UNSENT edit on is
+   left alone — the phone in hand is the newer truth, which is the rule the trees
+   follow — and one this phone deleted but has not managed to tell the Sheet about
+   yet must not come back. */
+function fetchAnnots(){
+  if(!connected || isOffline()) return;
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects) return;
+  jsonpGet("notelist", { project: project }, r=>{
+    if(!r || !r.ok || !Array.isArray(r.notes)) return;
+    const pendingDel = {}; annDeletes.forEach(id => pendingDel[id] = 1);
+    let added = 0, kept = 0;
+    r.notes.forEach(n=>{
+      const id = String(n.id || "").trim();
+      if(!id || pendingDel[id]) return;
+      const at = annots.findIndex(a => a && a.id === id);
+      if(at < 0){ annots.push(Object.assign({}, n, { _sent:true })); added++; return; }
+      if(annots[at]._sent) annots[at] = Object.assign({}, n, { _sent:true });
+      else kept++;
+    });
+    if(added || kept){ annSave(); renderAnnots(); }
+    if(added) toast(added + " note(s) or arrow(s) came down from the Sheet");
+  }, 45000);
+}
+
 function flushFeatDeletes(){
   if(isOffline() || !connected || !featDeletes.length) return;
   // Taken off the queue before sending and put back if the send fails, so two quick
@@ -13901,6 +14272,21 @@ async function uploadDetail(rec, fullDataUrl){
    The only honest way to know a drawing reached the Sheet is to ask the Sheet
    afterwards. That is what this does, and it is also the repair for a library that
    was only ever on one device. */
+/* THE SENDING ITSELF, with no screen in it, so the library's button and the
+   one-button handover share an implementation. Paced, because the reply to a
+   no-cors post cannot be read and a dozen parts fired at once reassemble with
+   holes — the fault that lost nine drawings at v167. */
+async function detailSendCore(list, say){
+  let tried = 0;
+  for(const d of list){
+    tried++;
+    if(say) say(`Sending ${d.name} — ${tried} of ${list.length}…`);
+    const full = await idbGetDetail("detail:" + d.id).then(r => r && r.data).catch(()=>null);
+    if(!full) continue;                         // the picture is not here to send
+    try{ await uploadDetail(d, full); }catch(e){}
+  }
+  return tried;
+}
 async function detailSendMissing(){
   if(detailBusy){ toast("Still busy", true); return; }
   if(!connected || isOffline()){ toast("Needs a connection", true); return; }
@@ -13914,18 +14300,8 @@ async function detailSendMissing(){
   const mine = detailLib.filter(d => d && d.notSent);
   if(!mine.length){ toast("Everything here is already on the Sheet"); return; }
   detailBusy = true; $("detailBusy").style.display = "block";
-  let tried = 0;
-  try{
-    for(const d of mine){
-      tried++;
-      $("detailBusy").textContent = `Sending ${d.name} — ${tried} of ${mine.length}…`;
-      const full = await idbGetDetail("detail:" + d.id).then(r => r && r.data).catch(()=>null);
-      if(!full) continue;                       // the picture is not here to send
-      try{ await uploadDetail(d, full); }catch(e){}
-    }
-  } finally {
-    detailBusy = false; $("detailBusy").style.display = "none";
-  }
+  const tried = await detailSendCore(mine, m => { $("detailBusy").textContent = m; });
+  detailBusy = false; $("detailBusy").style.display = "none";
   /* Asked, not assumed. */
   $("detailBusy").style.display = "block";
   $("detailBusy").textContent = "Checking what reached the Sheet…";
@@ -15584,7 +15960,7 @@ function pfInstall(item, text){
 
 /* ---- the screen ---- */
 let pfItems = null, pfBusy = false, pfNote = "";
-function openPf(){ closeMenu(); pfItems = null; pfNote = ""; renderPf(); $("pfSheet").classList.add("show"); pfRefresh(); }
+function openPf(){ closeMenu(); pvPfClear(); pfNote = ""; renderPf(); $("pfSheet").classList.add("show"); pfRefresh(); }
 function closePf(){ $("pfSheet").classList.remove("show"); backToMenu(); }
 function pfSay(m){ pfNote = m; const el = $("pfStatus"); if(el) el.textContent = m; }
 
@@ -15595,7 +15971,7 @@ function pfRefresh(){
   pfSay("Checking " + project + "…");
   jsonpGet("pflist", { project:project }, r=>{
     if(!r || !r.ok){ pfSay("The Sheet did not answer."); return; }
-    pfItems = r.items || [];
+    pvPfTake(r.items, project);
     renderPf();
     const miss = pfMissingHere().length, up = pfNotSent().length;
     pfSay(pfItems.length
@@ -15616,32 +15992,36 @@ function pfNotSent(){
   return pfLocalItems().filter(it=> !onSheet[it.kind + "~" + it.ref]);
 }
 
+/* THE SENDING ITSELF, with no screen in it, so the Project files button and the
+   one-button handover can share an implementation rather than drifting apart. */
+function pfSendAllCore(project, say){
+  /* Everything local, not only what is missing — re-sending is how a layer you
+     restyled or a report you replaced reaches the other device at all. */
+  const list = pfLocalItems();
+  if(!list.length) return Promise.resolve({ sent:0, of:0, failed:[] });
+  let done = 0; const failed = [];
+  const step = ()=>{
+    if(done >= list.length) return Promise.resolve({ sent:list.length - failed.length, of:list.length, failed:failed });
+    const it = list[done];
+    return pfPutItem(project, it, (x, p, n)=> say(`Sending ${x.label} — part ${p} of ${n}`))
+      .then(()=>{ done++; return step(); })
+      .catch(err=>{ failed.push(it.label + ": " + String((err && err.message) || err).slice(0,60));
+                    done++; return step(); });
+  };
+  return step();
+}
 function pfSendAll(){
   const project = String(currentProject() || "").trim();
   if(!project || showAllProjects){ toast("Set Showing to one project first", true); return; }
   if(pfBusy) return;
-  /* Everything local, not only what is missing — re-sending is how a layer you
-     restyled or a report you replaced reaches the other device at all. */
-  const list = pfLocalItems();
-  if(!list.length){ pfSay("Nothing on this device to send."); return; }
+  if(!pfLocalItems().length){ pfSay("Nothing on this device to send."); return; }
   pfBusy = true; renderPf();
-  let done = 0; const failed = [];
-  const step = ()=>{
-    if(done >= list.length){
-      pfBusy = false;
-      pfSay(failed.length ? ("Sent " + (list.length - failed.length) + " of " + list.length +
-                             " · " + failed.join(" · "))
-                          : ("Sent " + list.length + " to the project folder."));
-      pfRefresh();
-      return;
-    }
-    const it = list[done];
-    pfPutItem(project, it, (x, p, n)=> pfSay(`Sending ${x.label} — part ${p} of ${n}`))
-      .then(()=>{ done++; step(); })
-      .catch(err=>{ failed.push(it.label + ": " + String((err && err.message) || err).slice(0,60));
-                    done++; step(); });
-  };
-  step();
+  pfSendAllCore(project, pfSay).then(r=>{
+    pfBusy = false;
+    pfSay(r.failed.length ? ("Sent " + r.sent + " of " + r.of + " · " + r.failed.join(" · "))
+                          : ("Sent " + r.of + " to the project folder."));
+    pfRefresh();
+  });
 }
 
 function pfGetAll(){
@@ -15705,7 +16085,8 @@ function pfAutoCheck(){
   if(!project || showAllProjects || isOffline() || !connected || pfBusy) return;
   jsonpGet("pflist", { project:project }, r=>{
     if(!r || !r.ok) return;
-    pfItems = r.items || [];
+    pvPfTake(r.items, project);
+    paintMenuReady();
     const miss = pfMissingHere();
     if(!miss.length) return;
     if(pfState.auto){ pfGetAll(); return; }
@@ -15713,6 +16094,519 @@ function pfAutoCheck(){
     toast(miss.length + " project file" + (miss.length===1?"":"s") +
           (mb >= 1 ? " (" + mb + " MB)" : "") + " not on this device — Menu → Project files");
   }, 60000);
+}
+
+
+/* ================================================================== *
+ *  PLAN VERSIONS — THE WHOLE SETUP, NAMED AND DATED
+ * ================================================================== *
+
+   Chris: "a second user on their own device [should be able to] bring in all the
+   features and labelling and layers that were associated with production of the
+   report that another user created ... titled appropriately for the project with a
+   date / version. The user of a second device would have the option to bring those
+   in, make further changes, and save it as a new version for all devices to access."
+
+   The project kit already followed a job between devices, but it was ONE live
+   setting per project — whatever was last agreed. There was no way to say "this is
+   the arrangement the 90% submission was drawn with", and four things it never
+   carried at all: which standard drawings this project uses, the notes and arrows,
+   what the plan actually draws (zones, crowns, marks, how trees are coloured), and
+   a record of which layers and documents the plan needs.
+
+   A VERSION IS A RECIPE, NOT AN ARCHIVE. It holds every setting that shapes the
+   document and NOT the trees — those live on the Sheet and are the live job. Bring
+   a version in and the plan is drawn the way it was drawn, from the trees as they
+   stand today. That is what makes "bring it in, change it, save it again" work;
+   freezing the trees would turn every version into a museum piece nobody can edit.
+
+   IT RIDES ON THE PROJECT FILE STORE, which already chunks a payload into a Drive
+   folder per project, lists it and fetches it. A version is just another item with
+   kind "version", so this needed no backend change at all — Code.gs is untouched.
+
+   NOTHING IS EVER OVERWRITTEN. Saving always writes a NEW version with its own id,
+   so the arrangement a submission went out with can always be brought back. */
+const PV_KIND = "version";
+let pvItems = null, pvBusy = false, pvNote = "";
+/* WHICH PROJECT THE ANSWER IS ABOUT. Without this, changing Showing leaves the last
+   job's versions in `pvItems` and anything reading them reports on the wrong project.
+   It did not matter while the only reader was a sheet that re-fetched on opening; it
+   matters the moment the front page reads them. */
+let pvFor = "";
+
+/* ONE REQUEST, BOTH ANSWERS.
+
+   `pflist` returns everything in the project's Drive folder — the layers, the report
+   and the saved versions together. pvRefresh and pfRefresh have each been asking for
+   it separately and then keeping half the reply, which is how "Ready to hand over?"
+   came to report on the layers using `pfItems`, a list that its own screen had never
+   fetched: `pfNotSent()` against a null list says everything on the device is missing
+   from the folder. Both halves are filled from one reply now, and cleared together,
+   so neither can be fresh while the other is stale. */
+function pvPfTake(items, project){
+  pfItems = items || [];
+  pvItems = pfItems.filter(it => it.kind === PV_KIND && it.complete)
+                   /* Newest first: the id carries the moment it was made. */
+                   .sort((a,b)=> String(b.ref).localeCompare(String(a.ref)));
+  pvFor = String(project || "").trim();
+}
+function pvPfClear(){ pfItems = null; pvItems = null; pvFor = ""; }
+/* Whether what we hold is about the job in front of us. */
+function pvPfFresh(){
+  return pvItems !== null && pvFor === String(currentProject() || "").trim();
+}
+
+/* Everything that shapes the document, and nothing that belongs to a device. */
+function pvSnapshot(name){
+  const project = String(currentProject() || "").trim();
+  return {
+    v: 1,
+    /* THE MOMENT, AND THEN SOME RANDOMNESS. The id is the filename this version is
+       stored under, and writing part 0 of a ref clears whatever was there for it —
+       so two devices saving in the same millisecond would have one silently replace
+       the other, which is the one thing a version list must never do. */
+    id: "V" + Date.now().toString(36).toUpperCase() + "-" +
+        Math.floor(Math.random()*46656).toString(36).toUpperCase().padStart(3, "0"),
+    name: normText(name) || (docMap.prefix || "TPP") + " — " + nowStr().slice(0, 10),
+    project: project,
+    at: nowStr(),
+    by: settings.cruiser || "",
+    app: APP_BUILD,
+    /* The nine parts the project kit already carried. */
+    kit: kitSnapshot(project),
+    /* WHAT THE PLAN DRAWS. These are toggles on the map rail, and they were treated
+       as a property of the device — your screen should not rearrange because a
+       colleague tapped something. True of the SCREEN and false of the PLAN: they
+       decide whether the sheet carries crown circles at all. So they travel with a
+       version, and are applied when a version is brought in rather than pushed at
+       anybody mid-survey. */
+    shows: { tpz: !!tpzOn, crown: !!crownOn, marks: !!marksOn,
+             symbol: symbolMode, roads: !!mapRoads },
+    /* Which standard drawings, in which order, with the captions typed for them. */
+    picks: picksFor(project),
+    /* The notes and arrows drawn on this project, without this device's own sync
+       flag — a version describes the plan, not the state of one phone. */
+    annots: annMine().map(a => { const c = Object.assign({}, a); delete c._sent; return c; }),
+    /* WHICH BIG FILES THIS PLAN NEEDS — not the files, a list of them. The layers
+       and the report are already in the project's Drive folder; the version records
+       what to go and get, so a second device fetches exactly the right set. */
+    needs: pfLocalItems().map(it => ({ kind: it.kind, ref: it.ref, label: it.label }))
+  };
+}
+
+function openVersions(){
+  closeMenu();
+  pvPfClear(); pvNote = "";
+  renderVersions();
+  $("pvSheet").classList.add("show");
+  pvRefresh();
+}
+function closeVersions(){ $("pvSheet").classList.remove("show"); backToMenu(); }
+function pvSay(m){ pvNote = m; const el = $("pvStatus"); if(el) el.textContent = m; }
+
+function pvRefresh(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ pvSay("Set Showing to one project first."); return; }
+  if(isOffline() || !connected){ pvSay("Offline — this needs a connection."); return; }
+  pvSay("Looking for versions of " + project + "…");
+  jsonpGet("pflist", { project:project }, r=>{
+    if(!r || !r.ok){ pvSay("The Sheet did not answer."); return; }
+    pvPfTake(r.items, project);
+    renderVersions();
+    pvSay(pvItems.length ? pvItems.length + " version" + (pvItems.length===1?"":"s") + " saved for this project"
+                         : "No versions saved for this project yet.");
+  }, 60000);
+}
+
+/* Bringing one in. The order matters and each step says why. */
+async function pvApply(ref){
+  const it = (pvItems || []).find(x => String(x.ref) === String(ref));
+  if(!it){ toast("That version is not in the list", true); return; }
+  if(pvBusy) return;
+  const project = String(currentProject() || "").trim();
+  if(!confirm("Bring in “" + it.label + "”?\n\nThis replaces the wording, branding, " +
+              "layer symbology, legend, chosen drawings, notes and arrows, and the " +
+              "plan settings for this project on THIS device.\n\nThe trees are not " +
+              "touched — a version is a recipe, not a copy of the inventory.\n\n" +
+              "Your current arrangement is not saved anywhere unless you have saved " +
+              "it as a version first.")) return;
+
+  pvBusy = true; renderVersions();
+  try{
+    pvSay("Fetching " + it.label + "…");
+    const text = await pfGetItem(it, (x, p, n)=> pvSay(`Fetching ${it.label} — part ${p} of ${n}`));
+    let v = null;
+    try{ v = JSON.parse(text); }catch(e){}
+    if(!v || typeof v !== "object"){ pvSay("That version could not be read."); pvBusy = false; renderVersions(); return; }
+
+    /* 1 — the settings. */
+    pvSay("Applying the settings…");
+    if(v.kit) kitApply(project, v.kit);
+    if(v.shows) pvApplyShows(v.shows);
+    if(Array.isArray(v.picks)) setPicks(v.picks, project);
+    if(Array.isArray(v.annots)) pvApplyAnnots(project, v.annots);
+
+    /* 2 — the big files this plan needs, fetched without being asked twice. The
+       version knows exactly which ones, so nothing else is downloaded. */
+    const got = await pvFetchNeeds(v.needs || []);
+
+    /* 3 — THE LAYER STYLING AGAIN. It is keyed by the file a layer came from, so
+       applying it before the layers arrived styled nothing. */
+    if(v.kit && v.kit.layers) applyLayerStyleKit(v.kit.layers);
+
+    renderPins(); renderFeats(); renderAnnots(); renderTPZ(); renderCrown();
+    renderLayerList(); buildLegend(); drawRefLayers(); updateSubLine();
+    pvBusy = false; renderVersions();
+    const bits = [];
+    if(got.fetched) bits.push(got.fetched + " file(s) fetched");
+    if(got.missing) bits.push(got.missing + " NOT in the project folder — whoever saved " +
+                              "this version has not sent their files up");
+    pvSay("Brought in “" + v.name + "”" + (bits.length ? " · " + bits.join(" · ") : "") + ".");
+    toast(got.missing ? "Brought in — " + got.missing + " file(s) missing" : "Brought in");
+  }catch(err){
+    pvBusy = false; renderVersions();
+    pvSay("Could not bring it in: " + String((err && err.message) || err).slice(0, 80));
+  }
+}
+
+function pvApplyShows(s){
+  const set = (want, cur, fn) => { if(typeof want === "boolean" && want !== cur) fn(); };
+  set(s.tpz,   !!tpzOn,    toggleTPZ);
+  set(s.crown, !!crownOn,  toggleCrown);
+  set(s.marks, !!marksOn,  toggleMarks);
+  set(s.roads, !!mapRoads, toggleRoads);
+  if(s.symbol && s.symbol !== symbolMode){
+    /* cycleSymbol steps through the modes; called until it lands, with a stop so a
+       mode this build does not have cannot spin. */
+    for(let i = 0; i < 6 && symbolMode !== s.symbol; i++) cycleSymbol();
+  }
+}
+
+/* The project's notes and arrows are REPLACED by the version's — a version is the
+   arrangement, and a half-and-half mixture of two people's annotations is not an
+   arrangement anybody chose. Other projects' are left alone. */
+function pvApplyAnnots(project, list){
+  const p = String(project || "");
+  /* What is being REPLACED may already be on the Sheet, and a note that stays there
+     comes back on the next pull — so the ones going out are queued for deletion and
+     the ones coming in are queued for sending. A version brought in is a real edit,
+     not a private view of one. */
+  annots.filter(a => a && (a.project || "") === p && a._sent)
+        .forEach(a => { annDeletes.push(a.id); });
+  persistAnnDeletes();
+  annots = annots.filter(a => a && (a.project || "") !== p)
+                 .concat(list.map(a => Object.assign({}, a, { project:p, _sent:false })));
+  annSave();
+  if(connected && !isOffline()){ flushAnnDeletes(); syncAnnots(); }
+}
+
+/* Only what this version names, and only what is not already here. */
+function pvFetchNeeds(needs){
+  return new Promise(res=>{
+    const project = String(currentProject() || "").trim();
+    if(!needs.length || !connected || isOffline()) return res({ fetched:0, missing:0 });
+    jsonpGet("pflist", { project:project }, async r=>{
+      if(!r || !r.ok) return res({ fetched:0, missing:needs.length });
+      const onSheet = {};
+      (r.items || []).forEach(i => { if(i.complete) onSheet[i.kind + "~" + i.ref] = i; });
+      const haveL = {}; refLayers.forEach(l=> haveL[String(l.id)] = 1);
+      const haveD = {}; docSections().forEach(d=>{ if(d && d.kind==="upload") haveD[String(d.id)] = (docHere[d.id] !== false); });
+      let fetched = 0, missing = 0, n = 0;
+      for(const want of needs){
+        const here = want.kind === "layer" ? haveL[want.ref] : haveD[want.ref];
+        if(here) continue;
+        const item = onSheet[want.kind + "~" + want.ref];
+        if(!item){ missing++; continue; }
+        n++;
+        pvSay(`Fetching ${item.label} (${n})…`);
+        try{
+          const text = await pfGetItem(item, (x, p, t)=> pvSay(`Fetching ${item.label} — part ${p} of ${t}`));
+          if(text && await pfInstall(item, text)) fetched++; else missing++;
+        }catch(e){ missing++; }
+      }
+      res({ fetched, missing });
+    }, 60000);
+  });
+}
+
+
+/* ---- ONE BUTTON, BECAUSE THREE STEPS IN THE RIGHT ORDER IS NOT A PROCEDURE --
+
+   Chris: "I have people using the app that are not very good with computers so much
+   of everything should be automated or at least be very clear to them on the steps
+   that they need to follow."
+
+   Handing a plan to a colleague took three things: sync, send the project files, and
+   save a version — and only the first happens on its own. The other two are silent
+   when skipped: the version arrives naming layers that are not in the folder, and
+   the colleague's plan comes out with holes in it. That is the same shape as every
+   fault that has cost this job real time — the detail library that emptied itself,
+   the 726 trees, the botanical names. Something did not reach the Sheet and nothing
+   said so.
+
+   So the moment you save a version is the moment everything else goes up. In order,
+   because the order matters: the trees first, then the files the version will name,
+   then the drawings, and the version LAST — so a version cannot exist describing a
+   folder that was never filled.
+
+   It says what it is doing throughout, and it names anything that did not make it
+   rather than reporting a cheerful total. */
+async function pvPublish(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ toast("Set Showing to one project first", true); return; }
+  if(pvBusy) return;
+  if(!connected || isOffline()){ pvSay("Offline — this needs a connection."); return; }
+
+  const suggested = (docMap.prefix || "TPP") + " — " + nowStr().slice(0, 10);
+  const name = prompt(
+    "Name this version.\n\nEverything needed to reproduce this plan on another " +
+    "device is sent up with it: the trees, the layers, the arborist report, the " +
+    "standard drawings, and every setting.\n\nNothing already saved is replaced.\n\n" +
+    "Examples:\n  TPP Rev A — 90% design\n  TPP issued " + nowStr().slice(0, 10),
+    suggested);
+  if(name === null) return;
+
+  pvBusy = true; renderVersions();
+  const trouble = [];
+  try{
+    /* 1 — THE TREES, and the fences, plantings and project setup with them. */
+    pvSay("1 of 4 — sending the trees…");
+    try{
+      /* An automatic sync may already be running; joining it rather than starting a
+         second is the difference between waiting and colliding. */
+      for(let i = 0; i < 60 && syncBusy; i++) await new Promise(r=>setTimeout(r, 500));
+      await syncEverything({ loud:false });
+      const left = syncPending();
+      if(left) trouble.push(left + " tree(s), feature(s) or note(s) still not on the Sheet");
+    }catch(e){ trouble.push("the trees could not be sent"); }
+
+    /* 2 — THE BIG FILES the version is about to name. */
+    const files = pfLocalItems().length;
+    if(files){
+      pvSay("2 of 4 — sending " + files + " layer" + (files===1?"":"s") + " and document(s)…");
+      const r = await pfSendAllCore(project, m => pvSay("2 of 4 — " + m));
+      r.failed.forEach(f => trouble.push(f));
+    }
+
+    /* 3 — THE STANDARD DRAWINGS this device holds and the Sheet does not. */
+    const dmiss = detailLib.filter(d => d && d.notSent);
+    if(dmiss.length){
+      pvSay("3 of 4 — sending " + dmiss.length + " standard drawing(s)…");
+      try{
+        await detailSendCore(dmiss, m => pvSay("3 of 4 — " + m));
+        await new Promise(r=>setTimeout(r, 1500));
+        await refreshDetailLib();
+        const left = detailLib.filter(d => d && d.notSent).length;
+        if(left) trouble.push(left + " drawing(s) did not reach the Sheet");
+      }catch(e){ trouble.push("the drawings could not be sent"); }
+    }
+
+    /* 4 — THE VERSION, last, so it can never name a folder that was not filled. */
+    const snap = pvSnapshot(name);
+    pvSay("4 of 4 — saving “" + snap.name + "”…");
+    await pfPutItem(project, { kind:PV_KIND, ref:snap.id, label:snap.name,
+                               text:JSON.stringify(snap) },
+                    (x, p, n)=> pvSay(`4 of 4 — saving, part ${p} of ${n}`));
+
+    pvBusy = false;
+    if(trouble.length){
+      pvSay("Saved “" + snap.name + "”, but: " + trouble.join(" · "));
+      alert("The version is saved, but some of it did not reach the Sheet:\n\n  " +
+            trouble.join("\n  ") +
+            "\n\nSomebody bringing this version in will be missing those pieces.\n\n" +
+            "Try again when you have a better connection — nothing is lost, it is all " +
+            "still on this device.");
+    } else {
+      pvSay("Saved “" + snap.name + "”. Everything is up — another device can bring " +
+            "this in and produce the same document.");
+      toast("Version saved · everything sent");
+    }
+    pvRefresh();
+  }catch(err){
+    pvBusy = false; renderVersions();
+    pvSay("Stopped: " + String((err && err.message) || err).slice(0, 90));
+  }
+}
+
+/* ---- THE SAME QUESTION, ON THE FRONT PAGE --------------------------------
+
+   pvReady's four lines are three taps down, inside Plan versions. That is the right
+   place for them and the wrong place for the answer, because the person who needs the
+   answer is not the one who goes looking for it. Somebody worried about their work
+   already knows to check. The one who loses a day is the one who is NOT worried —
+   who hands the phone to a colleague, or goes home, on the assumption that tapping
+   Sync earlier was the whole job.
+
+   So the menu's front page carries ONE line and the panel keeps the detail. It is the
+   first thing under Showing, it is a colour before it is a sentence, and tapping it
+   goes to whatever would put it right.
+
+   WHAT IT WILL NOT DO IS GUESS. The first two findings are read off the device and
+   are true with no signal at all. The other two need the project's folder, which is
+   one request. Until that request has answered, the line says what it knows and says
+   that it is still looking — a green tick that means "not looked" is worse than no
+   line, because it is the one a person acts on.
+
+   AND IT IS SCOPED TO THE JOB. A crew recording a plain street tree inventory has no
+   plan to hand over and no version to save; telling them daily that they have not
+   saved one would train them past the line by the end of the week. For those projects
+   it reports on what was recorded, and nothing else. */
+let menuReadyAct = "";
+function menuReady(){
+  const plan = isTPP(currentProject());
+
+  /* 1 — what was recorded. True offline, and the one that matters on every job. */
+  const pend = syncPending();
+  if(pend) return ["bad", `${pend} ${pend === 1 ? "thing" : "things"} recorded here and not sent yet`,
+    (!connected || isOffline())
+      ? "No connection. They go up on their own once there is one."
+      : "Tap Sync — nothing is safe on one device.", "sync"];
+
+  /* 2 — a drawing somebody added to the library and never sent. */
+  const dleft = (typeof detailLib !== "undefined" ? detailLib : []).filter(d => d && d.notSent).length;
+  if(dleft) return ["bad", `${dleft} standard drawing${dleft === 1 ? "" : "s"} on this device only`,
+    "Nobody else can build the document without them.", "details"];
+
+  if(!plan) return ["ok", "Everything recorded here is on the Sheet", "", ""];
+
+  /* 3 and 4 — the folder. One request, and it is not made on every menu open. */
+  if(!pvPfFresh()) return ["wait", "Everything recorded here is on the Sheet",
+    (!connected || isOffline())
+      ? "The layers and the saved version cannot be checked without a connection."
+      : "Still checking the layers and the saved version…", "versions"];
+
+  const notSent = pfNotSent().length;
+  if(notSent) return ["bad", `${notSent} layer${notSent === 1 ? "" : "s"} or document${
+    notSent === 1 ? "" : "s"} not in the project folder`,
+    "Another device would draw this plan with holes in it.", "versions"];
+
+  if(!pvItems.length) return ["bad", "No version saved for this plan",
+    "Until there is one, nobody else can reproduce it.", "versions"];
+
+  return ["ok", "Ready to hand over", "Saved: " + pvItems[0].label, "versions"];
+}
+
+function paintMenuReady(){
+  const el = $("menuReady"); if(!el) return;
+  const r = menuReady();
+  menuReadyAct = r[3] || "";
+  const col  = r[0] === "ok" ? "#14713e" : r[0] === "bad" ? "#b3261e" : "#5b6b61";
+  const bg   = r[0] === "ok" ? "rgba(20,113,62,.10)"
+             : r[0] === "bad" ? "rgba(179,38,30,.12)" : "rgba(91,107,97,.09)";
+  const mark = r[0] === "ok" ? "✓" : r[0] === "bad" ? "!" : "…";
+  const box  = `display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;` +
+               `padding:10px 12px;border-radius:12px;background:${bg};` +
+               `border:1px solid ${col}33;color:inherit`;
+  const body = `<span style="color:${col};font-weight:800;font-size:1.05em;width:13px;flex:none">${mark}</span>` +
+               `<span style="flex:1"><b>${esc(r[1])}</b>` +
+               `${r[2] ? `<br><span class="mini">${esc(r[2])}</span>` : ""}</span>` +
+               (menuReadyAct ? `<span class="mini" style="flex:none;opacity:.6">›</span>` : "");
+  /* Only a button when there is somewhere to go. A tappable line that does nothing is
+     how a person decides the whole thing is decoration. */
+  el.innerHTML = menuReadyAct
+    ? `<button onclick="menuReadyGo()" style="${box};cursor:pointer">${body}</button>`
+    : `<div style="${box}">${body}</div>`;
+}
+
+function menuReadyGo(){
+  /* Each of these closes the menu itself. */
+  if(menuReadyAct === "sync") syncNow();
+  else if(menuReadyAct === "details") openDetails();
+  else if(menuReadyAct === "versions") openVersions();
+}
+
+/* THE ONE REQUEST, MADE ONCE. Opening the menu is the commonest thing anybody does in
+   this app, so it cannot carry a fetch each time. It carries one per project, the
+   first time the menu is opened on a plan that has not been checked yet — which is
+   also the moment the answer is wanted. pfAutoCheck fills the same two lists on its
+   own schedule, so on most opens this finds the work already done. */
+function menuReadyCheck(){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects || !isTPP(project)) return;
+  if(pvPfFresh() || pfBusy || pvBusy) return;
+  if(!connected || isOffline()) return;
+  jsonpGet("pflist", { project:project }, r=>{
+    if(!r || !r.ok) return;
+    pvPfTake(r.items, project);
+    paintMenuReady();
+  }, 60000);
+}
+
+/* ---- IS THIS PROJECT READY TO HAND OVER? ---------------------------------
+   The other half of "be very clear to them on the steps". Four plain lines, each
+   either a tick or a thing to do, read off the device rather than remembered. */
+function pvReady(){
+  const out = [];
+  const pend = syncPending();
+  out.push(pend
+    ? ["bad", pend + " tree(s), feature(s) or note(s) not sent yet", "Saving a version sends them."]
+    : ["ok", "The trees, fences and notes are on the Sheet", ""]);
+
+  const files = pfLocalItems().length;
+  /* pvPfFresh, not `pvItems === null`: the layer count below comes from pfItems, and
+     asking it before the folder has been read reports every layer on the device as
+     missing from it. The two lists are filled from one reply now, so one test covers
+     both — and it also catches the case where they are about a different project. */
+  const notSent = pvPfFresh() ? pfNotSent().length : null;
+  out.push(notSent === null
+    ? ["wait", files + " layer(s) and document(s) on this device", "Tap Check the folder to see what is up there."]
+    : notSent
+      ? ["bad", notSent + " layer(s) or document(s) here but NOT in the project folder",
+         "Saving a version sends them. Without them another device draws a plan with holes in it."]
+      : files
+        ? ["ok", "The layers and documents are in the project folder", ""]
+        : ["ok", "No layers or documents on this device", "Nothing to send."]);
+
+  const dleft = detailLib.filter(d => d && d.notSent).length;
+  out.push(dleft
+    ? ["bad", dleft + " standard drawing(s) on this device only", "Saving a version sends them."]
+    : ["ok", "The standard drawings are on the Sheet", ""]);
+
+  /* "No version saved" is a claim, and before the folder has answered it is one this
+     device cannot make. It used to make it anyway, so the panel opened on a red cross
+     for a project that had versions all along — and a line that cries wolf while it is
+     still loading teaches people to ignore the panel. */
+  out.push(!pvPfFresh()
+    ? ["wait", "Looking for a saved version…", ""]
+    : pvItems.length
+      ? ["ok", "Latest version: " + pvItems[0].label, pvWhen(pvItems[0].ref)]
+      : ["bad", "No version saved for this project",
+         "Until there is one, nobody else can reproduce this plan."]);
+  return out;
+}
+
+function renderVersions(){
+  { const r = $("pvReady");
+    if(r) r.innerHTML = pvReady().map(x => diagLine(x[0], x[1], esc(x[2]))).join(""); }
+  paintMenuReady();       // the one-line summary of this panel, on the menu front page
+  const box = $("pvList");
+  if(!box) return;
+  if(pvItems === null){ box.innerHTML = `<div class="mini">…</div>`; }
+  else if(!pvItems.length){
+    box.innerHTML = `<div class="mini" style="padding:8px 2px">No versions yet. Set the plan up the
+      way you want it, then <b>Save this plan as a version</b> — every device on the project can
+      then bring in exactly that arrangement.</div>`;
+  } else {
+    box.innerHTML = pvItems.map(it=>`
+      <div class="annrow">
+        <b>${esc(it.label)}</b>
+        <div class="mini">${esc(pvWhen(it.ref))}${it.by ? " · " + esc(it.by) : ""}${
+          it.kb ? " · " + it.kb + " kB" : ""}</div>
+        <div class="annctl">
+          <button class="alt" onclick="pvApply('${esc(jsq(it.ref))}')" ${pvBusy?"disabled":""}>Bring this in</button>
+        </div>
+      </div>`).join("");
+  }
+  const b = $("pvSave"); if(b) b.disabled = !!pvBusy;
+  const el = $("pvStatus"); if(el) el.textContent = pvNote || "—";
+}
+/* The id carries the moment it was made, so a list is dated even for a version
+   whose name says nothing about when it was. */
+function pvWhen(ref){
+  const t = parseInt(String(ref).replace(/^V/, "").split("-")[0], 36);
+  if(!isFinite(t) || t < 1e12) return "";
+  const d = new Date(t);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /* ================= THE HOUSE STANDARD =================================== *
@@ -19550,6 +20444,8 @@ function openMenu(){
   $("menuStats").textContent = `${trees.length} on this device${scope} · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
   updateProjBtn();
   updateArchCount();
+  paintMenuReady();     // what it knows now, with no waiting
+  menuReadyCheck();     // and the one request that completes the picture, once
   paintGroups();
   $("menuSheet").classList.add("show");
 }
@@ -20408,7 +21304,7 @@ function showHelp(){
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
     <p><b>Emailing a package</b><br><i>Menu → Get data out → Email the package</i> sends whatever the <b>Showing</b> filter has selected — one project, one recorder, or both — so set the filter first. The prompt names the scope before you commit, so you can see what is about to go. Two things it is <i>not</i>: it is not limited to the map view, and it is built from the Sheet, so it includes every tree of that project even ones never downloaded to this phone. The email carries the workbook, the trees as CSV, a WGS84 shapefile, the same trees as GeoJSON, and the photo attachment table, with the photos zipped into Drive and linked. The Sheet menu has the same thing and asks for the project and recorder directly.</p>
     <p><b>Getting the data out</b><br>Menu → Export shapefile or CSV downloads to the phone. <i>Download all photos</i> zips every photo held on the device, with a PHOTO_INDEX.csv linking each file to its tree. <i>Email me the data + photos</i> asks the Sheet to send the workbook and CSV, with the photos zipped into Drive and linked.</p>
-    <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — Menu → Verify what reached the Sheet does this on demand.</p>
+    <p><b>Safety nets</b><br>Dropping a tree within 4 m of an existing one asks whether you meant to open that one instead. A GPS fix worse than ±10 m warns before recording. Deleting shows an Undo button for nine seconds. And because uploads cannot report success directly, the app asks the Sheet which tree IDs it actually holds after each sync and re-queues anything that never arrived — and it does the same check quietly a few seconds after every start. To see it for yourself, Menu → <b>Check this device against the Sheet</b>, which reports the trees, the fences and plantings, the notes and arrows, and the synced marks in one pass, with a button beside anything it can put right.</p>
     <p><b>Working with no signal</b><br><i>Menu → Bring data in → Save imagery for offline use</i> stores the aerial for whatever is on screen, so the map still works on a site with no coverage. Pan to the area first, pick how much detail, and it tells you the size before you commit — a subdivision to zoom 19 is about 13 MB, a single block about 2 MB. Saved areas are listed with their size and can be jumped to or deleted. Do it on wifi the night before. The map, and the PDF export, both read from the saved tiles first and only go to the network for what is missing.</p>
     <p><b>Offline</b><br>Everything works with no signal. Trees queue on the phone and go up on the next sync. Only the map imagery needs a connection.</p>
     `;
@@ -20546,6 +21442,8 @@ window.addEventListener("offline", netDot);
   updateArchCount();
   initMap();
   fetchSpecies();
+  fetchFeats();
+  fetchAnnots();
   fetchUsers();
   fetchProjects();
   fetchDomains();
