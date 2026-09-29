@@ -483,6 +483,10 @@
      31 pp swallowed tells the user nothing about whether the right file went in. */
   .docrow .nm b.ct{ flex:0 0 auto; font-weight:600 }
   .docrow .nm b.miss{ color:var(--blaze) }
+  /* A destructive link, in the app's own colour rather than the browser's default
+     blue — and underlined, because on a white sheet colour alone is not a signal. */
+  .docrow a.rm{ flex:0 0 auto; margin-left:8px; color:var(--blaze); font-weight:700;
+                text-decoration:underline; white-space:nowrap }
   /* A LONGER TAG MUST NOT EAT THE NAME. "name only — the file is on another device"
      is four times the width of "not here", and on a phone it squeezed "Propertyfabric"
      down to "Propert…" — so the row that is telling you something goes wrong is the
@@ -1673,10 +1677,10 @@
 <div class="sheet" id="layerStyleSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
-    <h2>Layer name &amp; legend</h2>
+    <h2 id="lsTitle">Layer name &amp; legend</h2>
     <div class="mini" id="lsHint">—</div>
     <div class="fld" style="margin-top:12px">
-      <label>Name — this is what the legend prints</label>
+      <label id="lsNameLabel">Name — this is what the legend prints</label>
       <input id="lsName" type="text" autocomplete="off" placeholder="e.g. Limit of grading">
     </div>
     <div class="fld">
@@ -1713,11 +1717,11 @@
       to the plan sheet. Fill applies to polygons only.</div>
     <div class="fld">
       <label>Dashed</label>
-      <label class="chk"><input id="lsDash" type="checkbox"> Draw this layer dashed, on the map and on the plan</label>
+      <label class="chk"><input id="lsDash" type="checkbox"> <span id="lsDashLabel">Draw this layer dashed, on the map and on the plan</span></label>
     </div>
     <div class="fld">
       <label>In the legend</label>
-      <label class="chk"><input id="lsLegend" type="checkbox"> Show this layer in the legend</label>
+      <label class="chk"><input id="lsLegend" type="checkbox"> <span id="lsLegendLabel">Show this layer in the legend</span></label>
       <div class="mini">Turn it off for base information that belongs on the drawing but not in the key.</div>
     </div>
     <div class="btnrow">
@@ -1798,11 +1802,18 @@
       <div class="mini" id="sbCount" style="margin-top:6px">—</div>
     </div>
 
+    <!-- A HUNDRED AND FIFTY-SEVEN PHOTOGRAPHS IS A LONG JOB. It said nothing at all
+         while it ran, so it read as having done nothing. -->
+    <div class="mini" id="sbBusy" style="display:none;margin:10px 0;padding:10px 12px;
+         border-radius:12px;background:rgba(20,113,62,.10);border:1px solid #14713e33"></div>
     <div class="btnrow">
-      <button class="primary" onclick="saveSchedB()">Save</button>
-      <button class="alt" onclick="saveSchedB(); exportScheduleB();">Save and build it</button>
+      <button class="primary" id="sbSave" onclick="saveSchedB()">Save</button>
+      <button class="alt" id="sbBuild" onclick="schedBBuild()">Save and build it</button>
     </div>
-    <div class="btnrow"><button onclick="closeSchedB()">Close</button></div>
+    <div class="btnrow">
+      <button id="sbStop" style="display:none" onclick="schedBStopNow()">Stop building</button>
+      <button id="sbClose" onclick="closeSchedB()">Close</button>
+    </div>
   </div>
 </div>
 
@@ -2189,7 +2200,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v188";
+const APP_BUILD  = "2026-09-29 · v191";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3844,12 +3855,130 @@ function hexA(hex, a){
    fence are both a named line with a colour on a drawing; giving them two screens
    would mean two ideas of what "dashed" or "60 %" means. A `feat:` id routes to the
    fence styles, anything else to a reference layer. */
+/* The sheet is shared, so every opener sets its own wording back — one target is a
+   single layer, one is a line, one is a dozen layers at once, and "this layer" is
+   wrong for two of the three. */
+const lsWords = (title, name, dash, leg) => {
+  const put = (id, t) => { const e = $(id); if(e) e.textContent = t; };
+  put("lsTitle", title); put("lsNameLabel", name);
+  put("lsDashLabel", dash); put("lsLegendLabel", leg);
+};
 function isFeatStyleId(id){ return String(id||"").indexOf("feat:") === 0; }
 function featStyleTarget(id){ return featStyle[String(id).slice(5)] || null; }
+
+/* ---- STYLING A WHOLE GROUP, ON THE SCREEN THAT STYLES ONE LAYER ----------
+
+   Chris: "I would like to assign the colour, size etc to the layer. Provide a
+   user-friendly option for this."
+
+   He was looking at a browser prompt box asking for a hex code. That was the only
+   way to set a group's colour, it took nothing but a colour, and — the part that
+   made it worth more than a tidy-up — IT ONLY RESTYLED THE KEY. The group's colour
+   was applied when the legend was composed and never reached the layers, so setting
+   "Proposed features" to red gave a key saying red over a drawing still in six
+   colours. That is the fault v183 was about, one level up: a key that does not match
+   the paper is worse than no key.
+
+   The fence and the excavation line already borrow the layer styling sheet, so a
+   group is the third thing that borrows it. Same screen, same controls, same words —
+   nothing new to learn — and what it sets, it sets on the LAYERS, so the drawing and
+   the key cannot disagree. */
+function isGroupStyleId(id){ return String(id||"").indexOf("grp:") === 0; }
+function groupStyleTarget(id){
+  const gid = String(id).slice(4);
+  return (legendCfg.groups || []).find(g => g && g.id === gid) || null;
+}
+/* A group's members are legend KEYS. Only the ones that are reference layers can be
+   restyled here — a tree health colour or the fence's own styling lives elsewhere and
+   is reached from its own row. */
+function groupLayers(gp){
+  const keys = (gp && gp.keys) || [];
+  return refLayers.filter(l => keys.indexOf("lyr:" + layerKitKey(l)) >= 0);
+}
+function openGroupStyle(gid){
+  const gp = groupStyleTarget("grp:" + gid); if(!gp) return;
+  styleId = "grp:" + gid;
+  lsWords("Style this group", "Heading — this is what the legend prints",
+          "Draw these layers dashed, on the map and on the plan",
+          "Show these layers in the legend");
+  const mine = groupLayers(gp);
+  /* Whatever the members already agree on is what the screen opens showing, so
+     changing one thing does not silently flatten the rest. */
+  const same = (fn, dflt) => {
+    if(!mine.length) return dflt;
+    const first = fn(mine[0]);
+    return mine.every(l => fn(l) === first) ? first : dflt;
+  };
+  $("lsName").value = gp.name || "";
+  $("lsLegend").checked = mine.length ? mine.every(l => layerInLegend(l)) : true;
+  $("lsDash").checked = same(l => !!layerDash(l), false);
+  $("lsWeight").value = String(same(l => layerWeight(l), 3));
+  const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
+      `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
+  pct("lsOpacity", same(l => Math.round(layerOpacity(l)*100), 90));
+  pct("lsFill",    same(l => Math.round(layerFill(l)*100), 10));
+  $("lsKind").innerHTML = LEGEND_KINDS.map(([v,l]) =>
+    `<option value="${v}"${(gp.kind||"auto")===v?" selected":""}>${esc(l)}</option>`).join("");
+  const col = gp.color || same(l => String(l.color||"").toLowerCase(), "");
+  $("lsSwatch").innerHTML = LAYER_SWATCHES.map(c =>
+    `<button type="button" class="swb${c.toLowerCase()===String(col||"").toLowerCase()?" on":""}"
+       style="background:${c}" onclick="pickLayerColor('${c}')"></button>`).join("");
+  $("lsHex").value = col || "";
+  const others = ((gp.keys||[]).length) - mine.length;
+  $("lsHint").textContent = mine.length
+    ? `${mine.length} layer(s) in this group` +
+      (others ? ` · ${others} other item(s) take the colour in the key only` : "") +
+      ` · changes apply to every one`
+    : `Nothing in this group is a layer — the colour applies to the key only`;
+  featStyleFields(true);
+  $("layerStyleSheet").classList.add("show");
+}
+function saveGroupStyle(){
+  const gp = groupStyleTarget(styleId); if(!gp) return;
+  const nm = normText($("lsName").value).slice(0, 60);
+  if(!nm){ toast("A group needs a heading — it is what the legend prints", true); return; }
+  const hex = String($("lsHex").value || "").trim();
+  const col = /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : "";
+  gp.name = nm;
+  gp.color = col;                       // empty means every member keeps its own
+  gp.kind = $("lsKind").value || "";
+  gp.dashed = !!$("lsDash").checked;
+  const weight  = Math.max(1, Math.min(8, Number($("lsWeight").value) || 3));
+  const opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
+  const fill    = Math.max(0, Math.min(100, parseInt($("lsFill").value,10)));
+  /* THE LAYERS THEMSELVES, not only the key. The weight, the dashes and the two
+     transparencies are always applied — they are what "size etc" meant. The COLOUR
+     is applied only when one was given: leaving it empty is how somebody says "keep
+     each layer's own colour", and overwriting them all with a blank would be the
+     opposite of what that asks for. */
+  const inLegend = !!$("lsLegend").checked;
+  const mine = groupLayers(gp);
+  mine.forEach(l=>{
+    if(col) l.color = col;
+    l.weight = weight; l.dashed = !!gp.dashed;
+    l.opacity = opacity; l.fill = fill;
+    l.legend = inLegend;
+    if(gp.kind) l.legendKind = gp.kind;
+  });
+  persistLegendCfg();
+  if(mine.length){ persistRefLayers(); drawRefLayers(); }
+  renderLayerList(); buildLegend();
+  if(typeof renderLegendCfg === "function"){ try{ renderLegendCfg(); }catch(e){} }
+  closeLayerStyle();
+  /* Back where he came from, because a group is usually set up alongside its
+     neighbours rather than one at a time. */
+  if(typeof openLegendCfg === "function"){ try{ openLegendCfg(); }catch(e){} }
+  toast(mine.length ? `“${nm}” — ${mine.length} layer(s) restyled` : `“${nm}” updated`);
+}
+
 function openLayerStyle(id){
   if(isFeatStyleId(id)) return openFeatStyle(id);
+  if(isGroupStyleId(id)) return openGroupStyle(String(id).slice(4));
   const L2 = refLayerById(id); if(!L2) return;
   styleId = id;
+  lsWords("Layer name & legend", "Name — this is what the legend prints",
+          "Draw this layer dashed, on the map and on the plan",
+          "Show this layer in the legend");
   $("lsName").value = L2.name || "";
   $("lsLegend").checked = layerInLegend(L2);
   $("lsDash").checked = layerDash(L2);
@@ -3876,6 +4005,9 @@ function openLayerStyle(id){
 function openFeatStyle(id){
   const F = featStyleTarget(id); if(!F) return;
   styleId = id;
+  lsWords("Line name & legend", "Name — this is what the legend prints",
+          "Draw this line dashed, on the map and on the plan",
+          "Show this line in the legend");
   $("lsName").value = F.name || "";
   $("lsDash").checked = !!F.dashed;
   $("lsWeight").value = String(Number(F.weight) || 4);
@@ -3923,6 +4055,7 @@ function pickLayerColor(c){
 function closeLayerStyle(){ $("layerStyleSheet").classList.remove("show"); }
 function saveLayerStyle(){
   if(isFeatStyleId(styleId)) return saveFeatStyle();
+  if(isGroupStyleId(styleId)) return saveGroupStyle();
   const L2 = refLayerById(styleId); if(!L2) return;
   const nm = normText($("lsName").value).slice(0, 60);
   if(!nm){ toast("A layer needs a name — it is what the legend prints", true); return; }
@@ -15007,16 +15140,94 @@ function saveSchedB(){
   closeSchedB();
 }
 
-async function exportScheduleB(){
+/* BUILDING IT, WITH THE SCREEN STILL THERE TO SAY SO.
+
+   Chris: "I selected Save and build it and I don't get a document produced. I just
+   see Schedule B — saved."
+
+   It was producing the document. The button ran saveSchedB(), which shows that toast
+   and CLOSES THE SHEET, and then started a job that fetches every photograph in turn
+   — a hundred and fifty-seven of them on his job, most from Drive. Its only sign of
+   life was setStatus, a small line on the map header behind the sheet that had just
+   shut, and the toast that reports the finished file lasts under three seconds. So
+   the visible sequence was: a message saying something else had been saved, then
+   nothing, for minutes.
+
+   Nothing was broken and nothing needed to be made faster. It needed to say what it
+   was doing, where the person was already looking. */
+let schedBBusy = false, schedBStop = false;
+function sbSay(msg, done){
+  const el = $("sbBusy"); if(!el) return;
+  el.style.display = msg ? "block" : "none";
+  el.innerHTML = msg || "";
+  el.style.background = done ? "rgba(20,113,62,.14)" : "rgba(20,113,62,.10)";
+}
+function schedBStopNow(){ schedBStop = true; sbSay("Stopping…"); }
+function sbButtons(on){
+  [["sbSave",on],["sbBuild",on],["sbClose",on],["sbStop",!on]].forEach(([id,show])=>{
+    const b = $(id); if(!b) return;
+    if(id === "sbStop"){ b.style.display = show ? "" : "none"; return; }
+    b.disabled = !show; b.style.opacity = show ? "" : ".6";
+  });
+}
+async function schedBBuild(){
+  if(schedBBusy) return;
+  /* Saved, but the sheet STAYS — it is the thing that can report progress. */
+  readSchedBForm(); persistSchedB();
+  schedBBusy = true; schedBStop = false; sbButtons(false);
+  sbSay("Starting…");
+  let r = null;
+  try{
+    r = await exportScheduleB({
+      onStep: (i, n, name) => {
+        sbSay(`Building — photograph <b>${i}</b> of <b>${n}</b>` +
+              (name ? `<br><span class="ct">${esc(name)}</span>` : ""));
+      },
+      stopped: () => schedBStop
+    });
+  }catch(err){
+    sbSay("It stopped: " + esc(String((err && err.message) || err)).slice(0, 120));
+  }
+  schedBBusy = false; sbButtons(true);
+  if(r && r.ok){
+    /* SAID HERE, NOT IN A TOAST THAT IS GONE IN THREE SECONDS — and it names the file,
+       because on a desktop the download lands in a folder without a word on screen. */
+    sbSay(`<b>Built.</b> ${r.photos} photograph(s) over ${r.pages} pages` +
+          (r.fetched ? ` · ${r.fetched} from Drive` : "") +
+          (r.missing ? ` · ${r.missing} could not be found` : "") +
+          `<br><span class="ct">Saved to your downloads as ${esc(r.file)}</span>`, true);
+  } else if(r && r.stopped){
+    sbSay(`Stopped at ${r.done} of ${r.of}. Nothing was saved.`, true);
+  } else if(r && r.why){
+    sbSay(esc(r.why), true);
+  }
+}
+
+/* `opt` lets the Schedule B screen watch it work and stop it; the menu item passes
+   nothing and behaves exactly as it always did. It RETURNS what happened as well as
+   toasting it, because a toast is gone in under three seconds and this job can run
+   for minutes. */
+async function exportScheduleB(opt){
+  opt = opt || {};
+  const step = opt.onStep || function(){};
+  const stopped = opt.stopped || function(){ return false; };
   closeMenu();
   /* No photo store is no longer a reason to refuse — the photographs are on Drive
      and a browser without IndexedDB can still fetch every one of them. Offline with
      no store is the only combination that can produce nothing at all. */
   if(!HAS_IDB && isOffline()){
-    toast("No photo store on this device, and no connection to reach Drive", true); return;
+    const why = "No photo store on this device, and no connection to reach Drive";
+    toast(why, true); return { ok:false, why:why };
   }
   const list = reportTrees().filter(t=>String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length);
-  if(!list.length){ toast("No photos on the trees in view",true); return; }
+  if(!list.length){
+    const why = "No photos on the trees in view";
+    toast(why, true); return { ok:false, why:why };
+  }
+  /* Counted up front so the progress can say "of 157" rather than counting trees,
+     which is a different and smaller number when a tree carries two photographs. */
+  const shots = list.reduce((a,t)=>
+    a + String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length, 0);
 
   const W = Math.round(SCHED_B_W_IN*PDF_DPI), H = Math.round(SCHED_B_H_IN*PDF_DPI);
   /* Typed on the Schedule B screen, not asked for here. A prompt at the moment you
@@ -15056,6 +15267,14 @@ async function exportScheduleB(){
       /* The phone first, then Drive. A Schedule B is very often built in the office
          on a machine that was never in the field, where the phone half of that is
          empty — and a page of grey boxes is not a schedule. */
+      step(n + missing + 1, shots, names[i]);
+      /* Checked before the fetch, so pressing Stop does not have to wait out one more
+         Drive round trip before anything happens. */
+      if(stopped()){
+        setStatus(`${visibleTrees().length} trees on device`);
+        toast("Schedule B stopped", true);
+        return { ok:false, stopped:true, done:n + missing, of:shots };
+      }
       const got = await photoImage(names[i]);
       if(got){
         if(got.fromDrive) fetched++;
@@ -15095,6 +15314,8 @@ async function exportScheduleB(){
   toast(`Schedule B: ${n} photograph(s) over ${pages.length} pages`
         + (fetched?` · ${fetched} from Drive`:"")
         + (missing?` · ${missing} could not be found`:""));
+  return { ok:true, photos:n, pages:pages.length, fetched:fetched, missing:missing,
+           file:a.download };
 }
 
 /* GeoJSON alongside the shapefile. Shapefile stays because everyone can open it,
@@ -16221,6 +16442,47 @@ function pfSendAll(){
   });
 }
 
+/* TAKING ONE OUT OF THE PROJECT FOLDER.
+
+   Two different situations, and telling them apart is the whole of this function.
+
+   THE ONE HE IS IN: the document was removed from the project here, so this device
+   no longer holds it and the folder copy is simply left over. Removing it is clean
+   and final, and it also stops the file being reported to every other device as
+   something missing that they should fetch — which is what a leftover does.
+
+   THE OTHER ONE: the item is still on this device. Removing the folder copy of
+   something we still hold is undone within minutes, because the automatic send sees
+   a file that is here and not up there and puts it straight back. That is correct
+   behaviour and it would look like the Remove button not working, so it is said
+   before it happens rather than discovered afterwards. */
+function pfRemove(kind, ref, label){
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ toast("Set Showing to one project first", true); return; }
+  if(pfBusy || pfPushBusy){ toast("Busy sending — try again in a moment", true); return; }
+  const haveL = {}; refLayers.forEach(l=> haveL[String(l.id)] = 1);
+  const haveD = {}; docSections().forEach(d=>{ if(d && d.kind==="upload") haveD[String(d.id)] = 1; });
+  const stillHere = kind === "layer" ? !!haveL[ref] : !!haveD[ref];
+  if(!confirm(`Remove "${label}" from the project folder?\n\n` +
+      (stillHere
+        ? `THIS DEVICE STILL HAS IT, so the automatic send will put it back within a ` +
+          `few minutes. To be rid of it, remove it from the project on this device ` +
+          `first — a layer in Layers, a document in Assemble the final document — and ` +
+          `then remove it here.`
+        : `It is not on this device, so this is final. The file goes to the Drive ` +
+          `trash, and other devices stop being told they are missing it.`))) return;
+  pfBusy = true; renderPf();
+  postJson({ _action:"pfdel", project:project, kind:kind, ref:ref })
+    .then(()=> new Promise(r=> setTimeout(r, 600)))
+    .then(()=>{
+      /* Our record of having sent it is meaningless now, and leaving it would make
+         a later re-send look up to date. */
+      delete pfSent[kind + "~" + ref]; persistPfSent();
+      pfBusy = false; pfSay(`Removed ${label} from the project folder.`); pfRefresh();
+    })
+    .catch(()=>{ pfBusy = false; pfSay("Could not remove it — try again."); renderPf(); });
+}
+
 function pfGetAll(){
   if(pfBusy) return;
   /* THE DRAWINGS COME TOO. They are not in the project folder — they are on their own
@@ -16276,8 +16538,18 @@ function renderPf(){
     const tag = !it.complete ? `<b class="ct miss">${it.missing} slice${it.missing===1?"":"s"} missing</b>`
               : here ? `<b class="ct">on this device</b>`
                      : `<b class="ct miss">not here</b>`;
+    /* A ROW YOU CAN GET RID OF. Chris: "there are a few versions of the arborist
+       report on the Drive. I removed them from the project. How do we remove them
+       from the Drive in the app, or should I manually remove them?"
+
+       In the app, now. The backend has had the route since v153 and nothing ever
+       called it, so a file that had been superseded stayed in the folder for good —
+       and, worse, kept being reported to every other device as something they were
+       MISSING and ought to download. */
     return `<div class="docrow"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
-            <b class="ct">${mb}</b>${tag}</label></div>`;
+            <b class="ct">${mb}</b>${tag}</label>
+            <a class="ct rm" href="javascript:void(0)"
+               onclick="pfRemove('${esc(jsq(it.kind))}','${esc(jsq(it.ref))}','${esc(jsq(it.label))}')">Remove</a></div>`;
   });
   const extra = pfNotSent().map(it=>
     `<div class="docrow stack"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
@@ -20324,15 +20596,12 @@ function renderLegendCfg(){
               onchange="legAssign('${esc(jsq(r.key))}',this.value)">${opts(r.key)}</select>
     </div>`).join("") || `<div class="mini">Nothing to list yet.</div>`;
 }
+/* Was a prompt box asking for a hex code, and it set nothing but the key's colour.
+   It opens the styling sheet now — see openGroupStyle. */
 function legGroupColour(i){
   const gp = legendCfg.groups[i]; if(!gp) return;
-  const v = prompt("One colour for every layer in “" + (gp.name||"Group") +
-                   "”, as a hex code.\n\nLeave empty to let each keep its own.",
-                   gp.color || "");
-  if(v === null) return;
-  const t = String(v).trim();
-  gp.color = /^#?[0-9a-fA-F]{6}$/.test(t) ? (t[0]==="#" ? t : "#"+t) : "";
-  persistLegendCfg(); renderLegendCfg();
+  closeLegendCfg();
+  openGroupStyle(gp.id);
 }
 
 function sheetLegendRaw(shown){
