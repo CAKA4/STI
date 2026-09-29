@@ -491,6 +491,10 @@
      is four times the width of "not here", and on a phone it squeezed "Propertyfabric"
      down to "Propert…" — so the row that is telling you something goes wrong is the
      one row whose subject you cannot read. Those rows stack instead. */
+  /* The one destructive button in a row of ordinary ones. Same shape as its
+     neighbour so the row does not go lopsided, but in the app's warning colour so a
+     thumb does not find it by accident. */
+  .annctl button.rmv{ color:var(--blaze); border-color:#8a4a20 }
   .docrow.stack{ display:block }
   .docrow.stack .nm{ display:block }
   .docrow.stack .nm span{ white-space:normal; display:block }
@@ -1377,6 +1381,17 @@
         <option value="2000">1:2,000 — a block at a time</option>
         <option value="4000">1:4,000 — an overview</option>
       </select>
+      <label style="margin-top:10px">Overlap between sheets</label>
+      <select id="mapOverlap" onchange="docOverlapChanged('mapOverlap')">
+        <option value="0">None — sheets butt edge to edge</option>
+        <option value="5">5% — a narrow margin</option>
+        <option value="10" selected>10% — the usual allowance</option>
+        <option value="15">15% — generous</option>
+        <option value="20">20% — a lot of shared ground</option>
+      </select>
+      <div class="mini">Each sheet runs past its neighbour by this much, so a tree or a
+        fence on a boundary is shown whole on one of them and the reader can see how the
+        two join. More overlap means more sheets for the same job.</div>
       <div class="mini" id="mapSheetEst">—</div>
     </div>
 
@@ -1528,6 +1543,17 @@
           <option value="2500">1:2,500</option>
           <option value="4000">1:4,000</option>
         </select>
+      </div>
+      <div class="fld"><label>Overlap between sheets</label>
+        <select id="docOverlap" onchange="docOverlapChanged('docOverlap')">
+          <option value="0">None — sheets butt edge to edge</option>
+          <option value="5">5% — a narrow margin</option>
+          <option value="10" selected>10% — the usual allowance</option>
+          <option value="15">15% — generous</option>
+          <option value="20">20% — a lot of shared ground</option>
+        </select>
+        <div class="mini">The same figure the map export uses. More overlap means more
+          sheets for the same job.</div>
       </div>
     </div>
     <div class="row2">
@@ -2224,7 +2250,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v196";
+const APP_BUILD  = "2026-09-29 · v198";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3523,19 +3549,28 @@ function renderLabels(){
     }
   }
 
-  // reference layers
+  /* THE LAYERS GET THEIR OWN BUDGET, not whatever the trees left over.
+
+     Chris: "the property fabric [is] labelled with the address but they are not
+     always appearing."
+
+     One counter was shared, trees were counted first, and a street with ninety trees
+     in view used the whole allowance — so the parcel addresses vanished exactly when
+     the map was busy enough to need them. Two counters, and neither can starve the
+     other. */
+  let nl = 0;
   refLayers.forEach(L2=>{
     if(!L2.visible) return;
     const c = cfgFor(L2.id);
     if(c.on === false || !c.fields.length || z < c.minZoom) return;
     for(const f of L2.features){
-      if(n>=LABEL_MAX) break;
+      if(nl>=LABEL_MAX) break;
       const p = labelPointOf(f);
       if(!p || !bb.contains([p[0],p[1]])) continue;
       const html = labelHtml(c, k => f.props[k]);
       if(!html) continue;
       L.marker(p,{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
-      n++;
+      nl++;
     }
   });
 }
@@ -13072,7 +13107,10 @@ const DOCMAPKEY = "st_docmap";
    scale, labelling, key map, value column, sheet size — was already kept; this was
    the one that was not. It goes in the project kit too, so it follows the job to
    another device rather than having to be retyped there. */
-let docMap = { scale:"250", labels:"idsp", title:"", prefix:"TPP", drawNames:true };
+/* 10 is SHEET_OVERLAP_DEF, written out. That const is declared some six thousand
+   lines further down, and naming it here reads it before initialisation — the app
+   does not start at all. Same trap DETAIL_CHUNK hit in v186. */
+let docMap = { scale:"250", labels:"idsp", title:"", prefix:"TPP", drawNames:true, overlap:10 };
 try{ const v = JSON.parse(STORE && STORE.getItem(DOCMAPKEY)); if(v && typeof v === "object") docMap = Object.assign(docMap, v); }catch(e){}
 function persistDocMap(){ if(STORE){ try{ STORE.setItem(DOCMAPKEY, JSON.stringify(docMap)); }catch(e){} } }
 function docScaleChanged(){
@@ -13081,6 +13119,17 @@ function docScaleChanged(){
      what scale this job is drawn at. */
   if($("mapScale")) $("mapScale").value = docMap.scale;
   persistDocMap(); docScaleEstimate();
+}
+/* ONE FIGURE, BOTH SCREENS, like the scale above it — the map export and the
+   document build lay out the same grid and must not disagree about it. */
+function docOverlapChanged(sel){
+  const v = parseInt($(sel).value, 10);
+  docMap.overlap = isFinite(v) ? Math.max(0, Math.min(40, v)) : SHEET_OVERLAP_DEF;
+  ["docOverlap","mapOverlap"].forEach(id=>{ const e=$(id); if(e) e.value = String(docMap.overlap); });
+  persistDocMap();
+  if(typeof docScaleEstimate === "function"){ try{ docScaleEstimate(); }catch(e){} }
+  if(typeof refreshSheetEstimate === "function" && $("mapSheetEst")){
+    try{ refreshSheetEstimate(); }catch(e){} }
 }
 function docLabelsChanged(){
   docMap.labels = $("docLabels").value;
@@ -13125,6 +13174,8 @@ function openDoc(){
   $("docPrefix").onchange = docPrefixChanged;
   { const n = $("docNames"); if(n) n.checked = docMap.drawNames !== false; }
   $("docScale").value  = docMap.scale;
+  ["docOverlap","mapOverlap"].forEach(id=>{
+    const e=$(id); if(e) e.value = String(isFinite(parseInt(docMap.overlap,10)) ? docMap.overlap : SHEET_OVERLAP_DEF); });
   $("docLabels").value = docMap.labels;
   $("docLabels").onchange = docLabelsChanged;
   $("docKeyBase").innerHTML = KEY_BASES.map(([v,l]) =>
@@ -17421,12 +17472,68 @@ function renderVersions(){
           it.kb ? " · " + it.kb + " kB" : ""}</div>
         <div class="annctl">
           <button class="alt" onclick="pvApply('${esc(jsq(it.ref))}')" ${pvBusy?"disabled":""}>Bring this in</button>
+          <button class="alt rmv" onclick="pvRemove('${esc(jsq(it.ref))}')" ${pvBusy?"disabled":""}>Remove</button>
         </div>
       </div>`).join("");
   }
   const b = $("pvSave"); if(b) b.disabled = !!pvBusy;
   const el = $("pvStatus"); if(el) el.textContent = pvNote || "—";
 }
+/* HOUSEKEEPING — TAKING A VERSION OUT OF THE LIST.
+
+   Chris: "is there a way to delete a version of the TPP as part of housekeeping?"
+
+   There was not. Versions only ever accumulated, and a list of nine where two matter
+   is a list nobody reads — the same thing that made the stale arborist reports worth
+   removing in v189.
+
+   SIMPLER THAN pfRemove, and the reason is worth knowing. A document or a layer can
+   still be ON this device, so removing the folder copy is undone within minutes by
+   the automatic send, and pfRemove has to say so before it happens. A version is not
+   in pfLocalItems and is never re-sent, so removing one is clean and final the first
+   time. It goes for every device on the project, because there is one folder.
+
+   THE LAST ONE IS CALLED OUT. Deleting the only version leaves the project with
+   nothing to hand over, which the readiness panel will then say in red — better said
+   before than discovered after. */
+function pvRemove(ref){
+  const it = (pvItems || []).find(x => String(x.ref) === String(ref));
+  if(!it){ toast("That version is not in the list", true); return; }
+  if(pvBusy || pfBusy || pfPushBusy){ toast("Busy — try again in a moment", true); return; }
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects){ toast("Set Showing to one project first", true); return; }
+  if(isOffline() || !connected){ toast("Offline — this needs a connection", true); return; }
+  const last = (pvItems || []).length === 1;
+  if(!confirm(`Remove the version “${it.label}”?\n\n` +
+      `It goes from the project folder for EVERY device, and the file goes to the ` +
+      `Drive trash. This is final.\n\n` +
+      (last ? `THIS IS THE ONLY VERSION SAVED for this project. Remove it and there ` +
+              `is no saved arrangement to hand over or to bring in on another device. ` +
+              `The plan on this device is not touched — you can save it again.\n\n`
+            : ``) +
+      `Nothing on this device changes: the trees, the drawings, the layers and the ` +
+      `current plan are all left as they are.`)) return;
+  pvBusy = true; renderVersions();
+  pvSay(`Removing ${it.label}…`);
+  postJson({ _action:"pfdel", project:project, kind:PV_KIND, ref:it.ref })
+    /* The Drive needs a moment before a listing stops reporting the file, the same
+       settle pfRemove waits out — without it the refresh below shows it still there
+       and the button looks broken. */
+    .then(()=> new Promise(r=> setTimeout(r, 600)))
+    .then(()=>{
+      /* Our record of having sent it would otherwise make a later save of the same
+         id look already up to date. */
+      delete pfSent[PV_KIND + "~" + it.ref]; persistPfSent();
+      pvBusy = false;
+      pvRefresh();                      // re-lists, re-renders and repaints the menu line
+      toast("Version removed");
+    })
+    .catch(()=>{
+      pvBusy = false; renderVersions();
+      pvSay("Could not remove it — try again.");
+    });
+}
+
 /* The id carries the moment it was made, so a list is dated even for a version
    whose name says nothing about when it was. */
 function pvWhen(ref){
@@ -19033,6 +19140,99 @@ async function runSingleExport(opt){
     if(unplaced) setTimeout(()=>toast(`${unplaced} label(s) had no room on this sheet \u2014 a larger scale will fit them`, true), 400);
     g.textBaseline="alphabetic";
   }
+  /* ===== THE REFERENCE LAYERS' OWN LABELS — THE PROPERTY ADDRESSES =============
+
+     Chris: "I have the property fabric labelled with the address but they are not
+     always appearing. Ensure property fabric is labelled on the detailed maps."
+
+     "Not always" was generous. They appeared on the SCREEN and never on a printed
+     sheet: the only label the export drew was the tree's. A parcel fabric labelled
+     with its municipal address is how a reader ties the plan to the site, and the
+     plan was the one place it was missing.
+
+     AFTER the tree labels and sharing their `taken` list, so the tree number wins
+     every contest — a number missing from the plan cannot be looked up in Schedule A,
+     an address can be read off the parcel next door. */
+  if(!opt.grid){
+    const lblLayers = refLayers.filter(L2=>{
+      if(!L2.visible) return false;
+      const c = labelCfg[L2.id];
+      return !!(c && c.on !== false && (c.fields || []).length);
+    });
+    let lyrDrawn = 0, lyrNoRoom = 0;
+    /* A parcel fabric can be tens of thousands of features. The bbox cull below runs
+       on all of them, which is cheap; this caps what is PLACED, which is not. */
+    const LYR_LABEL_MAX = 400;
+    lblLayers.forEach(L2=>{
+      const c = labelCfg[L2.id];
+      const LFS = Math.max(8, Math.round(FS*0.82));   // a shade under the tree numbers
+      const ink = labelInkHex(c), dark = labelHaloDark(c);
+      const halo = dark ? "rgba(0,0,0,.9)" : "rgba(255,255,255,.95)";
+      g.font = `${c.bold ? 800 : 600} ${LFS}px sans-serif`;
+      g.textAlign = "center"; g.textBaseline = "middle";
+      L2.features.forEach(f=>{
+        if(lyrDrawn >= LYR_LABEL_MAX) return;
+        const bb = featureBBox(f);
+        if(bb && (bb.s > b.getNorth() || bb.n < b.getSouth() ||
+                  bb.w > b.getEast()  || bb.e < b.getWest())) return;
+        const parts = (c.fields || []).map(k => f.props ? f.props[k] : null)
+                        .filter(v => v != null && String(v).trim() !== "")
+                        .map(v => String(v).trim());
+        if(!parts.length) return;
+
+        /* WHERE THE LABEL GOES, and this is the other half of "not always".
+
+           The centroid of a parcel that runs off the edge of the sheet is off the
+           sheet too, so the corner lot at the top of every sheet lost its address —
+           on the very sheets a reader most needs it to orient themselves. The point
+           is taken from the part of the feature that is ON this sheet: the centre of
+           its bounding box intersected with the sheet's own bounds. */
+        let pt = labelPointOf(f);
+        if(!pt) return;
+        if(bb){
+          const iN = Math.min(bb.n, b.getNorth()), iS = Math.max(bb.s, b.getSouth());
+          const iE = Math.min(bb.e, b.getEast()),  iW = Math.max(bb.w, b.getWest());
+          if(iN > iS && iE > iW && (pt[0] > iN || pt[0] < iS || pt[1] > iE || pt[1] < iW))
+            pt = [(iN + iS) / 2, (iE + iW) / 2];
+        }
+        const pp = P(pt[0], pt[1]);
+        const w = Math.max.apply(null, parts.map(x => g.measureText(x).width));
+        const h = parts.length * LFS * 1.2;
+        const CLEAR = Math.max(3, Math.round(LFS*0.28));
+
+        /* The centre first — an address belongs in the middle of its lot — then a
+           short walk outwards. Far fewer rings than a tree gets: a parcel label
+           dragged half a lot away is pointing at the wrong parcel. */
+        let best = null;
+        const CAND = [[0,0],[0,-1],[0,1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]];
+        for(let ring = 0; ring < 3 && !best; ring++){
+          for(const [dx,dy] of CAND){
+            if(ring === 0 && (dx || dy)) continue;
+            if(ring > 0 && !dx && !dy) continue;
+            const cx = pp[0] + dx*ring*(w*0.6 + LFS);
+            const cy = pp[1] + dy*ring*LFS*1.8;
+            const box = { x1:cx-w/2-CLEAR, y1:cy-h/2-CLEAR, x2:cx+w/2+CLEAR, y2:cy+h/2+CLEAR };
+            if(box.x1 < fx+6 || box.x2 > fx+fw-6 || box.y1 < fy+6 || box.y2 > fy+fh-6) continue;
+            if(overlaps(box)) continue;
+            best = { cx, cy, box }; break;
+          }
+        }
+        if(!best){ lyrNoRoom++; return; }
+        taken.push(best.box);
+        parts.forEach((v,i)=>{
+          const y = best.cy - h/2 + LFS*0.6 + i*LFS*1.2;
+          g.strokeStyle = halo; g.lineWidth = LFS*0.28; g.strokeText(v, best.cx, y);
+          g.fillStyle = ink;    g.fillText(v, best.cx, y);
+        });
+        lyrDrawn++;
+      });
+    });
+    g.textAlign = "left"; g.textBaseline = "alphabetic";
+    /* Said out loud, the same as the tree labels — a sheet quietly missing half its
+       addresses looks finished. */
+    if(lyrNoRoom) setTimeout(()=>toast(`${lyrNoRoom} layer label(s) had no room on this sheet`, true), 700);
+  }
+
   /* THE NOTES AND ARROWS GO ON LAST, inside the clip, over everything — a note that
      a tree symbol can cover is a note nobody reads.
 
@@ -19314,7 +19514,28 @@ function seriesBounds(){
 /* The grid of sheets. Sized in metres so the scale is exact, then converted back to
    degrees; the longitude step uses the latitude of the block so sheets stay square
    on the ground rather than on the page. */
-function sheetGrid(scale, tpp){
+/* HOW FAR EACH SHEET RUNS PAST ITS NEIGHBOUR.
+
+   Chris: "can you confirm that there is some overlap between map sheets?"
+
+   There was none. The grid butted edge to edge, so a tree, a fence or a driveway on
+   a boundary was cut clean in half between two sheets with no context on either —
+   and the reader had no way to see how the two joined. Ten per cent is the usual
+   drafting allowance and is the default; 0 restores the old edge-to-edge behaviour.
+
+   IT CHANGES THE SHEET COUNT, because the ground each sheet ADDS is the step, not
+   its full width. That is the point of it, and it is why the estimate line under the
+   scale says how much is shared. */
+const SHEET_OVERLAP_DEF = 10;
+function sheetOverlapPct(){
+  /* From the SETTING, not from whichever dropdown happens to exist — the document
+     build and the map export lay out the same grid from two different screens, and
+     a grid that depended on which screen was open would number sheets differently
+     depending on where you pressed the button. */
+  const v = (typeof docMap !== "undefined") ? parseInt(docMap.overlap, 10) : NaN;
+  return isFinite(v) ? Math.max(0, Math.min(40, v)) : SHEET_OVERLAP_DEF;
+}
+function sheetGrid(scale, tpp, ovPct){
   const b = seriesBounds();
   if(!b) return [];
   const g = sheetGround(scale, tpp);
@@ -19322,16 +19543,24 @@ function sheetGrid(scale, tpp){
   const mPerDegLat = 110540, mPerDegLon = 111320*Math.cos(midLat*Math.PI/180);
   const padM = g.w*0.04;
   const wDeg = g.w/mPerDegLon, hDeg = g.h/mPerDegLat;
+  /* THE STEP, not the width. Each sheet is still the full `wDeg` across — the scale
+     is untouched — but the next one starts `ov` short of this one's edge, so the two
+     share that strip. */
+  const ov = Math.max(0, Math.min(40, isFinite(ovPct) ? ovPct : sheetOverlapPct())) / 100;
+  const stepW = wDeg * (1 - ov), stepH = hDeg * (1 - ov);
   const spanW = (b.e-b.w) + (padM*2)/mPerDegLon;
   const spanH = (b.n-b.s) + (padM*2)/mPerDegLat;
-  const cols = Math.max(1, Math.ceil(spanW/wDeg));
-  const rows = Math.max(1, Math.ceil(spanH/hDeg));
+  /* One sheet covers wDeg; every sheet after it adds stepW. Written this way rather
+     than ceil(span/step) so a job that fits on ONE sheet still gets one, whatever the
+     overlap is set to. */
+  const cols = Math.max(1, 1 + Math.ceil(Math.max(0, spanW - wDeg) / stepW));
+  const rows = Math.max(1, 1 + Math.ceil(Math.max(0, spanH - hDeg) / stepH));
   // centre the grid on the trees so they are not crammed against one edge
-  const startW = (b.w+b.e)/2 - cols*wDeg/2;
-  const startN = (b.n+b.s)/2 + rows*hDeg/2;
+  const startW = (b.w+b.e)/2 - (wDeg + (cols-1)*stepW)/2;
+  const startN = (b.n+b.s)/2 + (hDeg + (rows-1)*stepH)/2;
   const out=[];
   for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
-    const w1 = startW + c*wDeg, n1 = startN - r*hDeg;
+    const w1 = startW + c*stepW, n1 = startN - r*stepH;
     const cell = { w:w1, e:w1+wDeg, n:n1, s:n1-hDeg, row:r+1, col:c+1 };
     // a sheet with nothing on it is not worth printing
     cell.n_trees = seriesTrees().filter(t=>{
@@ -19346,11 +19575,16 @@ function sheetGrid(scale, tpp){
 function refreshSheetEstimate(){
   const scale = parseInt($("mapScale").value,10);
   const g = sheetGround(scale);
-  const cells = sheetGrid(scale);
+  const ov = sheetOverlapPct();
+  const cells = sheetGrid(scale, false, ov);
   const el = $("mapSheetEst");
   if(!cells.length){ el.textContent = "No trees to map."; return; }
   const most = Math.max.apply(null, cells.map(c=>c.n_trees));
-  el.textContent = `${cells.length} sheet(s) + an index · each covers ${Math.round(g.w)} × ${Math.round(g.h)} m · up to ${most} trees on a sheet`;
+  /* The overlap in METRES, because "10%" means nothing until you know what it is a
+     tenth of — at 1:250 it is 15 m of shared ground and at 1:4,000 it is 240 m. */
+  el.textContent = `${cells.length} sheet(s) + an index · each covers ${Math.round(g.w)} × ${Math.round(g.h)} m · `
+    + (ov ? `${Math.round(g.w*ov/100)} m shared with the next sheet · ` : `no overlap · `)
+    + `up to ${most} trees on a sheet`;
   el.style.color = cells.length > SHEET_MAX ? "#ff8f7d" : "";
 }
 
@@ -19403,7 +19637,19 @@ async function runSeriesExport(){
   let stamped = 0;
   seriesTrees().forEach(t=>{
     const la=num(t.LAT), lo=num(t.LON);
-    const cell = cells.find(c=> la<=c.n && la>=c.s && lo>=c.w && lo<=c.e);
+    /* NEAREST CENTRE, not the first match. With the sheets overlapping, a tree in a
+       shared strip is on two of them, and `find` would index it to whichever came
+       first in the grid — quite possibly the sheet where it sits hard against the
+       edge. The table should send a reader to the sheet that shows it best, which is
+       the one it is most central on. It also has to be a stable choice, or the
+       column churns and re-syncs on every export. */
+    let cell = null, bestD = Infinity;
+    cells.forEach(c=>{
+      if(!(la<=c.n && la>=c.s && lo>=c.w && lo<=c.e)) return;
+      const dx = lo - (c.w+c.e)/2, dy = la - (c.n+c.s)/2;
+      const d = dx*dx + dy*dy;
+      if(d < bestD - 1e-18){ bestD = d; cell = c; }
+    });
     const no = cell ? cell.no : "";
     if(String(t.SHEET_NO||"") !== String(no)){ t.SHEET_NO = no; t._sent=false; stamped++; }
   });
