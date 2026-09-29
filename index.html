@@ -1691,11 +1691,7 @@
     <div class="row2">
       <div class="fld">
         <label>Line weight</label>
-        <select id="lsWeight">
-          <option value="1">1 — hairline</option><option value="2">2</option>
-          <option value="3">3 — default</option><option value="4">4</option>
-          <option value="5">5</option><option value="6">6 — heavy</option>
-        </select>
+        <select id="lsWeight"></select>
       </div>
       <div class="fld">
         <label>Legend symbol</label>
@@ -1718,6 +1714,24 @@
     <div class="fld">
       <label>Dashed</label>
       <label class="chk"><input id="lsDash" type="checkbox"> <span id="lsDashLabel">Draw this layer dashed, on the map and on the plan</span></label>
+    </div>
+    <!-- The fence and the excavation line. A group picks patterns automatically;
+         these two are picked by hand, because there are only ever two of them. -->
+    <div class="fld" id="lsPatRow" style="display:none">
+      <label>Line pattern</label>
+      <select id="lsPat"></select>
+      <div class="mini">The pattern prints on the plan as well as the map. Two lines on
+        the same alignment are told apart by pattern when the drawing is photocopied and
+        the colours go.</div>
+    </div>
+    <!-- Groups only. Six layers sharing one colour are six identical lines in the key
+         unless something tells them apart. -->
+    <div class="fld" id="lsVaryRow" style="display:none">
+      <label>Telling them apart</label>
+      <label class="chk"><input id="lsVary" type="checkbox"> Give each layer its own line pattern</label>
+      <div class="mini">Keeps the colour you set for the group and gives every layer in it
+        a different pattern — solid, dashed, dotted, dash-dot and so on — so the key
+        identifies each one. The patterns go on the drawing too, not just the key.</div>
     </div>
     <div class="fld">
       <label>In the legend</label>
@@ -2200,7 +2214,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v193";
+const APP_BUILD  = "2026-09-29 · v195";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3635,13 +3649,13 @@ function drawRefLayers(){
       } else if(g.t==="ln"){
         eachRing(g.c, r=>wire(L.polyline(r.map(c=>[c[1],c[0]]),{color:L2.color,weight:layerWeight(L2),
           opacity:layerOpacity(L2),
-          dashArray: layerDash(L2) ? "9 6" : null,
+          dashArray: dashFor(layerDashPat(L2), layerWeight(L2)).join(" ") || null,
           renderer:refRenderer,pane:"refPane"})));
       } else {
         eachPoly(g.c, rings=>wire(L.polygon(rings.map(r=>r.map(c=>[c[1],c[0]])),
           {color:L2.color,weight:Math.max(1,layerWeight(L2)-1),
            opacity:layerOpacity(L2), fillOpacity:layerFill(L2), smoothFactor:2,
-           dashArray: layerDash(L2) ? "9 6" : null,
+           dashArray: dashFor(layerDashPat(L2), Math.max(1,layerWeight(L2)-1)).join(" ") || null,
            renderer:refRenderer,pane:"refPane"})));
       }
     });
@@ -3787,6 +3801,43 @@ function layerLegendKind(L2){
 }
 function layerInLegend(L2){ return L2 && L2.legend !== false; }
 function layerDash(L2){ return !!(L2 && L2.dashed); }
+
+/* ---- TELLING SIX LINES OF ONE COLOUR APART ------------------------------
+
+   Chris: "I have a group for existing features and one for proposed features. I've
+   assigned the same colour to them. The issue is the line styles are all the same."
+
+   Quite so — giving a group one colour, which is what a group is for, made its
+   members indistinguishable. Six identical blue dashes labelled driveway, sanitary
+   sewer, storm sewer, culvert, watermain and sidewalk is a key that identifies
+   nothing.
+
+   A DASH PATTERN, NOT A BOOLEAN. `dashed` could only say yes or no, so there was
+   exactly one alternative to solid. These six stay apart at legend size, which is
+   about a sixth of an inch of rule — that is the constraint that picked them, not
+   variety for its own sake. They are given in MULTIPLES OF THE LINE WIDTH so a
+   heavy line and a hairline dash in the same proportion, on screen and on paper.
+
+   The old boolean still works and still means [3,2]: nothing restyles itself. */
+const DASH_SET = [
+  [],                                  // solid
+  [3, 2],                              // dashed  — what `dashed` always meant
+  [0.9, 1.8],                          // dotted
+  [4, 1.5, 0.9, 1.5],                  // dash-dot
+  [7, 2.5],                            // long dash
+  [4, 1.5, 0.9, 1.5, 0.9, 1.5]         // dash-dot-dot
+];
+const DASH_NAME = ["Solid", "Dashed", "Dotted", "Dash-dot", "Long dash", "Dash-dot-dot"];
+function layerDashPat(L2){
+  const p = L2 && L2.dashPat;
+  if(Array.isArray(p) && p.length) return p.slice();
+  /* No pattern set: the boolean decides, exactly as before. */
+  return layerDash(L2) ? DASH_SET[1].slice() : [];
+}
+/* Scaled to the line it is drawn with, and to nothing else. */
+function dashFor(pat, w){
+  return (Array.isArray(pat) && pat.length) ? pat.map(x => Math.max(0.5, x * w)) : [];
+}
 function layerWeight(L2){ const w = Number(L2 && L2.weight); return isFinite(w) && w > 0 ? w : 3; }
 /* TRANSPARENCY, as two numbers rather than one. A servicing layer wants a solid line
    over a barely-there fill; a grass restoration area wants the opposite. One slider
@@ -3912,7 +3963,7 @@ function openGroupStyle(gid){
   $("lsName").value = gp.name || "";
   $("lsLegend").checked = mine.length ? mine.every(l => layerInLegend(l)) : true;
   $("lsDash").checked = same(l => !!layerDash(l), false);
-  $("lsWeight").value = String(same(l => layerWeight(l), 3));
+  fillWeights("lsWeight", same(l => layerWeight(l), 3));
   const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
       `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
   pct("lsOpacity", same(l => Math.round(layerOpacity(l)*100), 90));
@@ -3928,9 +3979,10 @@ function openGroupStyle(gid){
   $("lsHint").textContent = mine.length
     ? `${mine.length} layer(s) in this group` +
       (others ? ` · ${others} other item(s) take the colour in the key only` : "") +
-      ` · changes apply to every one`
+      (gp.merge ? ` · printed as ONE row, so one line style` : ` · changes apply to every one`)
     : `Nothing in this group is a layer — the colour applies to the key only`;
-  featStyleFields(true);
+  $("lsVary").checked = !!gp.vary;
+  featStyleFields(true); lsVaryRow(true); lsPatRow(false);
   $("layerStyleSheet").classList.add("show");
 }
 function saveGroupStyle(){
@@ -3943,7 +3995,7 @@ function saveGroupStyle(){
   gp.color = col;                       // empty means every member keeps its own
   gp.kind = $("lsKind").value || "";
   gp.dashed = !!$("lsDash").checked;
-  const weight  = Math.max(1, Math.min(8, Number($("lsWeight").value) || 3));
+  const weight  = Math.max(1, Math.min(24, Number($("lsWeight").value) || 3));
   const opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
   const fill    = Math.max(0, Math.min(100, parseInt($("lsFill").value,10)));
   /* THE LAYERS THEMSELVES, not only the key. The weight, the dashes and the two
@@ -3952,13 +4004,26 @@ function saveGroupStyle(){
      each layer's own colour", and overwriting them all with a blank would be the
      opposite of what that asks for. */
   const inLegend = !!$("lsLegend").checked;
+  /* See legGroupSet: a group printed as one row cannot also have six patterns. */
+  gp.vary = !!$("lsVary").checked && !gp.merge;
   const mine = groupLayers(gp);
-  mine.forEach(l=>{
+  mine.forEach((l, i)=>{
     if(col) l.color = col;
-    l.weight = weight; l.dashed = !!gp.dashed;
+    l.weight = weight;
     l.opacity = opacity; l.fill = fill;
     l.legend = inLegend;
     if(gp.kind) l.legendKind = gp.kind;
+    /* ONE COLOUR, SIX PATTERNS. The pattern goes on the LAYER, so the drawing and
+       the key carry the same line — the rule this app keeps relearning. Turning it
+       off puts every member back on the group's single dashed setting rather than
+       leaving a set of patterns nobody asked for. */
+    if(gp.vary){
+      l.dashPat = DASH_SET[i % DASH_SET.length].slice();
+      l.dashed = l.dashPat.length > 0;
+    } else {
+      delete l.dashPat;
+      l.dashed = !!gp.dashed;
+    }
   });
   persistLegendCfg();
   if(mine.length){ persistRefLayers(); drawRefLayers(); }
@@ -3982,7 +4047,7 @@ function openLayerStyle(id){
   $("lsName").value = L2.name || "";
   $("lsLegend").checked = layerInLegend(L2);
   $("lsDash").checked = layerDash(L2);
-  $("lsWeight").value = String(layerWeight(L2));
+  fillWeights("lsWeight", layerWeight(L2));
   const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
       `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
   pct("lsOpacity", Math.round(layerOpacity(L2)*100));
@@ -3995,7 +4060,7 @@ function openLayerStyle(id){
   $("lsHex").value = L2.color || "";
   $("lsHint").textContent = `${L2.features.length} feature(s) · mostly ${
     { line:"lines", square:"areas", dot:"points" }[layerKindGuess(L2)] }`;
-  featStyleFields(true);
+  featStyleFields(true); lsVaryRow(false); lsPatRow(false);
   $("layerStyleSheet").classList.add("show");
 }
 /* The fence and the excavation line in the same sheet. The legend tick and the legend
@@ -4010,7 +4075,8 @@ function openFeatStyle(id){
           "Show this line in the legend");
   $("lsName").value = F.name || "";
   $("lsDash").checked = !!F.dashed;
-  $("lsWeight").value = String(Number(F.weight) || 4);
+  fillWeights("lsWeight", Number(F.weight) || 4);
+  fillPatterns("lsPat", fenceDashPat({ type: (String(id).slice(5) === "rootexc") ? ROOT_EXC_TYPE : "" }));
   const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
       `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
   pct("lsOpacity", isFinite(Number(F.opacity)) ? Number(F.opacity) : 100);
@@ -4022,8 +4088,9 @@ function openFeatStyle(id){
   const k = String(id).slice(5);
   const n = (typeof featsIn === "function" ? featsIn() : [])
               .filter(f => f.kind === "fence" && featKindOf(f) === k).length;
-  $("lsHint").textContent = `${n} line(s) drawn · always a line, always in the legend`;
-  featStyleFields(false);
+  $("lsHint").textContent = `${n} line(s) drawn · always a line, always in the legend` +
+    ` · the wider of the two lines is drawn underneath`;
+  featStyleFields(false); lsVaryRow(false); lsPatRow(true);
   $("layerStyleSheet").classList.add("show");
 }
 /* Shown for a reference layer, hidden for the fence. Kept in one function so the two
@@ -4032,6 +4099,37 @@ function featStyleFields(show){
   const box = id => { const e=$(id); return e && e.closest ? e.closest(".fld") : null; };
   [box("lsKind"), box("lsLegend"), box("lsFill")].forEach(e=>{ if(e) e.style.display = show ? "" : "none"; });
 }
+/* The pattern choice is a group's alone — one layer just picks its own. */
+function lsVaryRow(show){ const e = $("lsVaryRow"); if(e) e.style.display = show ? "" : "none"; }
+function lsPatRow(show){ const e = $("lsPatRow"); if(e) e.style.display = show ? "" : "none"; }
+
+/* WEIGHTS THAT GO WIDE ENOUGH TO SIT UNDER SOMETHING.
+
+   Chris: "one sits beneath the other and must be quite a bit wider to see that it
+   exists."
+
+   The list stopped at 6, which on a 200 dpi sheet is about a twentieth of an inch —
+   nowhere near enough to read as a band either side of a line drawn on top of it.
+   It runs to 20 now, which is about a sixth of an inch of colour. Named at the
+   points that mean something rather than at every step. */
+const WEIGHT_STEPS = [1,2,3,4,5,6,8,10,12,14,16,20];
+const WEIGHT_NAME = { 1:"hairline", 3:"default for a layer", 4:"default for a line",
+                      6:"heavy", 10:"wide", 14:"very wide", 20:"widest — sits under another line" };
+function fillWeights(sel, val){
+  const v = Number(val) || 3;
+  /* A value saved before this list existed is kept rather than snapped to a
+     neighbour — somebody chose 7 and 7 is what they get. */
+  const steps = WEIGHT_STEPS.indexOf(v) >= 0 ? WEIGHT_STEPS
+              : WEIGHT_STEPS.concat([v]).sort((a,b)=>a-b);
+  $(sel).innerHTML = steps.map(w =>
+    `<option value="${w}"${w===v?" selected":""}>${w}${WEIGHT_NAME[w] ? " — " + WEIGHT_NAME[w] : ""}</option>`
+  ).join("");
+}
+function fillPatterns(sel, pat){
+  const cur = JSON.stringify(Array.isArray(pat) ? pat : []);
+  $(sel).innerHTML = DASH_SET.map((d,i) =>
+    `<option value="${i}"${JSON.stringify(d)===cur?" selected":""}>${DASH_NAME[i]}</option>`).join("");
+}
 function saveFeatStyle(){
   const F = featStyleTarget(styleId); if(!F) return;
   const nm = normText($("lsName").value).slice(0, 60);
@@ -4039,8 +4137,17 @@ function saveFeatStyle(){
   const hex = String($("lsHex").value || "").trim();
   F.name = nm;
   if(/^#[0-9a-fA-F]{6}$/.test(hex)) F.color = hex;
-  F.dashed  = $("lsDash").checked ? 1 : 0;
-  F.weight  = Math.max(1, Math.min(8, Number($("lsWeight").value) || 4));
+  const pi = parseInt($("lsPat").value, 10);
+  if(isFinite(pi) && DASH_SET[pi]){
+    F.dashPat = DASH_SET[pi].slice();
+    /* Kept in step so anything still reading the boolean — an older build, the kit —
+       sees the same answer the pattern gives. */
+    F.dashed = F.dashPat.length ? 1 : 0;
+  } else {
+    F.dashed = $("lsDash").checked ? 1 : 0;
+    delete F.dashPat;
+  }
+  F.weight  = Math.max(1, Math.min(24, Number($("lsWeight").value) || 4));
   F.opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
   persistFeatStyle();
   renderFeats(); renderAnnots(); renderLayerList(); buildLegend();
@@ -4065,7 +4172,7 @@ function saveLayerStyle(){
   L2.legend = !!$("lsLegend").checked;
   L2.legendKind = $("lsKind").value || "auto";
   L2.dashed = !!$("lsDash").checked;
-  L2.weight = Math.max(1, Math.min(8, Number($("lsWeight").value) || 3));
+  L2.weight = Math.max(1, Math.min(24, Number($("lsWeight").value) || 3));
   L2.opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
   L2.fill    = Math.max(0, Math.min(100, parseInt($("lsFill").value,10)));
   persistRefLayers();
@@ -6107,8 +6214,13 @@ function buildLegend(){
       /* The same rule as the printed key: an outlined layer gets an outlined swatch.
          The floor is here too, so the two keys say the same thing about a layer. */
       const fa = layerFill(l);
+      /* CSS cannot draw dash-dot, so the screen shows the family: anything patterned
+         reads as dashed and anything dotted reads as dotted. The PLAN is where the
+         six are told apart; the screen only has to say which layer is which colour. */
+      const pat = layerDashPat(l);
+      const css = !pat.length ? "solid" : (pat[0] <= 1.2 ? "dotted" : "dashed");
       const sw = k === "line"
-        ? `<span class="sw" style="background:transparent;border:none;border-top:3px ${layerDash(l)?"dashed":"solid"} ${l.color};height:0;border-radius:0"></span>`
+        ? `<span class="sw" style="background:transparent;border:none;border-top:3px ${css} ${l.color};height:0;border-radius:0"></span>`
         : k === "square"
           ? `<span class="sw sq" style="background:${fa > 0.01 ? hexA(l.color, Math.max(0.18, fa)) : "transparent"};` +
             `border:2px ${layerDash(l)?"dashed":"solid"} ${l.color}"></span>`
@@ -10708,6 +10820,16 @@ function featStyleOf(f){ return featStyle[featKindOf(f)] || FEAT_STYLE_DEF[featK
 function fenceColor(f){ return featStyleOf(f).color || FEAT_STYLE_DEF[featKindOf(f)].color; }
 function fenceName(k){ return (featStyle[k] && featStyle[k].name) || FEAT_STYLE_DEF[k].name; }
 function fenceDash(f){ return !!featStyleOf(f).dashed; }
+/* THE SAME SIX PATTERNS THE LAYERS GOT IN v194. A fence and an excavation line that
+   run along the same alignment are told apart by colour and by pattern; on a drawing
+   that gets printed in black and white often enough, pattern is the one that keeps
+   working. `dashed` still means what it meant. */
+function fenceDashPat(f){
+  const F = featStyleOf(f);
+  const p = F && F.dashPat;
+  if(Array.isArray(p) && p.length) return p.slice();
+  return fenceDash(f) ? DASH_SET[1].slice() : [];
+}
 function fenceWeightOf(f){
   const w = Number(featStyleOf(f).weight);
   return isFinite(w) && w > 0 ? w : 4;
@@ -11817,7 +11939,8 @@ function renderFeats(){
   featsIn().forEach(f=>{
     if(f.kind==="fence" && f.pts.length>1){
       shapes.push(L.polyline(f.pts,{color:fenceColor(f), weight:fenceWeightOf(f),
-          opacity:fenceOpacityOf(f), dashArray: fenceDash(f) ? "9 6" : null, pane:"refPane"})
+          opacity:fenceOpacityOf(f),
+          dashArray: dashFor(fenceDashPat(f), fenceWeightOf(f)).join(" ") || null, pane:"refPane"})
         .bindPopup(`<b>${esc(fenceName(featKindOf(f)))}</b><br>${esc(f.type||"")}<br>${f.length_m} m` +
                    (f.address?`<br>${esc(f.address)}`:"") + (f.notes?`<br>${esc(f.notes)}`:"") +
                    `<br><button onclick="editFeatById('${f.id}')">Edit</button>`));
@@ -18474,7 +18597,7 @@ async function runSingleExport(opt){
     g.strokeStyle=hexA(L2.color, layerOpacity(L2)); g.lineWidth=lw;
     g.fillStyle=hexA(L2.color, layerFill(L2));
     g.lineJoin="round"; g.lineCap="round";
-    g.setLineDash(layerDash(L2) ? [lw*3, lw*2] : []);
+    g.setLineDash(dashFor(layerDashPat(L2), lw));
     L2.features.forEach(f=>{
       const bb=featureBBox(f);
       if(bb && (bb.s>b.getNorth()||bb.n<b.getSouth()||bb.w>b.getEast()||bb.e<b.getWest())) return;
@@ -18510,19 +18633,38 @@ async function runSingleExport(opt){
                  caliper: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))!=="sapling").length,
                  sapling: sheetPlants.filter(f=>(f.pclass||pclassFromStock(f.stock))==="sapling").length };
   const fenceW = Math.max(3, Math.round(PDF_DPI*0.035));
-  sheetF.filter(f=>f.kind==="fence" && f.pts.length>1).forEach(f=>{
+  /* WIDEST FIRST, SO THE NARROWER ONE SITS ON TOP OF IT.
+
+     Chris: "one sits beneath the other and must be quite a bit wider to see that it
+     exists."
+
+     A protection fence and a root-sensitive excavation line very often run along the
+     SAME alignment, and whichever happened to be later in the array covered the
+     other — an order that came from the sequence they were drawn in, which is to say
+     from nothing. Draw the wide one first and it reads as a band either side of the
+     narrow one, which is how a drawing shows two things on one alignment. No setting
+     to get wrong: make one wider and it goes underneath. */
+  const fenceLines = sheetF.filter(f=>f.kind==="fence" && f.pts.length>1)
+                           .slice().sort((a,b)=> fenceWeightOf(b) - fenceWeightOf(a));
+  fenceLines.forEach(f=>{
+    const lw = Math.max(2, Math.round(fenceW * fenceWeightOf(f) / 4));
     g.strokeStyle=hexA(fenceColor(f), fenceOpacityOf(f));
-    g.lineWidth=Math.max(2, Math.round(fenceW * fenceWeightOf(f) / 4));
+    g.lineWidth=lw;
     g.lineJoin="round"; g.lineCap="round";
-    /* An excavation line is dashed on the plan as well as a different colour — a
+    /* An excavation line is patterned on the plan as well as a different colour — a
        drawing gets printed in black and white often enough that colour alone is not
        a distinction you can rely on. */
-    g.setLineDash(fenceDash(f) ? [fenceW*3, fenceW*2] : []);
+    g.setLineDash(dashFor(fenceDashPat(f), lw));
     g.beginPath();
     f.pts.forEach((pt,i)=>{ const p=P(+pt[0],+pt[1]); i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); });
-    // A white casing under the orange, so the line still reads over dark imagery —
-    // the same reason the north arrow and scale bar sit on white blocks.
-    g.save(); g.strokeStyle="rgba(255,255,255,.85)"; g.lineWidth=fenceW*1.9; g.setLineDash([]); g.stroke(); g.restore();
+    /* A white casing under the colour, so the line still reads over dark imagery —
+       the same reason the north arrow and scale bar sit on white blocks.
+
+       SCALED TO THE LINE. It was a fixed 1.9 x the default width, so the moment a
+       line was set wider than about eight the casing was drawn INSIDE it: invisible,
+       and the wide line it was meant to help lost its edge over dark imagery. */
+    g.save(); g.strokeStyle="rgba(255,255,255,.85)";
+    g.lineWidth = Math.max(fenceW*1.9, lw*1.6); g.setLineDash([]); g.stroke(); g.restore();
     g.stroke();
     g.setLineDash([]);
   });
@@ -19924,7 +20066,13 @@ async function drawTppFrame(g, W, H, opt){
       const sx = swX + ind, tx = txX + ind;
       if(r.kind === "line"){
         g.strokeStyle = r.color;
-        g.save(); if(r.dashed) g.setLineDash([fs*0.42, fs*0.30]);
+        g.save();
+        /* THE PATTERN THE LINE IS ACTUALLY DRAWN WITH, scaled to the rule in the key
+           the same way it is scaled to the line on the sheet. A key that shows one
+           dash for six different patterns is the fault this exists to fix. */
+        const dp = dashFor(r.dash, g.lineWidth);
+        if(dp.length) g.setLineDash(dp);
+        else if(r.dashed) g.setLineDash([fs*0.42, fs*0.30]);
         g.beginPath(); g.moveTo(sx - fs*1.05, cy); g.lineTo(sx + fs*1.05, cy); g.stroke();
         g.restore();
       } else if(r.kind === "square"){
@@ -20544,7 +20692,17 @@ function legGroupAdd(){
 function legGroupSet(i, field, v){
   const gp = legendCfg.groups[i]; if(!gp) return;
   if(field === "merge" || field === "dashed") gp[field] = !!v; else gp[field] = v;
-  persistLegendCfg(); renderLegendCfg();
+  /* ONE ROW AND SIX PATTERNS CONTRADICT EACH OTHER. Printing the group as a single
+     line says "these are all one thing"; giving its members six patterns says they
+     are six. Whichever was asked for last wins, and the members go back to the
+     group's own single setting so the key still matches the paper. */
+  if(field === "merge" && gp.merge && gp.vary){
+    gp.vary = false;
+    groupLayers(gp).forEach(l=>{ delete l.dashPat; l.dashed = !!gp.dashed; });
+    persistRefLayers(); drawRefLayers();
+    toast("One row — the layers go back to one line style");
+  }
+  persistLegendCfg(); renderLegendCfg(); buildLegend();
 }
 function legGroupRename(i){
   const gp = legendCfg.groups[i]; if(!gp) return;
@@ -20595,7 +20753,7 @@ function renderLegendCfg(){
     : legendCfg.groups.map((gp,i)=>`
       <div class="layerrow">
         <span class="sw sq" style="width:14px;height:14px;background:${gp.color||"transparent"};border:1px solid #9fb0a5"></span>
-        <span class="nm">${esc(gp.name||"Group")}<br><span class="ct">${(gp.keys||[]).length} item(s)${gp.merge?" · one row":""}</span></span>
+        <span class="nm">${esc(gp.name||"Group")}<br><span class="ct">${(gp.keys||[]).length} item(s)${gp.merge?" · one row, members listed":""}${gp.vary?" · own patterns":""}</span></span>
         <button onclick="legGroupRename(${i})" title="Rename">✎</button>
         <button onclick="legGroupColour(${i})" title="One colour for the group">🎨</button>
         <button class="${gp.merge?"on":""}" onclick="legGroupSet(${i},'merge',${gp.merge?"false":"true"})"
@@ -20676,7 +20834,7 @@ function sheetLegendRaw(shown){
      it, which also means a layer set back on screen is set back in the key. */
   refLayers.filter(l => l.visible && layerInLegend(l)).forEach(l =>
     present.push({ key:"lyr:"+layerKitKey(l), label:l.name, color:l.color,
-                   kind:layerLegendKind(l), dashed:layerDash(l),
+                   kind:layerLegendKind(l), dashed:layerDash(l), dash:layerDashPat(l),
                    fillA:layerFill(l), edgeA:layerOpacity(l) }));
   if(pdfOverlay && pdfVisible) present.push({key:"pdf", label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
   return present;
@@ -20763,10 +20921,27 @@ function sheetLegendRows(shown){
     const mine = raw.filter(r => gp.keys.indexOf(r.key) >= 0);
     if(!mine.length) return;
     if(gp.merge){
-      /* ONE ROW FOR THE WHOLE GROUP. Twelve servicing lines in one colour do not
-         need twelve identical lines in the key. */
-      out.push({ label: gp.name || "Group", color: gp.color || mine[0].color,
-                 kind: gp.kind || mine[0].kind, dashed: !!gp.dashed });
+      /* ONE ROW FOR THE WHOLE GROUP, AND IT NAMES WHAT IS IN IT.
+
+         Chris: "have one legend item for existing features (i.e. one blue line) and
+         list the features related to that — avoid repeated items."
+
+         It used to print the heading alone, which says a colour exists and nothing
+         about what it means. The members are listed after it instead, DEDUPLICATED
+         because a set of servicing layers routinely carries three storm sewers and
+         two sanitary, and a key that lists "Storm sewer" three times is the thing
+         being escaped from. First spelling wins, order kept. */
+      const seen = {}, names = [];
+      mine.forEach(r=>{
+        const nm = legendTitle(r).trim();
+        const k = nm.toLowerCase();
+        if(!nm || seen[k]) return;
+        seen[k] = 1; names.push(nm);
+      });
+      out.push({ label: (gp.name || "Group") + (names.length ? " — " + names.join(", ") : ""),
+                 color: gp.color || mine[0].color,
+                 kind: gp.kind || mine[0].kind,
+                 dashed: !!gp.dashed, dash: gp.dash || mine[0].dash });
       mine.forEach(r => { used[r.key] = 1; });
       return;
     }
@@ -20893,7 +21068,9 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
       g.strokeStyle=r.color; g.lineWidth=Math.round(PDF_DPI*0.03);
       /* A dashed line in the drawing is a dashed line in the key, or the key does not
          identify it — which is the whole job of a key. */
-      if(r.dashed) g.setLineDash([Math.round(PDF_DPI*0.05), Math.round(PDF_DPI*0.035)]);
+      const dp2 = dashFor(r.dash, g.lineWidth);
+      if(dp2.length) g.setLineDash(dp2);
+      else if(r.dashed) g.setLineDash([Math.round(PDF_DPI*0.05), Math.round(PDF_DPI*0.035)]);
       g.beginPath(); g.moveTo(px2+8-rr, cy); g.lineTo(px2+8+rr, cy); g.stroke();
       g.setLineDash([]);
     } else if(r.kind==="circle"){
