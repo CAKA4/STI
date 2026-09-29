@@ -2250,7 +2250,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v199";
+const APP_BUILD  = "2026-09-29 · v200";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3612,7 +3612,10 @@ function renderLabels(){
     if(c.on === false || !c.fields.length || z < c.minZoom) return;
     for(const f of L2.features){
       if(nl>=LABEL_MAX) break;
-      const p = labelPointOf(f);
+      /* Inside the polygon, not the mean of its corners — the screen had the same
+         fault the plan did, and an address shown on the neighbouring lot is wrong
+         wherever it is drawn. */
+      const p = labelSpotOf(f);
       if(!p || !bb.contains([p[0],p[1]])) continue;
       const html = labelHtml(c, k => f.props[k]);
       if(!html) continue;
@@ -11499,6 +11502,99 @@ function mPerPx(){
    Used by the plan sheet to decide whether a parcel's address needs a leader line.
    A polygon only; a line or a point has no inside, and the caller treats those as
    "not inside", which is the answer that draws the leader. */
+/* WHERE A POLYGON'S LABEL BELONGS — A POINT THAT IS ACTUALLY INSIDE IT.
+
+   Chris, with a sheet attached: "the leader line is not connecting to the appropriate
+   property. See image showing two addresses on the same property and leader line on
+   that property too."
+
+   The anchor was the MEAN OF THE VERTICES, and a mean is not a point in the shape.
+   Two ways it lands on the neighbour, both measured, neither rare in a parcel fabric:
+
+     · AN L-SHAPED LOT. The mean sits in the notch, which is somebody else's land.
+       Corner lots, lots wrapped around a hydro easement, anything reverse-pied.
+     · A LOT RUNNING OFF THE SHEET. v198 replaced the mean with the centre of the
+       lot's bounding box intersected with the sheet — a rectangle's centre, and an
+       angled street-front strip does not contain the centre of its own bounding box.
+
+   Either way the leader then points confidently at the wrong property, which on a
+   plan is not a cosmetic fault: it says an address is somewhere it is not.
+
+   SO THE POINT IS FOUND, NOT AVERAGED. A horizontal line is swept across the shape;
+   at each height the line's crossings with the outline are paired off into the spans
+   that are genuinely INSIDE (holes fall out of the pairing by themselves); the widest
+   span anywhere is taken and its midpoint returned. That point is inside the polygon
+   because it is the middle of a piece of the polygon, and it is in the widest part,
+   which is where there is room for the text.
+
+   `clip` is the sheet frame. Passing it confines the sweep to what is on this sheet,
+   so a lot running off the edge is labelled in the part the reader can see — the v198
+   intent, done in a way that cannot land outside the lot. */
+function polySpan(rings, y, xlo, xhi){
+  const xs = [];
+  rings.forEach(r=>{
+    for(let i = 0, j = r.length - 1; i < r.length; j = i++){
+      const x1 = r[j][0], y1 = r[j][1], x2 = r[i][0], y2 = r[i][1];
+      if((y1 > y) === (y2 > y)) continue;
+      xs.push(x1 + (y - y1) * (x2 - x1) / ((y2 - y1) || 1e-12));
+    }
+  });
+  if(xs.length < 2) return null;
+  xs.sort((a,b)=> a - b);
+  let best = null;
+  /* Pairs, not neighbours: [0,1] is inside, [1,2] is not, [2,3] is inside again.
+     That is what takes a hole out without knowing it is a hole. */
+  for(let k = 0; k + 1 < xs.length; k += 2){
+    const a2 = Math.max(xs[k], xlo), b2 = Math.min(xs[k+1], xhi);
+    if(b2 - a2 <= 0) continue;
+    if(!best || (b2 - a2) > (best[1] - best[0])) best = [a2, b2];
+  }
+  return best;
+}
+function labelSpotPx(f, P, clip){
+  const g = f && f.geom;
+  if(!g) return null;
+  const at = c => P ? P(c[1], c[0]) : [c[0], c[1]];
+  if(g.t === "pt") return at(g.c);
+  const rings = [];
+  if(g.t === "pg") eachPoly(g.c, rs => rs.forEach(r => rings.push(r.map(at))));
+  else eachRing(g.c, r => rings.push(r.map(at)));
+  if(!rings.length) return null;
+  let ylo = Infinity, yhi = -Infinity, xlo = Infinity, xhi = -Infinity;
+  rings.forEach(r => r.forEach(pt=>{
+    if(pt[1] < ylo) ylo = pt[1]; if(pt[1] > yhi) yhi = pt[1];
+    if(pt[0] < xlo) xlo = pt[0]; if(pt[0] > xhi) xhi = pt[0];
+  }));
+  if(clip){
+    ylo = Math.max(ylo, clip.y1); yhi = Math.min(yhi, clip.y2);
+    xlo = Math.max(xlo, clip.x1); xhi = Math.min(xhi, clip.x2);
+  }
+  /* A LINE HAS NO INSIDE. Its midpoint vertex is as good as anything and is on it. */
+  if(g.t !== "pg" || !(yhi > ylo) || !(xhi > xlo)){
+    const flat = []; rings.forEach(r => r.forEach(pt => flat.push(pt)));
+    return flat.length ? flat[Math.floor(flat.length/2)] : null;
+  }
+  let best = null, bestY = 0;
+  /* Enough sweeps to find the waist of an L or the body of a flag lot, few enough
+     that a fabric of thousands costs nothing. The ends are skipped: a scanline
+     exactly on the top vertex finds a span of zero width. */
+  const N = 11;
+  for(let i = 1; i <= N; i++){
+    const y = ylo + (yhi - ylo) * i / (N + 1);
+    const sp = polySpan(rings, y, xlo, xhi);
+    if(sp && (!best || (sp[1] - sp[0]) > (best[1] - best[0]))){ best = sp; bestY = y; }
+  }
+  if(!best) return null;
+  return [(best[0] + best[1]) / 2, bestY];
+}
+/* The same answer in lon/lat, for the screen. */
+function labelSpotOf(f){
+  const g = f && f.geom;
+  if(!g) return null;
+  if(g.t !== "pg") return labelPointOf(f);
+  const p = labelSpotPx(f, null, null);
+  return p ? [p[1], p[0]] : labelPointOf(f);
+}
 function pointInFeature(x, y, f, P){
   const g = f && f.geom;
   if(!g || g.t !== "pg") return false;
@@ -19245,32 +19341,55 @@ async function runSingleExport(opt){
       const halo = dark ? "rgba(0,0,0,.9)" : "rgba(255,255,255,.95)";
       g.font = `${c.bold ? 800 : 600} ${LFS}px sans-serif`;
       g.textAlign = "center"; g.textBaseline = "middle";
+      /* THE FEATURES ON THIS SHEET, WORKED OUT ONCE. The cull was inside the loop,
+         which was fine when nothing else needed it; the placer below now has to ask
+         "is this spot on somebody else's lot", and asking that of forty thousand
+         features per candidate position is not a thing a phone can do. Tens on a
+         sheet, and their pixel boxes cached. */
+      const vis = [];
       L2.features.forEach(f=>{
-        if(lyrDrawn >= LYR_LABEL_MAX) return;
         const bb = featureBBox(f);
         if(bb && (bb.s > b.getNorth() || bb.n < b.getSouth() ||
                   bb.w > b.getEast()  || bb.e < b.getWest())) return;
+        let px = null;
+        if(bb){
+          const a1 = P(bb.n, bb.w), a2 = P(bb.s, bb.e);
+          px = { x1:Math.min(a1[0],a2[0]), x2:Math.max(a1[0],a2[0]),
+                 y1:Math.min(a1[1],a2[1]), y2:Math.max(a1[1],a2[1]) };
+        }
+        vis.push({ f:f, bb:bb, px:px });
+      });
+      /* Is this point on a DIFFERENT parcel of the same layer? A label that has to
+         leave its own lot must not come to rest on the neighbour's — the leader says
+         which lot it belongs to, but a reader sees the text before the line, and an
+         address written across somebody else's property is the fault being fixed. */
+      const onAnotherLot = (x, y, self) => vis.some(o=>{
+        if(o.f === self) return false;
+        if(o.px && (x < o.px.x1 || x > o.px.x2 || y < o.px.y1 || y > o.px.y2)) return false;
+        return pointInFeature(x, y, o.f, P);
+      });
+      vis.forEach(({ f, bb })=>{
+        if(lyrDrawn >= LYR_LABEL_MAX) return;
         const parts = (c.fields || []).map(k => f.props ? f.props[k] : null)
                         .filter(v => v != null && String(v).trim() !== "")
                         .map(v => String(v).trim());
         if(!parts.length) return;
 
-        /* WHERE THE LABEL GOES, and this is the other half of "not always".
+        /* WHERE THE LABEL GOES — A POINT INSIDE THIS LOT AND ON THIS SHEET.
 
-           The centroid of a parcel that runs off the edge of the sheet is off the
-           sheet too, so the corner lot at the top of every sheet lost its address —
-           on the very sheets a reader most needs it to orient themselves. The point
-           is taken from the part of the feature that is ON this sheet: the centre of
-           its bounding box intersected with the sheet's own bounds. */
-        let pt = labelPointOf(f);
-        if(!pt) return;
-        if(bb){
-          const iN = Math.min(bb.n, b.getNorth()), iS = Math.max(bb.s, b.getSouth());
-          const iE = Math.min(bb.e, b.getEast()),  iW = Math.max(bb.w, b.getWest());
-          if(iN > iS && iE > iW && (pt[0] > iN || pt[0] < iS || pt[1] > iE || pt[1] < iW))
-            pt = [(iN + iS) / 2, (iE + iW) / 2];
-        }
-        const pp = P(pt[0], pt[1]);
+           v198 took the mean of the vertices and, for a lot running off the edge,
+           the centre of its bounding box clipped to the sheet. Both are points that
+           need not be in the shape at all: the mean of an L sits in the notch, and
+           an angled street-front strip does not contain the centre of its own
+           bounding box. The label — and worse, the leader drawn to it — then pointed
+           at the neighbour.
+
+           labelSpotPx sweeps the shape and returns the middle of its widest span
+           inside the frame, which is inside the lot by construction and is where
+           there is room for the text. */
+        const pp = labelSpotPx(f, P, { x1:fx+6, y1:fy+6, x2:fx+fw-6, y2:fy+fh-6 })
+                || (function(){ const q = labelPointOf(f); return q ? P(q[0], q[1]) : null; })();
+        if(!pp) return;
         const w = Math.max.apply(null, parts.map(x => g.measureText(x).width));
         const h = parts.length * LFS * 1.2;
         const CLEAR = Math.max(3, Math.round(LFS*0.28));
@@ -19288,16 +19407,22 @@ async function runSingleExport(opt){
            drawn, it is not placed there at all — it goes clear of the lot, beside
            it, and the leader below ties it back. That is what a draftsperson does
            with a narrow lot, and it is the only arrangement that is not ambiguous. */
+        /* The lot as the READER sees it. Measured off the raw bbox, a lot running
+           three sheets to the east would be judged wide enough for its address on
+           ground that is not on this sheet, and the text would be centred on a
+           sliver. Clipped to the frame it is the visible part that has to hold it. */
         const lotPx = (()=>{
           if(!bb) return null;
           const a1 = P(bb.n, bb.w), a2 = P(bb.s, bb.e);
-          return { x1:Math.min(a1[0],a2[0]), x2:Math.max(a1[0],a2[0]),
-                   y1:Math.min(a1[1],a2[1]), y2:Math.max(a1[1],a2[1]) };
+          return { x1:Math.max(Math.min(a1[0],a2[0]), fx+6),
+                   x2:Math.min(Math.max(a1[0],a2[0]), fx+fw-6),
+                   y1:Math.max(Math.min(a1[1],a2[1]), fy+6),
+                   y2:Math.min(Math.max(a1[1],a2[1]), fy+fh-6) };
         })();
         const fitsInside = !lotPx ||
           ((w + CLEAR*2) <= (lotPx.x2 - lotPx.x1) && (h + CLEAR*2) <= (lotPx.y2 - lotPx.y1));
 
-        let best = null;
+        let best = null, spare = null;
         const CAND = [[0,-1],[0,1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]];
         /* Ring 0 is the lot's own centre. Rings 1 and 2 step out from the EDGE of
            the lot rather than from its centre, so one step really does clear it
@@ -19324,9 +19449,14 @@ async function runSingleExport(opt){
             const box = { x1:cx-w/2-CLEAR, y1:cy-h/2-CLEAR, x2:cx+w/2+CLEAR, y2:cy+h/2+CLEAR };
             if(box.x1 < fx+6 || box.x2 > fx+fw-6 || box.y1 < fy+6 || box.y2 > fy+fh-6) continue;
             if(overlaps(box)) continue;
+            /* A clear spot on nobody's lot wins outright. One on a neighbour's is
+               kept only as a last resort, because a label somewhere beats a label
+               nowhere — and the leader at least says which lot it means. */
+            if(onAnotherLot(cx, cy, f)){ if(!spare) spare = { cx, cy, box }; continue; }
             best = { cx, cy, box }; break;
           }
         }
+        if(!best && spare) best = spare;
         if(!best){ lyrNoRoom++; return; }
         taken.push(best.box);
 
