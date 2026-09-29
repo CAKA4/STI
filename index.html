@@ -483,6 +483,14 @@
      31 pp swallowed tells the user nothing about whether the right file went in. */
   .docrow .nm b.ct{ flex:0 0 auto; font-weight:600 }
   .docrow .nm b.miss{ color:var(--blaze) }
+  /* A LONGER TAG MUST NOT EAT THE NAME. "name only — the file is on another device"
+     is four times the width of "not here", and on a phone it squeezed "Propertyfabric"
+     down to "Propert…" — so the row that is telling you something goes wrong is the
+     one row whose subject you cannot read. Those rows stack instead. */
+  .docrow.stack{ display:block }
+  .docrow.stack .nm{ display:block }
+  .docrow.stack .nm span{ white-space:normal; display:block }
+  .docrow.stack .nm b.ct{ display:block; margin-top:1px }
   /* ‹ Back, on every screen that is a step rather than a destination. In the flow
      above the heading rather than floating over it: a pill absolutely positioned in
      the corner sits on top of a long title on a narrow phone, which is exactly where
@@ -1118,6 +1126,14 @@
     <div id="pfList"></div>
     <div class="mini" id="pfStatus" style="margin:8px 0">—</div>
     <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left">
+      <input type="checkbox" id="pfPush" onchange="pfPushSet(this.checked)" style="width:17px;height:17px;padding:0;flex:0 0 auto">
+      <span>Send this device's files up automatically</span>
+    </label>
+    <div class="mini">Leave this <b>on</b>. It is what puts a layer you loaded here in front
+      of everybody else on the project, without anybody having to remember to. One file at a
+      time, layers first, in the background. Turn it off only on a phone you are paying for
+      data on and have just loaded something large onto.</div>
+    <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left;margin-top:8px">
       <input type="checkbox" id="pfAuto" onchange="pfAutoSet(this.checked)" style="width:17px;height:17px;padding:0;flex:0 0 auto">
       <span>Fetch anything missing automatically on this device</span>
     </label>
@@ -2173,7 +2189,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-28 · v182";
+const APP_BUILD  = "2026-09-29 · v184";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3774,6 +3790,44 @@ function layerFill(L2){
   const v = Number(L2 && L2.fill);
   return isFinite(v) ? Math.max(0, Math.min(100, v))/100 : 0.10;
 }
+/* ONE SQUARE SWATCH, DRAWN THE WAY THE LAYER IS DRAWN.
+
+   Chris: "the Propertyfabric is a polygon layer, but it just has an outline and no
+   fill colour. However, the legend shows a fill colour — the legend should just show
+   an outline."
+
+   He is right, and it is not a cosmetic point: on a drawing a solid block MEANS an
+   area and an outlined box MEANS a boundary, so a key that fills the parcel fabric
+   is naming something that is not on the sheet. A key that identifies the wrong
+   thing is worse than no key, because it is read as authoritative.
+
+   `fillA` and `edgeA` are the layer's own two transparency settings — the same
+   numbers `refLayers` is painted with — so this cannot drift from the drawing the
+   way a hardcoded swatch did. A row WITHOUT them (the site plan, a feature) is not a
+   layer, has no such setting, and keeps the solid block it always had.
+
+   ONE DELIBERATE DEPARTURE FROM FIDELITY: a floor under a fill that exists. A layer
+   at 10% fill covers a quarter of a sheet and reads plainly; the same 10% inside a
+   swatch a sixth of an inch across is indistinguishable from white, so it would read
+   as "outline" — the very thing this is here to tell apart. Nobody measures opacity
+   off a key. What the key has to carry is area-or-boundary, so any fill at all gets
+   enough tint to be seen, and no fill gets none. */
+function legendSquare(g, x, y, s, r, edgeW, dash, plainEdge){
+  const fa   = (r && r.fillA == null) ? 1 : r.fillA;
+  const isLyr = !!(r && r.fillA != null);
+  if(fa > 0.01){ g.fillStyle = isLyr ? hexA(r.color, Math.max(0.18, fa)) : r.color;
+                 g.fillRect(x, y, s, s); }
+  g.save();
+  g.strokeStyle = isLyr ? hexA(r.color, (r.edgeA == null) ? 1 : r.edgeA)
+                        : (plainEdge || "#12201a");
+  g.lineWidth = isLyr ? edgeW : (plainEdge ? 2 : 1.2);
+  /* A dashed layer is dashed in the key, for the reason the line swatch already
+     gives: a key that cannot be matched to the drawing is not a key. */
+  if(isLyr && r.dashed) g.setLineDash(dash);
+  g.strokeRect(x, y, s, s);
+  g.restore();
+}
+
 /* A hex colour with an alpha pair appended, for the canvas, which has no fillOpacity.
    FULLY OPAQUE COMES BACK UNCHANGED rather than as "#RRGGBBff" — the two paint the
    same, but one of them is the colour the layer is set to and the other is a string
@@ -5917,9 +5971,15 @@ function buildLegend(){
   if(vis.length){
     h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>{
       const k = layerLegendKind(l);
+      /* The same rule as the printed key: an outlined layer gets an outlined swatch.
+         The floor is here too, so the two keys say the same thing about a layer. */
+      const fa = layerFill(l);
       const sw = k === "line"
         ? `<span class="sw" style="background:transparent;border:none;border-top:3px ${layerDash(l)?"dashed":"solid"} ${l.color};height:0;border-radius:0"></span>`
-        : `<span class="sw${k==="square"?" sq":""}" style="background:${l.color}"></span>`;
+        : k === "square"
+          ? `<span class="sw sq" style="background:${fa > 0.01 ? hexA(l.color, Math.max(0.18, fa)) : "transparent"};` +
+            `border:2px ${layerDash(l)?"dashed":"solid"} ${l.color}"></span>`
+          : `<span class="sw" style="background:${l.color}"></span>`;
       return `<div class="lr">${sw}${esc(l.name)}</div>`;
     }).join("");
   }
@@ -8220,6 +8280,9 @@ async function syncEverything(opts){
     flushDomains(); flushInspections(); syncFeats(); flushFeatDeletes();
     syncAnnots(); flushAnnDeletes();
     kitSync({ loud:false });
+    /* The layers, the uploaded documents and the standard drawings — the three kinds
+       that used to wait for somebody to remember a button. See pfAutoSend. */
+    pfAutoSend(); detailAutoSync();
 
     // 2 — what the Sheet holds
     if(opts.loud) setStatus("Checking the Sheet…");
@@ -8710,8 +8773,20 @@ const AUTO_SYNC_MS = 4 * 60 * 1000;
 function autoSyncTick(){
   if(syncBusy || !connected || isOffline()) return;
   if(Date.now() - syncLast < 60000) return;
-  if(!syncPending()) return;
+  /* A FILE WAITING IS WORK WAITING, the same as a tree. This tick used to return
+     early whenever no tree, fence or note was pending — so a desktop holding the
+     only copy of an engineering layer sat there doing nothing for as long as the app
+     was open, because layers were not on anybody's list of "pending". */
+  if(!syncPending() && !pfSendWaiting()) return;
   syncEverything({ loud:false });
+}
+/* Deliberately cheap and offline-safe: it reads what this device holds, not the
+   Sheet. With no folder listing yet it answers no, and the listing arrives on the
+   ordinary check within the minute. */
+function pfSendWaiting(){
+  if(pfState.push === false) return 0;
+  const det = (typeof detailLib !== "undefined" ? detailLib : []).filter(d => d && d.notSent).length;
+  return (pvPfFresh() ? pfNotSent().length : 0) + det;
 }
 function startAutoSync(){
   /* The first pass is the one that matters: it is what clears a flag left wrong by
@@ -15863,10 +15938,17 @@ function kitRemember(project, rev, json){
    says so, which is the part nobody can do for themselves. */
 const PF_CHUNK = 1500000;                 // characters of base64 per slice
 const PFKEY = "st_pf";
-let pfState = { auto:false };
+/* `auto` is FETCHING, and it is off by default because it spends the phone's data.
+   `push` is SENDING, and it is ON by default because the work being stranded on one
+   device costs everybody and the bandwidth costs the machine that chose to load it. */
+let pfState = { auto:false, push:true };
 try{ const v = JSON.parse(STORE && STORE.getItem(PFKEY)); if(v && typeof v === "object") pfState = Object.assign(pfState, v); }catch(e){}
 function persistPf(){ if(STORE){ try{ STORE.setItem(PFKEY, JSON.stringify(pfState)); }catch(e){} } }
 function pfAutoSet(on){ pfState.auto = !!on; persistPf(); renderPf(); }
+function pfPushSet(on){
+  pfState.push = !!on; persistPf(); renderPf(); paintMenuReady();
+  if(pfState.push) pfAutoSend();
+}
 
 /* btoa cannot take a character above 255, and a layer called "Bayview & Hwy 7 —
    parcelles" is one paste away. Encoded as UTF-8 first, and decoded the same way,
@@ -15876,10 +15958,31 @@ function pfDec(b64){  return decodeURIComponent(escape(atob(String(b64)))); }
 
 /* What this device holds that the project should have. The layer's whole record
    travels, styling included, so a second device draws it the same way. */
+/* A NAME IS NOT A FILE, and this list could not tell the two apart.
+
+   Chris, on his phone, looking at a project he set up on the desktop:
+   "Arborist Report — here only — not sent."
+
+   The phone did not have the arborist report. It had the SECTION — the name, the
+   order, the fact that a report belongs in the document — which travels in the
+   project setup because it is a few bytes. The thirty megabytes of pages were never
+   on it. The same for a layer: the project setup carries a layer's colour and
+   weight, so a device can have "Propertyfabric" listed and hold not one boundary of
+   it.
+
+   Listing those as "here only — not sent" is the worst possible reading of the
+   situation. It says THIS device is the one holding the work, when this device is
+   the one missing it — so the person sends from the wrong machine, gets "nothing
+   stored on this device", and concludes the sync is broken.
+
+   `have` is the fix, and everything downstream hangs off it: what may be sent, what
+   the readiness line counts, and what the screen says. */
 function pfLocalItems(){
   const out = [];
   refLayers.forEach(l=>{
     out.push({ kind:"layer", ref:String(l.id), label:l.name || l.id,
+      /* Geometry, not a record of geometry. A styled shell sends nothing. */
+      have: !!(l.features && l.features.length),
       text: JSON.stringify({ name:l.name, src:l.src||"", color:l.color, visible:l.visible !== false,
         role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
         legend:l.legend !== false, legendKind:l.legendKind || "auto",
@@ -15889,9 +15992,26 @@ function pfLocalItems(){
         features:l.features || [] }) });
   });
   docSections().forEach(d=>{
-    if(d && d.kind === "upload") out.push({ kind:"doc", ref:String(d.id), label:d.name || d.id, text:null });
+    /* docHere is false when the section is known and its pages are not in this
+       device's store — exactly the arborist report on his phone. */
+    if(d && d.kind === "upload")
+      out.push({ kind:"doc", ref:String(d.id), label:d.name || d.id, text:null,
+                 have: docHere[d.id] !== false });
   });
   return out;
+}
+/* Split in two, because the two mean opposite things and the screen had one word for
+   both. Only what this device HOLDS may be sent, or offered as sendable. */
+function pfSendable(){ return pfLocalItems().filter(it => it.have); }
+function pfOnSheetKeys(){
+  const m = {}; (pfItems||[]).forEach(it=> m[it.kind + "~" + it.ref] = 1); return m;
+}
+/* Named here and nowhere else: this device knows of it and holds none of it, and the
+   project folder has not got it either. Nobody can send it, and saying so is the
+   only way the person learns to go back to the machine that has it. */
+function pfShellsHere(){
+  const on = pfOnSheetKeys();
+  return pfLocalItems().filter(it => !it.have && !on[it.kind + "~" + it.ref]);
 }
 
 function pfPutItem(project, it, onProgress){
@@ -15988,16 +16108,19 @@ function pfMissingHere(){
     (it.kind === "layer" ? !haveL[it.ref] : !haveD[it.ref]));
 }
 function pfNotSent(){
-  const onSheet = {}; (pfItems||[]).forEach(it=> onSheet[it.kind + "~" + it.ref] = 1);
-  return pfLocalItems().filter(it=> !onSheet[it.kind + "~" + it.ref]);
+  const onSheet = pfOnSheetKeys();
+  return pfSendable().filter(it=> !onSheet[it.kind + "~" + it.ref]);
 }
 
 /* THE SENDING ITSELF, with no screen in it, so the Project files button and the
    one-button handover can share an implementation rather than drifting apart. */
 function pfSendAllCore(project, say){
   /* Everything local, not only what is missing — re-sending is how a layer you
-     restyled or a report you replaced reaches the other device at all. */
-  const list = pfLocalItems();
+     restyled or a report you replaced reaches the other device at all. But only what
+     this device actually HOLDS: a section it knows the name of would throw
+     "nothing stored on this device" and report a failure for a file that was never
+     its to send. */
+  const list = pfSendable();
   if(!list.length) return Promise.resolve({ sent:0, of:0, failed:[] });
   let done = 0; const failed = [];
   const step = ()=>{
@@ -16026,8 +16149,20 @@ function pfSendAll(){
 
 function pfGetAll(){
   if(pfBusy) return;
+  /* THE DRAWINGS COME TOO. They are not in the project folder — they are on their own
+     tab — so a button called "Get what is missing" that ignored them was answering a
+     narrower question than it was asked. */
+  refreshDetailLib().then(()=>{ renderPf(); paintMenuReady(); }).catch(()=>{});
   const miss = pfMissingHere();
-  if(!miss.length){ pfSay("This device already has everything."); return; }
+  if(!miss.length){
+    /* "This device already has everything" is true of an empty folder and useless to
+       read, which is exactly what his phone showed. Say which of the two it is. */
+    pfSay(!pfItems || !pfItems.length
+      ? "The project folder is empty — nothing has been sent up for this project yet. "
+        + "Open the app on the device the files were loaded on and they go up by themselves."
+      : "This device already has everything in the project folder.");
+    return;
+  }
   const mb = Math.round(miss.reduce((a,i)=>a + (i.kb||0), 0) / 1024);
   if(mb >= 8 && !confirm("This will download about " + mb + " MB. Continue?")) return;
   pfBusy = true; renderPf();
@@ -16057,6 +16192,7 @@ function pfGetAll(){
 function renderPf(){
   const box = $("pfList"); if(!box) return;
   const a = $("pfAuto"); if(a) a.checked = !!pfState.auto;
+  const u = $("pfPush"); if(u) u.checked = pfState.push !== false;
   if(!pfItems){ box.innerHTML = `<div class="mini">—</div>`; return; }
   const haveL = {}; refLayers.forEach(l=> haveL[String(l.id)] = 1);
   const haveD = {}; docSections().forEach(d=>{ if(d && d.kind==="upload") haveD[String(d.id)] = 1; });
@@ -16070,10 +16206,85 @@ function renderPf(){
             <b class="ct">${mb}</b>${tag}</label></div>`;
   });
   const extra = pfNotSent().map(it=>
-    `<div class="docrow"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
-     <b class="ct miss">here only — not sent</b></label></div>`);
-  box.innerHTML = (rows.concat(extra).join("")) || `<div class="mini">Nothing yet.</div>`;
+    `<div class="docrow stack"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
+     <b class="ct miss">on this device only — going up</b></label></div>`);
+  /* THE ROW THAT WAS LYING. It said "here only — not sent" for a report this device
+     had never held, which sends somebody to the wrong machine to fix it. */
+  const shells = pfShellsHere().map(it=>
+    `<div class="docrow stack"><label class="nm"><span>${it.kind === "doc" ? "📄" : "🗺"} ${esc(it.label)}</span>
+     <b class="ct miss">name only — the file is on another device</b></label></div>`);
+  box.innerHTML = (rows.concat(extra, shells).join("")) || `<div class="mini">Nothing yet.</div>`;
+  if(shells.length){
+    const one = pfShellsHere().length === 1;
+    box.innerHTML += `<div class="mini" style="margin-top:8px">${one ? "That one is" : "Those are"}
+      part of this project, but ${one ? "the file has" : "the files have"} never left the device
+      ${one ? "it was" : "they were"} loaded on. Open the app on that computer and
+      ${one ? "it goes" : "they go"} up by ${one ? "itself" : "themselves"} — then tap
+      <b>Get what is missing</b> here.</div>`;
+  }
   ["pfSend","pfGet","pfCheck"].forEach(id=>{ const b = $(id); if(b){ b.disabled = pfBusy; b.style.opacity = pfBusy ? ".6" : ""; } });
+}
+
+/* SENDING RUNS ON ITS OWN. DOWNLOADING STILL DOES NOT, AND THAT ASYMMETRY IS THE
+   WHOLE DESIGN.
+
+   Chris: "I set up the original project on my desktop computer. I am now on my
+   iPhone and many layers are not appearing, such as the Engineering layers as well
+   as the drawing files. Please ensure that everything is accessible on all devices
+   with a simple click of the button."
+
+   Nothing was broken. The folder was empty, because the layers, the documents and
+   the standard drawings all waited for somebody to press a Send button on the
+   machine that had them, and nobody ever did. The phone then said "This device
+   already has everything", which was true of an empty folder and useless to read.
+
+   This is the same fault as the notes in v177 and the fences in v178, for the third
+   and fourth kinds of data: a write path that works and a human who has to remember
+   it. The answer is the same one — put it on the ordinary tick.
+
+   WHY UP IS AUTOMATIC AND DOWN IS NOT. The cost of sending falls on the device that
+   chose to load a thirty-megabyte report, and it is a desktop on wifi essentially
+   every time — a phone in the field gains layers and reports almost never, so it
+   pays almost nothing. The cost of FETCHING falls on the phone, which may be on a
+   data plan in a field, and that is somebody's money. So sending is on by default
+   and fetching keeps its switch.
+
+   ONE ITEM PER TICK, SMALLEST FIRST. A layer is tens of kilobytes and a report is
+   tens of megabytes; sending the layers first means the plan draws correctly on the
+   other device within a minute or two, rather than after the report finishes. */
+function pfAutoSend(){
+  if(pfBusy || pvBusy || pfState.push === false) return;
+  const project = String(currentProject() || "").trim();
+  if(!project || showAllProjects || isOffline() || !connected) return;
+  if(!pvPfFresh()) return;             // no folder listing yet: nothing to compare against
+  const queue = pfNotSent().slice().sort((a,b)=>
+    (a.kind === b.kind) ? 0 : (a.kind === "layer" ? -1 : 1));
+  if(!queue.length) return;
+  pfBusy = true; renderPf();
+  pfPutItem(project, queue[0])
+    .then(()=>{ pfBusy = false;
+      /* Re-list, so the next tick sees this one as done rather than sending it
+         again — and so the readiness line goes green by itself. */
+      jsonpGet("pflist", { project:project }, r=>{
+        if(r && r.ok) pvPfTake(r.items, project);
+        renderPf(); paintMenuReady();
+      }, 60000); })
+    .catch(()=>{ pfBusy = false; renderPf(); });
+}
+
+/* The standard drawings are the fourth kind, and they were the other half of what he
+   could not find. They live on their own tab rather than in the project folder, so
+   they ride the same tick by their own route. The INDEX comes down on every sync —
+   it is a few hundred bytes and it is what tells a device the drawings exist at all. */
+function detailAutoSync(){
+  if(!connected || isOffline() || pvBusy) return;
+  const mine = (typeof detailLib !== "undefined" ? detailLib : []).filter(d => d && d.notSent);
+  if(mine.length && pfState.push !== false){
+    detailSendCore(mine.slice(0, 1), ()=>{}).then(()=>{ saveDetailLib(); paintMenuReady(); })
+      .catch(()=>{});
+    return;
+  }
+  refreshDetailLib().then(()=>{ paintMenuReady(); }).catch(()=>{});
 }
 
 /* THE CHECK RUNS ON ITS OWN; THE DOWNLOAD DOES NOT. Knowing that the project has a
@@ -16477,8 +16688,23 @@ function menuReady(){
 
   const notSent = pfNotSent().length;
   if(notSent) return ["bad", `${notSent} layer${notSent === 1 ? "" : "s"} or document${
-    notSent === 1 ? "" : "s"} not in the project folder`,
-    "Another device would draw this plan with holes in it.", "versions"];
+    notSent === 1 ? "" : "s"} still going up`,
+    "They go on their own, one at a time. Another device draws this plan with holes "
+    + "in it until they are up.", "files"];
+
+  /* THE OTHER DIRECTION, which nothing on the front page said a word about — and it
+     is the one he was standing in. A phone that is missing the engineering layers
+     draws a plan that is wrong, and the phone is the only thing that knows. */
+  const missHere = pfMissingHere().length;
+  if(missHere) return ["bad", `${missHere} layer${missHere === 1 ? "" : "s"} or document${
+    missHere === 1 ? "" : "s"} in the project folder, not on this device`,
+    "Tap to bring them in — a plan drawn without them is missing what they show.", "files"];
+
+  /* Known to the project, held by nobody here. No button can fix this one, so it says
+     where to go instead of offering a button that would fail. */
+  const shells = pfShellsHere().length;
+  if(shells) return ["bad", `${shells} file${shells === 1 ? " is" : "s are"} on another device only`,
+    "Open the app on the computer they were loaded on and they go up by themselves.", "files"];
 
   if(!pvItems.length) return ["bad", "No version saved for this plan",
     "Until there is one, nobody else can reproduce it.", "versions"];
@@ -16512,6 +16738,7 @@ function menuReadyGo(){
   /* Each of these closes the menu itself. */
   if(menuReadyAct === "sync") syncNow();
   else if(menuReadyAct === "details") openDetails();
+  else if(menuReadyAct === "files") openPf();
   else if(menuReadyAct === "versions") openVersions();
 }
 
@@ -19246,8 +19473,8 @@ async function drawTppFrame(g, W, H, opt){
         g.beginPath(); g.moveTo(sx - fs*1.05, cy); g.lineTo(sx + fs*1.05, cy); g.stroke();
         g.restore();
       } else if(r.kind === "square"){
-        g.fillStyle = r.color; g.fillRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
-        g.strokeStyle = "#12201a"; g.lineWidth = 1.2; g.strokeRect(sx - fs*0.42, cy - fs*0.42, fs*0.84, fs*0.84);
+        const x0 = sx - fs*0.42, y0 = cy - fs*0.42, ss = fs*0.84;
+        legendSquare(g, x0, y0, ss, r, Math.max(1.4, fs*0.16), [fs*0.30, fs*0.22]);
       } else if(r.kind === "circle"){
         g.save();
         if(!r.solid) g.setLineDash([fs*0.34, fs*0.26]);
@@ -19952,9 +20179,19 @@ function sheetLegendRaw(shown){
   /* A LAYER CAN BE ON THE MAP AND OFF THE LEGEND. Base information — a parcel
      fabric, an aerial index — belongs on the drawing and not in the key, and a legend
      with twelve rows nobody needs is a legend nobody reads. */
+  /* THE SWATCH CARRIES THE LAYER'S OWN TRANSPARENCY, both halves of it.
+
+     Chris: "the Propertyfabric is a polygon layer, but it just has an outline and no
+     fill colour. However, the legend shows a fill colour."
+
+     A solid block and an outlined box are not two drawings of one thing — a block
+     says area, a box says boundary — so a parcel fabric drawn as lines was being
+     named in the key as a filled region. The two numbers a layer already has decide
+     it, which also means a layer set back on screen is set back in the key. */
   refLayers.filter(l => l.visible && layerInLegend(l)).forEach(l =>
     present.push({ key:"lyr:"+layerKitKey(l), label:l.name, color:l.color,
-                   kind:layerLegendKind(l), dashed:layerDash(l) }));
+                   kind:layerLegendKind(l), dashed:layerDash(l),
+                   fillA:layerFill(l), edgeA:layerOpacity(l) }));
   if(pdfOverlay && pdfVisible) present.push({key:"pdf", label:pdfName||"Site plan", color:"#b0bec5", kind:"square"});
   return present;
 }
@@ -20162,7 +20399,10 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     const cy=py-Math.round(PDF_DPI*0.035), rr=Math.round(PDF_DPI*0.045);
     g.strokeStyle="#fff"; g.lineWidth=2;
     if(r.kind==="square"){
-      g.fillStyle=r.color; g.fillRect(px2+8-rr, cy-rr, rr*2, rr*2); g.strokeRect(px2+8-rr, cy-rr, rr*2, rr*2);
+      /* The white keyline this key draws round everything is what separates a swatch
+         from the dark panel behind it, so it stays for a row that has no layer
+         behind it — and gives way to the layer's own edge for one that has. */
+      legendSquare(g, px2+8-rr, cy-rr, rr*2, r, 2, [rr*0.7, rr*0.5], "#fff");
     } else if(r.kind==="line"){
       g.strokeStyle=r.color; g.lineWidth=Math.round(PDF_DPI*0.03);
       /* A dashed line in the drawing is a dashed line in the key, or the key does not
