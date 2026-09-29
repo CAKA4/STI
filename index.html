@@ -2200,7 +2200,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v191";
+const APP_BUILD  = "2026-09-29 · v192";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -8414,8 +8414,14 @@ async function syncEverything(opts){
     syncAnnots(); flushAnnDeletes();
     kitSync({ loud:false });
     /* The layers, the uploaded documents and the standard drawings — the three kinds
-       that used to wait for somebody to remember a button. See pfAutoSend. */
-    pfAutoSend(); detailAutoSync();
+       that used to wait for somebody to remember a button. See pfAutoSend.
+
+       NOT WHEN THE CALLER IS ABOUT TO SEND THEM ITSELF. pvPublish syncs first and
+       then sends the files as its own steps 2 and 3. These two are not awaited, so
+       they would still be running when those steps began: the same layer posted
+       twice, two uploads contending for the script lock, and a publish that takes
+       longer than doing nothing would have. */
+    if(opts.files !== false){ pfAutoSend(); detailAutoSync(); }
 
     // 2 — what the Sheet holds
     if(opts.loud) setStatus("Checking the Sheet…");
@@ -14485,7 +14491,8 @@ async function uploadDetail(rec, fullDataUrl){
       id:rec.id, name:rec.name, muni:rec.muni, caption:rec.caption, src:rec.src,
       page:rec.page, pages:rec.pages, w:rec.w, h:rec.h, thumb:rec.thumb,
       by: settings.cruiser || "" });
-    await new Promise(r => setTimeout(r, 400));
+    /* Spacing between two posts — not owed after the final one. */
+    if(i + 1 < parts) await new Promise(r => setTimeout(r, 400));
   }
 }
 
@@ -16238,8 +16245,13 @@ function pfLocalItems(){
 /* Split in two, because the two mean opposite things and the screen had one word for
    both. Only what this device HOLDS may be sent, or offered as sendable. */
 function pfSendable(){ return pfLocalItems().filter(it => it.have); }
+/* COMPLETE ONLY. A half-finished upload is listed by pfList_ with complete:false so
+   the screen can report it — but counting it here would make pfUpToDate say the item
+   is already up there, and it would never be sent again. The folder would keep a file
+   with a hole in it and nothing would ever retry. */
 function pfOnSheetKeys(){
-  const m = {}; (pfItems||[]).forEach(it=> m[it.kind + "~" + it.ref] = 1); return m;
+  const m = {}; (pfItems||[]).forEach(it=>{ if(it && it.complete) m[it.kind + "~" + it.ref] = 1; });
+  return m;
 }
 /* Named here and nowhere else: this device knows of it and holds none of it, and the
    project folder has not got it either. Nobody can send it, and saying so is the
@@ -16266,7 +16278,10 @@ function pfPutItem(project, it, onProgress){
                         label:it.label, part:i, parts:parts,
                         data:b64.slice(i*PF_CHUNK, (i+1)*PF_CHUNK),
                         by:settings.cruiser || "" })
-        .then(()=> new Promise(r=> setTimeout(r, 350)))
+        /* THE PAUSE IS SPACING BETWEEN TWO POSTS, so there is no reason to pay it
+           after the last one. Most items are a single slice since v186, which made
+           this 350 ms of pure waiting on every file sent. */
+        .then(()=> (i + 1 < parts) ? new Promise(r=> setTimeout(r, 350)) : null)
         .then(()=>{ i++; return step(); });
     };
     return step();
@@ -16992,7 +17007,12 @@ async function pvPublish(){
       /* An automatic sync may already be running; joining it rather than starting a
          second is the difference between waiting and colliding. */
       for(let i = 0; i < 60 && syncBusy; i++) await new Promise(r=>setTimeout(r, 500));
-      await syncEverything({ loud:false });
+      /* files:false — steps 2 and 3 below send them, in order, and report it. */
+      await syncEverything({ loud:false, files:false });
+      /* And if a background drain was already running when this started, let it
+         finish rather than posting the same files over the top of it. */
+      for(let i = 0; i < 40 && (pfPushBusy || detailPushBusy); i++)
+        await new Promise(r=>setTimeout(r, 250));
       const left = syncPending();
       if(left) trouble.push(left + " tree(s), feature(s) or note(s) still not on the Sheet");
     }catch(e){ trouble.push("the trees could not be sent"); }
