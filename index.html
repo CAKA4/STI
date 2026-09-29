@@ -1724,6 +1724,16 @@
         the same alignment are told apart by pattern when the drawing is photocopied and
         the colours go.</div>
     </div>
+    <!-- The fence and the excavation line, off by default. It used to be on with no
+         way off, which over a pale survey base is a white band and nothing else. -->
+    <div class="fld" id="lsHaloRow" style="display:none">
+      <label>White outline</label>
+      <label class="chk"><input id="lsHalo" type="checkbox"> Put a white outline behind this line on the plan</label>
+      <div class="mini">Off. Turn it on only for a plan printed over a dark air photo,
+        where the colour alone is hard to pick out. Over a survey base leave it off —
+        it prints as a white band either side of the line, and on two lines sharing one
+        alignment it covers the colour of the line underneath.</div>
+    </div>
     <!-- Groups only. Six layers sharing one colour are six identical lines in the key
          unless something tells them apart. -->
     <div class="fld" id="lsVaryRow" style="display:none">
@@ -2214,7 +2224,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v195";
+const APP_BUILD  = "2026-09-29 · v196";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3982,7 +3992,7 @@ function openGroupStyle(gid){
       (gp.merge ? ` · printed as ONE row, so one line style` : ` · changes apply to every one`)
     : `Nothing in this group is a layer — the colour applies to the key only`;
   $("lsVary").checked = !!gp.vary;
-  featStyleFields(true); lsVaryRow(true); lsPatRow(false);
+  featStyleFields(true); lsVaryRow(true); lsPatRow(false); lsHaloRow(false);
   $("layerStyleSheet").classList.add("show");
 }
 function saveGroupStyle(){
@@ -4060,7 +4070,7 @@ function openLayerStyle(id){
   $("lsHex").value = L2.color || "";
   $("lsHint").textContent = `${L2.features.length} feature(s) · mostly ${
     { line:"lines", square:"areas", dot:"points" }[layerKindGuess(L2)] }`;
-  featStyleFields(true); lsVaryRow(false); lsPatRow(false);
+  featStyleFields(true); lsVaryRow(false); lsPatRow(false); lsHaloRow(false);
   $("layerStyleSheet").classList.add("show");
 }
 /* The fence and the excavation line in the same sheet. The legend tick and the legend
@@ -4077,6 +4087,7 @@ function openFeatStyle(id){
   $("lsDash").checked = !!F.dashed;
   fillWeights("lsWeight", Number(F.weight) || 4);
   fillPatterns("lsPat", fenceDashPat({ type: (String(id).slice(5) === "rootexc") ? ROOT_EXC_TYPE : "" }));
+  $("lsHalo").checked = !!F.halo;
   const pct = (sel, val) => { $(sel).innerHTML = OPACITY_STEPS.map(v =>
       `<option value="${v}"${v===val?" selected":""}>${v===0?"0 — invisible":v+" %"}</option>`).join(""); };
   pct("lsOpacity", isFinite(Number(F.opacity)) ? Number(F.opacity) : 100);
@@ -4090,7 +4101,7 @@ function openFeatStyle(id){
               .filter(f => f.kind === "fence" && featKindOf(f) === k).length;
   $("lsHint").textContent = `${n} line(s) drawn · always a line, always in the legend` +
     ` · the wider of the two lines is drawn underneath`;
-  featStyleFields(false); lsVaryRow(false); lsPatRow(true);
+  featStyleFields(false); lsVaryRow(false); lsPatRow(true); lsHaloRow(true);
   $("layerStyleSheet").classList.add("show");
 }
 /* Shown for a reference layer, hidden for the fence. Kept in one function so the two
@@ -4102,6 +4113,8 @@ function featStyleFields(show){
 /* The pattern choice is a group's alone — one layer just picks its own. */
 function lsVaryRow(show){ const e = $("lsVaryRow"); if(e) e.style.display = show ? "" : "none"; }
 function lsPatRow(show){ const e = $("lsPatRow"); if(e) e.style.display = show ? "" : "none"; }
+/* Only the two drawn lines ever had a casing, so only they get the switch. */
+function lsHaloRow(show){ const e = $("lsHaloRow"); if(e) e.style.display = show ? "" : "none"; }
 
 /* WEIGHTS THAT GO WIDE ENOUGH TO SIT UNDER SOMETHING.
 
@@ -4147,6 +4160,7 @@ function saveFeatStyle(){
     F.dashed = $("lsDash").checked ? 1 : 0;
     delete F.dashPat;
   }
+  F.halo    = $("lsHalo").checked ? 1 : 0;
   F.weight  = Math.max(1, Math.min(24, Number($("lsWeight").value) || 4));
   F.opacity = Math.max(0, Math.min(100, parseInt($("lsOpacity").value,10)));
   persistFeatStyle();
@@ -10797,9 +10811,19 @@ const STOCK_D = [
  *  there is one idea of what styling a line means, and one place the legend reads.
  * -------------------------------------------------------------------------- */
 const FENCE_COLOR = "#FF6D00", ROOTEXC_COLOR = "#9C27B0";
+/* `halo` IS OFF. It used to be on and there was no way to turn it off.
+
+   Chris: "remove the white background on these lines."
+
+   The white casing was put under the colour so a line still read over dark air
+   photo. On a plan drawn over a pale survey base — which is most of them — it is a
+   white band either side of every fence, and on two lines sharing an alignment the
+   upper line's casing eats the band of colour the lower line exists to show. It is
+   now a choice, and the choice starts off. Anyone printing over dark imagery ticks
+   "White outline" on the line's own style screen and gets it back. */
 const FEAT_STYLE_DEF = {
-  fence:   { name:"Tree protection fence",      color:FENCE_COLOR,   weight:4, dashed:0, opacity:100 },
-  rootexc: { name:"Root-sensitive excavation",  color:ROOTEXC_COLOR, weight:4, dashed:1, opacity:100 }
+  fence:   { name:"Tree protection fence",      color:FENCE_COLOR,   weight:4, dashed:0, opacity:100, halo:0 },
+  rootexc: { name:"Root-sensitive excavation",  color:ROOTEXC_COLOR, weight:4, dashed:1, opacity:100, halo:0 }
 };
 let featStyle = JSON.parse(JSON.stringify(FEAT_STYLE_DEF));
 try{
@@ -10838,6 +10862,10 @@ function fenceOpacityOf(f){
   const v = Number(featStyleOf(f).opacity);
   return isFinite(v) ? Math.max(0, Math.min(100, v))/100 : 1;
 }
+/* Off unless the line says otherwise — see FEAT_STYLE_DEF. A style saved by an
+   older build has no `halo` key, so it merges onto the default and comes up off,
+   which is what he asked for. */
+function fenceHalo(f){ return !!featStyleOf(f).halo; }
 function isRootExc(f){ return String((f && f.type) || "") === ROOT_EXC_TYPE; }
 
 let drawMode = null, drawPts = [], drawLine = null, drawMarks = [];
@@ -18660,11 +18688,17 @@ async function runSingleExport(opt){
     /* A white casing under the colour, so the line still reads over dark imagery —
        the same reason the north arrow and scale bar sit on white blocks.
 
-       SCALED TO THE LINE. It was a fixed 1.9 x the default width, so the moment a
-       line was set wider than about eight the casing was drawn INSIDE it: invisible,
+       NOW OFF UNLESS ASKED FOR. Over a pale survey base it is a white band either
+       side of the line and nothing else, and on two lines sharing an alignment the
+       upper one's casing covers the band of colour the lower one exists to show.
+
+       When it IS on it is scaled to the line: a fixed 1.9 x the default width meant
+       that past about weight eight the casing was drawn INSIDE the line — invisible,
        and the wide line it was meant to help lost its edge over dark imagery. */
-    g.save(); g.strokeStyle="rgba(255,255,255,.85)";
-    g.lineWidth = Math.max(fenceW*1.9, lw*1.6); g.setLineDash([]); g.stroke(); g.restore();
+    if(fenceHalo(f)){
+      g.save(); g.strokeStyle="rgba(255,255,255,.85)";
+      g.lineWidth = Math.max(fenceW*1.9, lw*1.6); g.setLineDash([]); g.stroke(); g.restore();
+    }
     g.stroke();
     g.setLineDash([]);
   });
