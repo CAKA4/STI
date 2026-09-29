@@ -2189,7 +2189,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v184";
+const APP_BUILD  = "2026-09-29 · v186";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2197,7 +2197,7 @@ const APP_BUILD  = "2026-09-29 · v184";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-28 · v156";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-29 · v157";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -14308,10 +14308,24 @@ function prettyDetailName(src, page, pages){
   const base = String(src || "drawing").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 56);
   return pages > 1 ? `${base} — p${page}` : base;
 }
-/* Sent to Drive in chunks, like a layer. 64 kB of base64 a part keeps every request
-   well inside what a phone on one bar can push, and a part that never lands is named
-   rather than leaving a half-written file. */
-const DETAIL_CHUNK = 64 * 1024;
+/* Sent to Drive in slices, like a layer — and at the size a layer uses.
+
+   Chris: "at 30 of 99, it has taken 1.5 hours."
+
+   64 kB was chosen for a phone on one bar, and it made every request small at the
+   cost of making there be twenty-odd of them per drawing. Each one is a full call
+   into Apps Script, so the cost of a drawing was never its megabyte, it was its
+   part COUNT — about three minutes each, five hours for his ninety-nine.
+
+   The project-file path in this same app has been sending 1.5 M characters a slice
+   to the same backend since v153, because it writes each slice straight to Drive
+   instead of into a Script Property. Code.gs v157 makes the drawings do the same, so
+   the slice can be the same size and an ordinary drawing goes up in ONE request.
+   A part that never lands is still named rather than leaving a half-written file. */
+/* The literal, not PF_CHUNK: that const is declared a thousand lines further down,
+   so naming it here would read it before it exists and the app would not start.
+   Kept equal to it on purpose — the two are the same decision. */
+const DETAIL_CHUNK = 1500000;             // characters of base64 per slice, as PF_CHUNK
 function postJson(body){
   return fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify(body) });
@@ -16252,39 +16266,99 @@ function renderPf(){
    ONE ITEM PER TICK, SMALLEST FIRST. A layer is tens of kilobytes and a report is
    tens of megabytes; sending the layers first means the plan draws correctly on the
    other device within a minute or two, rather than after the report finishes. */
-function pfAutoSend(){
-  if(pfBusy || pvBusy || pfState.push === false) return;
+/* ONE ITEM PER FOUR-MINUTE TICK WAS THE SAME MISTAKE the drawings made, one order of
+   magnitude smaller: a project with eight layers and two reports would have taken
+   forty minutes of the app being open. It drains instead.
+
+   `pfBusy` is set for the item in flight and cleared between items on purpose, so a
+   person who opens the screen mid-drain can still press a button — and the loop sees
+   `pfBusy` on its next turn and gets out of their way. */
+let pfPushBusy = false;
+function pfListOnce(project){
+  return new Promise(res=> jsonpGet("pflist", { project:project },
+    r=>{ if(r && r.ok) pvPfTake(r.items, project); res(); }, 60000));
+}
+async function pfAutoSend(){
+  if(pfBusy || pvBusy || pfPushBusy || pfState.push === false) return;
   const project = String(currentProject() || "").trim();
   if(!project || showAllProjects || isOffline() || !connected) return;
   if(!pvPfFresh()) return;             // no folder listing yet: nothing to compare against
-  const queue = pfNotSent().slice().sort((a,b)=>
-    (a.kind === b.kind) ? 0 : (a.kind === "layer" ? -1 : 1));
-  if(!queue.length) return;
-  pfBusy = true; renderPf();
-  pfPutItem(project, queue[0])
-    .then(()=>{ pfBusy = false;
-      /* Re-list, so the next tick sees this one as done rather than sending it
-         again — and so the readiness line goes green by itself. */
-      jsonpGet("pflist", { project:project }, r=>{
-        if(r && r.ok) pvPfTake(r.items, project);
-        renderPf(); paintMenuReady();
-      }, 60000); })
-    .catch(()=>{ pfBusy = false; renderPf(); });
+  pfPushBusy = true;
+  try{
+    /* Re-read the queue each turn rather than walking a snapshot: the person may
+       have loaded another layer while this was working, and the re-list below is
+       what tells us the last one actually landed. */
+    for(let guard = 0; guard < 60; guard++){
+      if(pfBusy || pvBusy || !connected || isOffline()) break;
+      const queue = pfNotSent().slice().sort((a,b)=>
+        (a.kind === b.kind) ? 0 : (a.kind === "layer" ? -1 : 1));
+      if(!queue.length) break;
+      pfBusy = true; renderPf();
+      try{ await pfPutItem(project, queue[0]); }
+      finally { pfBusy = false; }
+      /* Ask the folder what it now holds. Without this the same item is picked
+         again next turn — the fault the drawings had. */
+      await pfListOnce(project);
+      renderPf(); paintMenuReady();
+    }
+  } finally { pfPushBusy = false; renderPf(); paintMenuReady(); }
 }
 
 /* The standard drawings are the fourth kind, and they were the other half of what he
    could not find. They live on their own tab rather than in the project folder, so
    they ride the same tick by their own route. The INDEX comes down on every sync —
    it is a few hundred bytes and it is what tells a device the drawings exist at all. */
-function detailAutoSync(){
-  if(!connected || isOffline() || pvBusy) return;
+/* TWO FAULTS IN THE v184 VERSION OF THIS, both found by Chris asking a fair question
+   of a menu line reading "99 standard drawings on this device only": do I have to
+   push these, or is it automatic?
+
+   1. IT WOULD HAVE SENT THE SAME DRAWING FOR EVER. `uploadDetail` does not clear
+      `notSent` — nothing local does, and that is deliberate: the only honest evidence
+      a drawing reached the Sheet is the Sheet saying so, which is what
+      refreshDetailLib's merge decides. v184 sent one drawing and saved the library
+      without asking. So the flag stayed, the next tick picked the same drawing, and
+      the other ninety-eight were never reached.
+
+   2. ONE PER FOUR-MINUTE TICK IS NOT AUTOMATIC AT NINETY-NINE. It is six and a half
+      hours of leaving the app open, which nobody will do, and which is a worse answer
+      than "press the button" because at least the button finishes.
+
+   So it drains instead of dripping. `detailSendCore` is already paced internally —
+   64 KB a post with 400 ms between, the pacing that fixed the nine drawings lost at
+   v167 — so the throttle is in the right place already and there is no reason to add
+   a second one on top of it.
+
+   IT REFRESHES EVERY BATCH, NOT ONLY AT THE END. That is what commits progress: a run
+   stopped halfway by a closed lid or a lost signal keeps the drawings that landed,
+   because the Sheet has been asked about them. */
+const DETAIL_PUSH_BATCH = 10;
+let detailPushBusy = false, detailPushAt = null;
+async function detailAutoSync(){
+  if(!connected || isOffline() || pvBusy || detailBusy || detailPushBusy) return;
   const mine = (typeof detailLib !== "undefined" ? detailLib : []).filter(d => d && d.notSent);
-  if(mine.length && pfState.push !== false){
-    detailSendCore(mine.slice(0, 1), ()=>{}).then(()=>{ saveDetailLib(); paintMenuReady(); })
-      .catch(()=>{});
+  if(!mine.length || pfState.push === false){
+    try{ await refreshDetailLib(); }catch(e){}
+    paintMenuReady();
     return;
   }
-  refreshDetailLib().then(()=>{ paintMenuReady(); }).catch(()=>{});
+  detailPushBusy = true;
+  detailPushAt = { done:0, of:mine.length };
+  paintMenuReady();
+  try{
+    for(let i = 0; i < mine.length; i += DETAIL_PUSH_BATCH){
+      if(!connected || isOffline()) break;
+      await detailSendCore(mine.slice(i, i + DETAIL_PUSH_BATCH), ()=>{});
+      /* Ask the Sheet which of them it now has. This is what clears notSent. */
+      try{ await refreshDetailLib(); }catch(e){}
+      detailPushAt = { done:Math.min(i + DETAIL_PUSH_BATCH, mine.length), of:mine.length };
+      paintMenuReady();
+      if(typeof renderDetails === "function" && $("detailSheet") &&
+         $("detailSheet").classList.contains("show")) renderDetails();
+    }
+  } finally {
+    detailPushBusy = false; detailPushAt = null;
+    paintMenuReady();
+  }
 }
 
 /* THE CHECK RUNS ON ITS OWN; THE DOWNLOAD DOES NOT. Knowing that the project has a
@@ -16673,10 +16747,22 @@ function menuReady(){
       ? "No connection. They go up on their own once there is one."
       : "Tap Sync — nothing is safe on one device.", "sync"];
 
-  /* 2 — a drawing somebody added to the library and never sent. */
+  /* 2 — a drawing somebody added to the library and never sent.
+
+     WORK IN PROGRESS IS NOT A FAULT. "99 standard drawings on this device only" sat
+     there unchanged while they were going up, which reads as nothing happening and
+     is what made Chris ask whether he had to push them himself. A count that does
+     not move is indistinguishable from a count that is stuck. */
+  if(detailPushBusy) return ["wait",
+    `Sending the standard drawings — ${(detailPushAt && detailPushAt.done) || 0} of ${
+      (detailPushAt && detailPushAt.of) || 0}`,
+    "Leave the app open and it finishes on its own.", "details"];
   const dleft = (typeof detailLib !== "undefined" ? detailLib : []).filter(d => d && d.notSent).length;
   if(dleft) return ["bad", `${dleft} standard drawing${dleft === 1 ? "" : "s"} on this device only`,
-    "Nobody else can build the document without them.", "details"];
+    pfState.push === false
+      ? "Sending automatically is switched off — turn it on in Project files, or tap to send them now."
+      : "Going up now, a few at a time. Nobody else can build the document until they are there.",
+    "details"];
 
   if(!plan) return ["ok", "Everything recorded here is on the Sheet", "", ""];
 
@@ -16687,10 +16773,13 @@ function menuReady(){
       : "Still checking the layers and the saved version…", "versions"];
 
   const notSent = pfNotSent().length;
-  if(notSent) return ["bad", `${notSent} layer${notSent === 1 ? "" : "s"} or document${
-    notSent === 1 ? "" : "s"} still going up`,
-    "They go on their own, one at a time. Another device draws this plan with holes "
-    + "in it until they are up.", "files"];
+  if(notSent) return [pfPushBusy ? "wait" : "bad",
+    `${notSent} layer${notSent === 1 ? "" : "s"} or document${
+      notSent === 1 ? "" : "s"} still going up`,
+    pfState.push === false
+      ? "Sending automatically is switched off — turn it on in Project files."
+      : "Going up now, one at a time, layers first. Another device draws this plan "
+        + "with holes in it until they are there.", "files"];
 
   /* THE OTHER DIRECTION, which nothing on the front page said a word about — and it
      is the one he was standing in. A phone that is missing the engineering layers
