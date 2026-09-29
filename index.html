@@ -2189,7 +2189,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v186";
+const APP_BUILD  = "2026-09-29 · v188";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -16128,21 +16128,79 @@ function pfNotSent(){
 
 /* THE SENDING ITSELF, with no screen in it, so the Project files button and the
    one-button handover can share an implementation rather than drifting apart. */
-function pfSendAllCore(project, say){
-  /* Everything local, not only what is missing — re-sending is how a layer you
-     restyled or a report you replaced reaches the other device at all. But only what
-     this device actually HOLDS: a section it knows the name of would throw
+/* WHAT THIS DEVICE HAS ALREADY PUT IN THE FOLDER, and what it was when it did.
+
+   Chris: "the sending seems to take a while. I can see it's working but the files
+   are not very large."
+
+   Right — and the size was never the cost. The screen said "part 1 of 1", so the
+   whole layer went in one request. What takes the time is the request ITSELF: every
+   slice is a call into Apps Script that opens the project folder, WALKS IT to clear
+   the old slices of that item, writes the new one, and appends an audit row. Several
+   Drive operations, a few seconds, and the same few seconds whether the file is
+   forty kilobytes or a megabyte.
+
+   So the way to make it quick is not a bigger slice. It is to stop sending things
+   that are already up there and unchanged — which, on a publish, is nearly all of
+   them. `pfSendAllCore` re-sent EVERY layer and every document every time, and the
+   reason given was sound as far as it went: a layer you restyled has to be able to
+   reach the other device. But that argues for re-sending a layer that CHANGED, not
+   for re-sending the four that did not.
+
+   A DOCUMENT NEVER CHANGES UNDER ITS OWN ID. Importing a PDF mints a fresh id every
+   time, so if the folder has it and the upload is complete, it is byte for byte what
+   this device holds and there is nothing to say.
+
+   A LAYER DOES CHANGE: colour, weight, legend settings and the geometry itself all
+   live in the text that gets sent. So a layer carries a signature of that text, and
+   is sent again the moment it differs from what we last put up. */
+const PFSENTKEY = "st_pfsent";
+let pfSent = {};
+try{ pfSent = JSON.parse((STORE && STORE.getItem(PFSENTKEY)) || "{}") || {}; }catch(e){ pfSent = {}; }
+function persistPfSent(){ if(STORE){ try{ STORE.setItem(PFSENTKEY, JSON.stringify(pfSent)); }catch(e){} } }
+/* Cheap and stable, and it never has to be cryptographic — it only has to change
+   when the text does. Length is carried alongside so two different texts would have
+   to collide on both. */
+function pfHash(str){
+  let h = 5381; const s = String(str || "");
+  for(let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36) + "-" + s.length.toString(36);
+}
+function pfSig(it){
+  /* A document's pages are written once under an id that is never reused, so its
+     presence in the folder IS its signature — and hashing it would mean reading
+     thirty megabytes out of the store to decide not to send it. */
+  return it.kind === "doc" ? "once" : pfHash(it.text);
+}
+function pfKey(it){ return it.kind + "~" + it.ref; }
+/* Unchanged AND actually up there. The folder listing is the second half on purpose:
+   if somebody removed the file, our own record of having sent it is not evidence. */
+function pfUpToDate(it){
+  const on = pfOnSheetKeys();
+  return !!on[pfKey(it)] && pfSent[pfKey(it)] === pfSig(it);
+}
+
+function pfSendAllCore(project, say, opt){
+  /* Only what this device actually HOLDS: a section it knows the name of would throw
      "nothing stored on this device" and report a failure for a file that was never
-     its to send. */
-  const list = pfSendable();
-  if(!list.length) return Promise.resolve({ sent:0, of:0, failed:[] });
+     its to send. And only what the folder has not already got in this exact state —
+     unless the caller says otherwise, which the Send button does, because that is
+     the button somebody presses when they think the folder copy is wrong. */
+  const force = !!(opt && opt.force);
+  const all = pfSendable();
+  const list = force ? all : all.filter(it => !pfUpToDate(it));
+  const skipped = all.length - list.length;
+  if(!list.length) return Promise.resolve({ sent:0, of:0, failed:[], skipped:skipped });
   let done = 0; const failed = [];
   const step = ()=>{
-    if(done >= list.length) return Promise.resolve({ sent:list.length - failed.length, of:list.length, failed:failed });
+    if(done >= list.length) return Promise.resolve({ sent:list.length - failed.length,
+      of:list.length, failed:failed, skipped:skipped });
     const it = list[done];
     return pfPutItem(project, it, (x, p, n)=> say(`Sending ${x.label} — part ${p} of ${n}`))
-      .then(()=>{ done++; return step(); })
-      .catch(err=>{ failed.push(it.label + ": " + String((err && err.message) || err).slice(0,60));
+      .then(()=>{ pfSent[pfKey(it)] = pfSig(it); persistPfSent(); done++; return step(); })
+      /* A failure must clear the record, or a half-sent item is skipped for ever. */
+      .catch(err=>{ delete pfSent[pfKey(it)]; persistPfSent();
+                    failed.push(it.label + ": " + String((err && err.message) || err).slice(0,60));
                     done++; return step(); });
   };
   return step();
@@ -16153,7 +16211,9 @@ function pfSendAll(){
   if(pfBusy) return;
   if(!pfLocalItems().length){ pfSay("Nothing on this device to send."); return; }
   pfBusy = true; renderPf();
-  pfSendAllCore(project, pfSay).then(r=>{
+  /* FORCED. This is the button for "I do not trust what is up there", so it sends
+     everything whatever the records say. The quick path is the automatic one. */
+  pfSendAllCore(project, pfSay, { force:true }).then(r=>{
     pfBusy = false;
     pfSay(r.failed.length ? ("Sent " + r.sent + " of " + r.of + " · " + r.failed.join(" · "))
                           : ("Sent " + r.of + " to the project folder."));
@@ -16665,12 +16725,18 @@ async function pvPublish(){
       if(left) trouble.push(left + " tree(s), feature(s) or note(s) still not on the Sheet");
     }catch(e){ trouble.push("the trees could not be sent"); }
 
-    /* 2 — THE BIG FILES the version is about to name. */
-    const files = pfLocalItems().length;
-    if(files){
-      pvSay("2 of 4 — sending " + files + " layer" + (files===1?"":"s") + " and document(s)…");
+    /* 2 — THE BIG FILES the version is about to name.
+
+       COUNTED BY WHAT WILL ACTUALLY GO, not by what exists. Saying "sending 5
+       layers" and then sending one is how a step that finished in two seconds still
+       looks stuck: the reader is waiting for four more. */
+    const togo = pfSendable().filter(it => !pfUpToDate(it));
+    if(togo.length){
+      pvSay("2 of 4 — sending " + togo.length + " file" + (togo.length===1?"":"s") + "…");
       const r = await pfSendAllCore(project, m => pvSay("2 of 4 — " + m));
       r.failed.forEach(f => trouble.push(f));
+    } else if(pfSendable().length){
+      pvSay("2 of 4 — the layers and documents are already up to date");
     }
 
     /* 3 — THE STANDARD DRAWINGS this device holds and the Sheet does not. */
@@ -19969,7 +20035,39 @@ function landscapingPages(W, H){
   const M   = Math.round(PDF_DPI*0.30);
   const pad = Math.round(PDF_DPI*0.07);
   const colTitles = ["Key","Qty","Botanical Name","Common Name","Size","Comments"];
-  const fs  = Math.round(PDF_DPI*0.078);
+  /* TWO SIZES ON PURPOSE, and the reason is worth keeping.
+
+     Chris: "the text in landscaping notes and instructions appears quite small on
+     the TPP page. Make it similar in point size to the wording in the legend."
+
+     THE NOTES ARE PROSE AND ARE NOW SET AT THE LEGEND'S SIZE — 0.098 in, the figure
+     the legend itself was raised to when he made the same complaint about it. It is
+     the only block on this sheet somebody reads as sentences, and a paragraph set
+     smaller than the key beside it reads as a footnote rather than as an instruction
+     to a contractor.
+
+     THE PLANT LIST STAYS AT 0.078, and the honest reason is narrower than it first
+     looks. Measured: the botanical column is 489 px, and the longest real name tried
+     — "Amelanchier x grandiflora 'Autumn Brilliance'" — is 316 px at 0.078 and 396 px
+     at 0.098. It FITS at the larger size. So the table could be raised.
+
+     What stops it is the failure mode, not the fit. Cells are drawn with
+     wrapLines(...)[0] — the first line only, the rest silently dropped — so a name
+     that does not fit is not wrapped or shrunk or marked, it is CUT, and nobody sees
+     that a cultivar name lost its tail. Going to 0.098 takes the headroom in that
+     column from about 40 per cent to about 19, which is enough for the names above
+     and not obviously enough for the next one. A schedule set a size under the notes
+     is ordinary drafting practice, so the smaller size costs nothing meanwhile.
+
+     The thing actually worth fixing is the silent cut, at any size: let a cell wrap
+     to two lines and let rowH grow with it. That is a change to the cell loop, not to
+     this number, and it should come before the table is enlarged. */
+  const fs  = Math.round(PDF_DPI*0.078);          // the plant list
+  const noteFs = Math.round(PDF_DPI*0.098);       // the notes, as the legend
+  const noteLh = Math.round(noteFs*1.32);
+  /* The sub-heads were 1.54x the body; at the notes' new size 0.12 would be 1.22x,
+     which is not enough to read as a heading. */
+  const subFs = Math.round(PDF_DPI*0.135);
   const lh  = Math.round(fs*1.30);
   const rowH = Math.round(fs*1.75);
   const bandH = Math.round(fs*1.9);
@@ -20003,7 +20101,9 @@ function landscapingPages(W, H){
   y += Math.round(PDF_DPI*0.48);
 
   if(note){
-    probe.font = `${fs}px sans-serif`;
+    /* Wrapped against the size it will be SET in. Measuring at one size and drawing
+       at another is how a line ends up past the box it was fitted to. */
+    probe.font = `${noteFs}px sans-serif`;
     const lines = [];
     note.split("\n").forEach(para=>{
       if(!para.trim()){ lines.push(null); return; }      // paragraph break
@@ -20011,26 +20111,26 @@ function landscapingPages(W, H){
       wrapLines(probe, para, boxW - pad*2).forEach((ln,i)=>
         lines.push({ text:ln, bold: !!lead && i===0, leadLen: lead ? lead[0].length : 0 }));
     });
-    const bodyH = lines.length*lh + pad*2 + Math.round(PDF_DPI*0.30);
+    const bodyH = lines.length*noteLh + pad*2 + Math.round(PDF_DPI*0.30);
     room(bodyH);
     const top = y;
-    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.12)}px sans-serif`;
-    g.fillText("NOTES / INSTRUCTIONS", boxX+pad, y + Math.round(PDF_DPI*0.20));
-    let ty = y + Math.round(PDF_DPI*0.40);
+    g.fillStyle="#12201a"; g.font=`bold ${subFs}px sans-serif`;
+    g.fillText("NOTES / INSTRUCTIONS", boxX+pad, y + Math.round(PDF_DPI*0.22));
+    let ty = y + Math.round(PDF_DPI*0.44);
     lines.forEach(ln=>{
-      if(ln === null){ ty += lh*0.5; return; }
+      if(ln === null){ ty += noteLh*0.5; return; }
       if(ln.bold){
         const head = ln.text.slice(0, ln.leadLen), rest = ln.text.slice(ln.leadLen);
-        g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
+        g.fillStyle="#12201a"; g.font=`bold ${noteFs}px sans-serif`;
         g.fillText(head, boxX+pad, ty);
         const off = g.measureText(head).width;
-        g.font=`${fs}px sans-serif`; g.fillStyle="#1d2b23";
+        g.font=`${noteFs}px sans-serif`; g.fillStyle="#1d2b23";
         g.fillText(rest, boxX+pad+off, ty);
       } else {
-        g.font=`${fs}px sans-serif`; g.fillStyle="#1d2b23";
+        g.font=`${noteFs}px sans-serif`; g.fillStyle="#1d2b23";
         g.fillText(ln.text, boxX+pad, ty);
       }
-      ty += lh;
+      ty += noteLh;
     });
     g.strokeStyle="#12201a"; g.lineWidth=2;
     g.strokeRect(boxX, top, boxW, ty - top + pad);
@@ -20040,9 +20140,9 @@ function landscapingPages(W, H){
   if(rows.length){
     room(Math.round(PDF_DPI*1.2));
     const top = y;
-    g.fillStyle="#12201a"; g.font=`bold ${Math.round(PDF_DPI*0.12)}px sans-serif`;
-    g.fillText("PLANT LIST", boxX+pad, y + Math.round(PDF_DPI*0.20));
-    y += Math.round(PDF_DPI*0.32);
+    g.fillStyle="#12201a"; g.font=`bold ${subFs}px sans-serif`;
+    g.fillText("PLANT LIST", boxX+pad, y + Math.round(PDF_DPI*0.22));
+    y += Math.round(PDF_DPI*0.34);
 
     const header = ()=>{
       g.fillStyle="#12201a"; g.font=`bold ${fs}px sans-serif`;
