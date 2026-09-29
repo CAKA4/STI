@@ -2250,7 +2250,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v198";
+const APP_BUILD  = "2026-09-29 · v199";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2917,22 +2917,69 @@ let refLayers = [];        // loaded from IndexedDB at startup, see loadRefLayer
 let importBatches = [];
 try{ importBatches = JSON.parse(STORE&&STORE.getItem("st_impbatches")) || []; }catch(e){ importBatches=[]; }
 function persistBatches(){ if(STORE){ try{ STORE.setItem("st_impbatches", JSON.stringify(importBatches)); }catch(e){} } }
+/* A LAYER'S STYLE, IN ONE PLACE, BECAUSE THIS BUG HAS NOW HAPPENED TWICE.
+
+   Chris: "ensure the settings for the group styles in the legend are retained /
+   saved with the project so they don't need to be reset when the app is re-opened."
+
+   Three different functions wrote a layer's style out field by field — the device
+   store, the project setup kit, and the record that travels to another device —
+   and a field added to the app had to be remembered in all three. v150 added
+   `opacity` and `fill` and the device store did not get them: the transparency you
+   set lasted until you closed the app. v194 added `dashPat` and NONE of the three
+   got it: "give each layer its own line pattern" survived until the app was closed
+   and then every member of the group went back to looking identical, which is
+   exactly what he is describing.
+
+   One list now, and all three read from it, so the next field cannot be added to
+   two places out of three. */
+const LAYER_STYLE_FIELDS = [
+  ["name",       l => l.name],
+  ["color",      l => l.color],
+  ["role",       l => l.role || ""],
+  ["roleField",  l => l.roleField || ""],
+  ["legend",     l => l.legend !== false],
+  ["legendKind", l => l.legendKind || "auto"],
+  ["dashed",     l => !!l.dashed],
+  /* The pattern the layer is DRAWN with, on the map and on the plan. A group with
+     "give each layer its own line pattern" ticked writes one of these onto every
+     member; without it here, closing the app undoes the whole setting. */
+  ["dashPat",    l => (Array.isArray(l.dashPat) && l.dashPat.length) ? l.dashPat.slice() : null],
+  ["weight",     l => l.weight || 3],
+  ["opacity",    l => isFinite(Number(l.opacity)) ? Number(l.opacity) : 90],
+  ["fill",       l => isFinite(Number(l.fill))    ? Number(l.fill)    : 10]
+];
+function layerStyleOf(l, into){
+  const o = into || {};
+  LAYER_STYLE_FIELDS.forEach(([k, get])=>{
+    const v = get(l);
+    /* null means "this layer has none", and writing it would be indistinguishable
+       from a saved empty pattern. Left off instead, so the reader's default wins. */
+    if(v !== null) o[k] = v;
+  });
+  return o;
+}
+function layerStyleInto(L2, v){
+  if(!v || typeof v !== "object") return;
+  LAYER_STYLE_FIELDS.forEach(([k])=>{
+    if(k === "role" || k === "roleField") return;   // handled together, below
+    if(k === "dashPat"){
+      if(Array.isArray(v.dashPat) && v.dashPat.length) L2.dashPat = v.dashPat.slice();
+      else delete L2.dashPat;
+      return;
+    }
+    if(v[k] !== undefined) L2[k] = v[k];
+  });
+  if(v.role){ L2.role = v.role; L2.roleField = v.roleField || ""; }
+}
 function persistRefLayers(){
   if(!HAS_IDB){ toast("No layer store on this device — layers last until you close the app",true); return; }
   // Settings are small and change often; geometry is large and changes rarely, so
   // they are written separately.
   refLayers.forEach(l=>{
-    idbPutLayer({ id:l.id, src:l.src || "", name:l.name, color:l.color, visible:l.visible,
-                  role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
-                  legend:l.legend !== false, legendKind:l.legendKind || "auto",
-                  dashed: !!l.dashed, weight: l.weight || 3,
-                  /* v150 added these and this line did not. The fields are written
-                     out one by one rather than spread, so anything not named here is
-                     simply dropped — the transparency you set survived until the app
-                     was closed and then went back to the default, with nothing said. */
-                  opacity: isFinite(Number(l.opacity)) ? Number(l.opacity) : 90,
-                  fill:    isFinite(Number(l.fill))    ? Number(l.fill)    : 10,
-                  features:l.features })
+    const rec = layerStyleOf(l, { id:l.id, src:l.src || "", visible:l.visible,
+                                  xfer:l.xfer||null, features:l.features });
+    idbPutLayer(rec)
       .catch(()=>toast("Could not save "+l.name+" to this device",true));
   });
 }
@@ -11445,6 +11492,42 @@ function mPerPx(){
    metres from its edge and would report nothing there, which is precisely the case
    somebody taps a parcel to ask about. Both helpers already existed for the parcel
    address lookup; this only decides which of them applies. */
+/* IS THIS POINT INSIDE THE FEATURE? Ray casting on every outer ring, with holes
+   taken out — a lot with a right-of-way cut through it is two rings, and a label
+   dropped in the hole is not on the lot.
+
+   Used by the plan sheet to decide whether a parcel's address needs a leader line.
+   A polygon only; a line or a point has no inside, and the caller treats those as
+   "not inside", which is the answer that draws the leader. */
+function pointInFeature(x, y, f, P){
+  const g = f && f.geom;
+  if(!g || g.t !== "pg") return false;
+  /* With a projection the test is done in PIXELS, against the polygon as it is
+     actually drawn on the sheet — which is the only space in which "is the label
+     sitting on this lot" is a meaningful question. Without one it is lon/lat. */
+  const at = c => P ? P(c[1], c[0]) : [c[0], c[1]];
+  const inRing = ring =>{
+    let inside = false;
+    const pts = ring.map(at);
+    for(let i = 0, j = pts.length - 1; i < pts.length; j = i++){
+      const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+      if(((yi > y) !== (yj > y)) &&
+         (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  let hit = false;
+  eachPoly(g.c, rings=>{
+    if(hit || !rings.length) return;
+    if(!inRing(rings[0])) return;
+    /* Ring 0 is the outside; anything after it is a hole. A lot with a
+       right-of-way cut through it is two rings, and a label dropped in the hole
+       is not on the lot. */
+    for(let k = 1; k < rings.length; k++) if(inRing(rings[k])) return;
+    hit = true;
+  });
+  return hit;
+}
 function distToFeatureM(la, lo, f){
   const g = f && f.geom; if(!g) return Infinity;
   try{
@@ -16229,10 +16312,9 @@ function layerStyleKit(){
   const out = {};
   refLayers.forEach(L2=>{
     const k = layerKitKey(L2); if(!k) return;
-    out[k] = { name:L2.name, color:L2.color, weight:layerWeight(L2), dashed:!!L2.dashed,
-               legend:L2.legend !== false, legendKind:L2.legendKind || "auto",
-               opacity:Math.round(layerOpacity(L2)*100), fill:Math.round(layerFill(L2)*100),
-               role:L2.role || "", roleField:L2.roleField || "" };
+    /* Through the shared list, so a field added to the app travels with the project
+       instead of being dropped at the one call site nobody remembered. */
+    out[k] = layerStyleOf(L2);
   });
   return out;
 }
@@ -16241,12 +16323,7 @@ function applyLayerStyleKit(m){
   let n = 0;
   refLayers.forEach(L2=>{
     const v = m[layerKitKey(L2)]; if(!v) return;
-    L2.name = v.name || L2.name;
-    L2.color = v.color || L2.color;
-    L2.weight = v.weight; L2.dashed = !!v.dashed;
-    L2.legend = v.legend !== false; L2.legendKind = v.legendKind || "auto";
-    L2.opacity = v.opacity; L2.fill = v.fill;
-    if(v.role){ L2.role = v.role; L2.roleField = v.roleField || ""; }
+    layerStyleInto(L2, v);
     n++;
   });
   if(n){ persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend(); }
@@ -16429,13 +16506,11 @@ function pfLocalItems(){
     out.push({ kind:"layer", ref:String(l.id), label:l.name || l.id,
       /* Geometry, not a record of geometry. A styled shell sends nothing. */
       have: !!(l.features && l.features.length),
-      text: JSON.stringify({ name:l.name, src:l.src||"", color:l.color, visible:l.visible !== false,
-        role:l.role||"", roleField:l.roleField||"", xfer:l.xfer||null,
-        legend:l.legend !== false, legendKind:l.legendKind || "auto",
-        dashed:!!l.dashed, weight:l.weight || 3,
-        opacity:isFinite(Number(l.opacity)) ? Number(l.opacity) : 90,
-        fill:isFinite(Number(l.fill)) ? Number(l.fill) : 10,
-        features:l.features || [] }) });
+      /* The style through the shared list — the third of the three places a field
+         used to have to be remembered, and the reason a line pattern set on one
+         device arrived on another as a plain dashed line. */
+      text: JSON.stringify(layerStyleOf(l, { src:l.src||"", visible:l.visible !== false,
+        xfer:l.xfer||null, features:l.features || [] })) });
   });
   docSections().forEach(d=>{
     /* docHere is false when the section is known and its pages are not in this
@@ -19200,17 +19275,52 @@ async function runSingleExport(opt){
         const h = parts.length * LFS * 1.2;
         const CLEAR = Math.max(3, Math.round(LFS*0.28));
 
-        /* The centre first — an address belongs in the middle of its lot — then a
-           short walk outwards. Far fewer rings than a tree gets: a parcel label
-           dragged half a lot away is pointing at the wrong parcel. */
+        /* INSIDE THE LOT IF IT FITS, OUTSIDE IT ON A LEADER IF IT DOES NOT.
+
+           An address belongs in the middle of its own lot, and that is tried first.
+           But a narrow strip — a townhouse block, a right-of-way, a 9 m frontage at
+           1:500 — is not as wide as its own address, and centring the text on it
+           spreads "10 Cynthia Crescent" across three neighbours. Its CENTRE is still
+           on the right lot, so a leader alone would not fix it and would not even be
+           drawn: the text is already over its anchor.
+
+           So the fit is measured first. If the text cannot sit within the lot as
+           drawn, it is not placed there at all — it goes clear of the lot, beside
+           it, and the leader below ties it back. That is what a draftsperson does
+           with a narrow lot, and it is the only arrangement that is not ambiguous. */
+        const lotPx = (()=>{
+          if(!bb) return null;
+          const a1 = P(bb.n, bb.w), a2 = P(bb.s, bb.e);
+          return { x1:Math.min(a1[0],a2[0]), x2:Math.max(a1[0],a2[0]),
+                   y1:Math.min(a1[1],a2[1]), y2:Math.max(a1[1],a2[1]) };
+        })();
+        const fitsInside = !lotPx ||
+          ((w + CLEAR*2) <= (lotPx.x2 - lotPx.x1) && (h + CLEAR*2) <= (lotPx.y2 - lotPx.y1));
+
         let best = null;
-        const CAND = [[0,0],[0,-1],[0,1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]];
+        const CAND = [[0,-1],[0,1],[1,0],[-1,0],[1,-1],[-1,-1],[1,1],[-1,1]];
+        /* Ring 0 is the lot's own centre. Rings 1 and 2 step out from the EDGE of
+           the lot rather than from its centre, so one step really does clear it
+           whatever size the lot is — offsetting by the text height, as this used to,
+           left a label still sitting on a deep lot and calling itself placed. */
         for(let ring = 0; ring < 3 && !best; ring++){
+          if(ring === 0){
+            if(!fitsInside) continue;
+            const box = { x1:pp[0]-w/2-CLEAR, y1:pp[1]-h/2-CLEAR,
+                          x2:pp[0]+w/2+CLEAR, y2:pp[1]+h/2+CLEAR };
+            if(box.x1 < fx+6 || box.x2 > fx+fw-6 || box.y1 < fy+6 || box.y2 > fy+fh-6) continue;
+            if(overlaps(box)) continue;
+            best = { cx:pp[0], cy:pp[1], box };
+            break;
+          }
           for(const [dx,dy] of CAND){
-            if(ring === 0 && (dx || dy)) continue;
-            if(ring > 0 && !dx && !dy) continue;
-            const cx = pp[0] + dx*ring*(w*0.6 + LFS);
-            const cy = pp[1] + dy*ring*LFS*1.8;
+            const gap = LFS*(0.5 + ring*0.9);
+            const cx = !dx ? pp[0]
+                     : (dx > 0 ? (lotPx ? lotPx.x2 : pp[0]) + gap + w/2
+                               : (lotPx ? lotPx.x1 : pp[0]) - gap - w/2);
+            const cy = !dy ? pp[1]
+                     : (dy > 0 ? (lotPx ? lotPx.y2 : pp[1]) + gap + h/2
+                               : (lotPx ? lotPx.y1 : pp[1]) - gap - h/2);
             const box = { x1:cx-w/2-CLEAR, y1:cy-h/2-CLEAR, x2:cx+w/2+CLEAR, y2:cy+h/2+CLEAR };
             if(box.x1 < fx+6 || box.x2 > fx+fw-6 || box.y1 < fy+6 || box.y2 > fy+fh-6) continue;
             if(overlaps(box)) continue;
@@ -19219,6 +19329,56 @@ async function runSingleExport(opt){
         }
         if(!best){ lyrNoRoom++; return; }
         taken.push(best.box);
+
+        /* A LEADER LINE WHEN THE LABEL IS NOT ON ITS OWN LOT.
+
+           Chris: "ensure to use a leader line for the parcel fabric addresses when
+           the label is not on the subject property."
+
+           Three ways a label ends up off its parcel: it was pushed aside because
+           something was already there, the lot is a narrow strip with no room for
+           the text inside it, or the lot runs off the sheet and the label sits in
+           the part that is showing. In all three an address floating over the lot
+           NEXT DOOR says the wrong thing — and on a plan, silently attributing an
+           address to the wrong property is not a cosmetic fault.
+
+           THE TEST IS WHERE THE TEXT LANDED, in pixels, against the lot as it is
+           actually drawn — not the ring counter. A label that never moved can still
+           be outside a narrow or L-shaped lot, and one that moved a long way can
+           still be inside a large one.
+
+           Anchored at the near edge of the text and taken to a dot on the parcel,
+           with a pale casing so it reads over imagery — the same device the tree
+           leaders use. */
+        if(!pointInFeature(best.cx, best.cy, f, P)){
+          const tipX = pp[0], tipY = pp[1];
+          const halfW = w/2, halfH = h/2;
+          /* Only if the tip is clear of the text. A label just outside its own lot
+             boundary but touching its anchor needs no line to itself. */
+          const dx = tipX - best.cx, dy = tipY - best.cy;
+          if(Math.abs(dx) > halfW + LFS*0.4 || Math.abs(dy) > halfH + LFS*0.4){
+            const ax = best.cx + Math.max(-halfW, Math.min(halfW, dx));
+            const ay = best.cy + Math.max(-halfH, Math.min(halfH, dy));
+            /* THE CASING IS THE OPPOSITE OF THE INK, which is the rule the label
+               text beside it already follows and which this line did not. Hard-coded
+               white, it put a white casing under a white leader: on a plan drawn over
+               a pale survey base the whole leader disappeared, and the address was
+               left floating beside a lot with nothing joining them — worse than no
+               leader at all, because the label had been MOVED to make room for it.
+               Third time this app has drawn white on white. */
+            g.save();
+            [[halo, Math.max(2.5, LFS*0.30)],
+             [ink,  Math.max(1.2, LFS*0.13)]].forEach(([col,wd])=>{
+              g.strokeStyle = col; g.lineWidth = wd; g.setLineDash([]);
+              g.beginPath(); g.moveTo(ax, ay); g.lineTo(tipX, tipY); g.stroke();
+            });
+            g.beginPath(); g.arc(tipX, tipY, Math.max(2, LFS*0.22), 0, 7);
+            g.fillStyle = ink; g.fill();
+            g.strokeStyle = halo; g.lineWidth = Math.max(1, LFS*0.09);
+            g.stroke();
+            g.restore();
+          }
+        }
         parts.forEach((v,i)=>{
           const y = best.cy - h/2 + LFS*0.6 + i*LFS*1.2;
           g.strokeStyle = halo; g.lineWidth = LFS*0.28; g.strokeText(v, best.cx, y);
@@ -21200,7 +21360,31 @@ function sheetLegendRows(shown){
     if(!gp || !Array.isArray(gp.keys)) return;
     const mine = raw.filter(r => gp.keys.indexOf(r.key) >= 0);
     if(!mine.length) return;
-    if(gp.merge){
+    /* ONE SYMBOL WHEN THE SYMBOLS ARE ALL THE SAME.
+
+       Chris: "if 'telling them apart' is not checked, it would be preferable to not
+       show each layer in the legend with the same symbol but rather as one symbol
+       and then beside that list the layers associated with it."
+
+       Six rows carrying six identical blue dashes is six times the height and no
+       more information than one of them. So a group whose members would PRINT THE
+       SAME — same colour after the group's colour is applied, same symbol, same
+       pattern — collapses to a single row that names them, without anyone having to
+       find a toggle.
+
+       MEASURED, NOT ASSUMED. The test is what the row would actually be drawn with,
+       so a group whose members keep their own colours, or one with "give each layer
+       its own line pattern" ticked, stays a heading with its members under it — the
+       rows differ, and merging them would throw the difference away. The explicit
+       "1 row" toggle still forces it either way. */
+    const sig = r => JSON.stringify([
+      (gp.color || r.color || "").toLowerCase(),
+      gp.kind || r.kind || "",
+      gp.color ? !!gp.dashed : !!r.dashed,
+      (gp.color ? (gp.dash || null) : (r.dash || null)) || null
+    ]);
+    const alike = mine.length > 1 && mine.every(r => sig(r) === sig(mine[0]));
+    if(gp.merge || (alike && !gp.vary)){
       /* ONE ROW FOR THE WHOLE GROUP, AND IT NAMES WHAT IS IN IT.
 
          Chris: "have one legend item for existing features (i.e. one blue line) and
