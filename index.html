@@ -2200,7 +2200,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v192";
+const APP_BUILD  = "2026-09-29 · v193";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2208,7 +2208,7 @@ const APP_BUILD  = "2026-09-29 · v192";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-29 · v157";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-29 · v158";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -15282,7 +15282,9 @@ async function exportScheduleB(opt){
         toast("Schedule B stopped", true);
         return { ok:false, stopped:true, done:n + missing, of:shots };
       }
-      const got = await photoImage(names[i]);
+      /* The width the page will actually use, rounded up a little so a photograph is
+         never upscaled to fill its box. Nothing about the layout changes. */
+      const got = await photoImage(names[i], Math.round(boxW * 1.1));
       if(got){
         if(got.fromDrive) fetched++;
         const im = got.im;
@@ -19324,12 +19326,18 @@ function readPhotoReply(r){
    Drive keeps a thumbnail of every image it holds; it is about a hundredth of the
    bytes and needs no encoding. The full image is still fetched for the viewer and
    for Schedule B, where the wait is expected and there is a progress line for it. */
-function photoFromDrive(name, wantThumb){
+function photoFromDrive(name, wantThumb, max){
   const run = () => new Promise(res=>{
     if(!connected) return res({ data:null, why:"nolink" });
     if(isOffline()) return res({ data:null, why:"offline" });
     const q = { name:name };
     if(wantThumb) q.thumb = "1";
+    /* A WIDTH, WHEN THE CALLER KNOWS THE BOX IT IS GOING IN. Schedule B prints a
+       photograph about 1880 px wide; a phone photograph is 4000. Asking for the
+       width that is actually used is most of the difference between a build that
+       takes minutes and one that does not. Code.gs v158 and later honour it and
+       every older deployment ignores it, so this is safe to send either way. */
+    if(max) q.max = String(max);
     /* NOT the 90-second default, which is right for a tool the crew starts and waits
        on. A thumbnail gets 30 seconds; a full image, which is genuinely large, gets
        twice that rather than being cut off just as it arrives. */
@@ -19442,12 +19450,12 @@ async function photoFull(name){
   return (await photoFromDrive(name)).data;
 }
 
-async function photoImage(name){
+async function photoImage(name, max){
   let rec = null;
   if(HAS_IDB) rec = await idbGet(name).catch(()=>null);
   let src = rec && rec.data ? rec.data : null;
   let fromDrive = false;
-  if(!src){ src = (await photoFromDrive(name)).data; fromDrive = !!src; }
+  if(!src){ src = (await photoFromDrive(name, false, max)).data; fromDrive = !!src; }
   if(!src) return null;
   const im = await new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });
   return im ? { im:im, fromDrive:fromDrive } : null;
