@@ -781,9 +781,18 @@
           <div class="treats" id="treatBox"></div>
           <div class="mini">Tick every one that applies — a tree often gets more than one. Each is its own column, so they can be counted and filtered rather than read out of a sentence.</div>
         </div>
-        <div class="fld"><label>Future prognosis</label><select id="fPROGNOSIS"></select></div>
-        <div class="fld">
-          <label>Recommended action</label>
+        <!-- RETIRED IN v203, NOT DELETED. Future prognosis duplicates Potential long
+             term impact, and Recommended action duplicates Proposed action, which is
+             now the one field that drives the schedules, the colours and the plan
+             marks. Both stay in the Sheet and both still show on any tree that has a
+             value in them, so nothing anyone recorded is hidden or lost — they are
+             simply not offered on a blank tree any more. -->
+        <div class="fld" id="rowPROGNOSIS" style="display:none">
+          <label>Future prognosis <span class="mini" style="text-transform:none;letter-spacing:0">— retired, use Potential long term impact</span></label>
+          <select id="fPROGNOSIS"></select>
+        </div>
+        <div class="fld" id="rowREC_ACT" style="display:none">
+          <label>Recommended action <span class="mini" style="text-transform:none;letter-spacing:0">— retired, use Proposed action</span></label>
           <div class="picker" onclick="openMulti('REC_ACT')"><span class="val empty" id="vREC_ACT">Tap to choose</span><span style="color:var(--faint)">▸</span></div>
           <input id="fREC_ACT" type="hidden">
         </div>
@@ -2115,6 +2124,9 @@
       <label id="selValueLabel">Value</label>
       <select id="selValueSel"></select>
       <input id="selValueTxt" type="text" style="display:none" placeholder="Leave empty to clear the field">
+      <div class="mini" id="selMultiNote" style="display:none">This field can hold several
+        values on one tree. Setting it here <b>replaces whatever combination each tree
+        has</b> with the one value chosen. Undo puts them all back.</div>
     </div>
     <div class="btnrow"><button class="primary" onclick="applyBulkField()" id="btnBulkField">Apply to the selection</button></div>
 
@@ -2250,7 +2262,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v200";
+const APP_BUILD  = "2026-09-29 · v203";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2258,7 +2270,7 @@ const APP_BUILD  = "2026-09-29 · v200";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-29 · v158";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-29 · v159";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -3299,8 +3311,11 @@ function crownRadiusOf(t){
    a data state that happens (risk noted, then the decision changed), and drawing a
    P and an X on the same point says the crew should do both. The X wins: you do not
    prune a tree you are taking down. */
-function markPrune(t){  return treatOn(t.CAN_PRUNE) || treatOn(t.ELV_RISK); }
-function markRemove(t){ return treatOn(t.TREE_REM); }
+/* v203: these read the PROPOSED ACTION through planCats, so the ✕ lands on the
+   trees the schedules call removals. The Yes/No ticks are folded into planCats, so
+   a project that used them still marks exactly as it did. */
+function markPrune(t){  return planCats(t).indexOf("pruning") >= 0; }
+function markRemove(t){ return planCats(t).indexOf("removal") >= 0; }
 function treatMark(t){  return markRemove(t) ? "X" : (markPrune(t) ? "P" : ""); }
 
 /* Crown circles. Solid green where the protection zone is dashed amber, so the two
@@ -4720,15 +4735,73 @@ function paintMulti(field){
   box.classList.toggle("empty", !v);
 }
 
+/* ================= WHAT IS PROPOSED FOR THIS TREE ======================== *
+ *
+ *  Chris: "Use Recommended action, the one that is used to symbolize the data …
+ *  if there are fields that are redundant and don't include data we should remove
+ *  them."
+ *
+ *  FIVE FIELDS COULD SAY A TREE WAS COMING DOWN, and the one he fills drove none of
+ *  the symbols:
+ *
+ *      PROP_ACT     Proposed action      the report table, the schedules, the
+ *                                        compensation count — and all his data
+ *      REC_ACT      Recommended action   the "colour by action" map mode, empty on
+ *                                        every tree of Phase 1
+ *      TREE_REM     a Yes/No tick        the ✕ on the plan sheets
+ *      CAN_PRUNE    a Yes/No tick        the P on the plan sheets
+ *      RECOTREA     Recommended treatment  a legacy Aurora field
+ *
+ *  So twelve trees were proposed for removal, the tables said twelve, the map
+ *  coloured none of them and the plan sheets marked none of them.
+ *
+ *  ONE FIELD DECIDES NOW, and it is the one with the data in it. Everything —
+ *  the colours, the ✕ and P, the schedules, the new worksheets in the emailed
+ *  workbook — is read from the PROPOSED ACTION, through the four categories below.
+ *  The old Yes/No ticks are still honoured where a project used them, so nothing
+ *  recorded before this build is lost.
+ *
+ *  The proposed action is typed as often as it is picked from the list, so these
+ *  read the words. They are written to match how an arborist actually writes the
+ *  instruction, and they are tested against Chris's own Phase 1 wording. */
+const PLAN_CATS = [
+  ["removal", "Tree removal",               "List of tree removals."],
+  ["pruning", "Pruning",                    "List of trees to be pruned."],
+  ["rootexc", "Root-sensitive excavation",  "List of trees requiring root-sensitive excavation."],
+  ["protect", "Protection measures",        "List of trees to be protected."]
+];
+/* Root pruning is an EXCAVATION operation, not a canopy one. "Root prune for
+   proposed grading" must not land on the pruning list beside "remove deadwood over
+   the sidewalk" — they are different trades on different days. So the root phrases
+   are taken out of the text before the canopy test runs on what is left. */
+const RE_ROOTEXC = /root[-\s]*(?:sensitive)?[-\s]*(?:excavat\w*|prun\w*)|hand[-\s]?dig|hydro[-\s]?vac/ig;
+const RE_PRUNE   = /\bprun\w*|dead\s?wood|crown\s+redu\w*|raise\s+(?:the\s+)?canopy|canopy\s+clearance|obstructing\s+limb/i;
+const RE_PROTECT = /protect\w*|fenc\w*|hoarding/i;
+function planCats(t){
+  const v = String((t && t.PROP_ACT) || "");
+  const out = [];
+  if(tppRemoval(t) || treatOn(t && t.TREE_REM)) out.push("removal");
+  const rootHit = RE_ROOTEXC.test(v); RE_ROOTEXC.lastIndex = 0;
+  if(rootHit || treatOn(t && t.ROOT_EXC)) out.push("rootexc");
+  /* What is left once the root work is taken out — that is the canopy work. */
+  const canopy = v.replace(RE_ROOTEXC, " ");
+  if(RE_PRUNE.test(canopy) || treatOn(t && t.CAN_PRUNE) || treatOn(t && t.ELV_RISK))
+    out.push("pruning");
+  if(RE_PROTECT.test(v) || treatOn(t && t.TPZ_FENC)) out.push("protect");
+  return out;
+}
+function planCatLabel(k){ const h = PLAN_CATS.find(c=>c[0]===k); return h ? h[1] : k; }
+
 /* What the tree needs, reduced to one word so the map can show it. A removal
    outranks everything; then any work; then protection; then nothing. */
 function actionClass(t){
-  const a = String(t.REC_ACT||"");
-  if(!a.trim()) return "";
-  if(/remove tree/i.test(a)) return "remove";
-  if(/no action/i.test(a))   return "none";
-  if(/prun|excavat|reduc|raise/i.test(a)) return "work";
-  return "protect";
+  const v = String((t && t.PROP_ACT) || "").trim();
+  const c = planCats(t);
+  if(c.indexOf("removal") >= 0) return "remove";
+  if(c.indexOf("pruning") >= 0 || c.indexOf("rootexc") >= 0) return "work";
+  if(c.indexOf("protect") >= 0) return "protect";
+  if(/no action/i.test(v)) return "none";
+  return v ? "protect" : "";
 }
 const ACTION_COLOR = { remove:"#D0402B", work:"#E8862B", protect:"#3FA45B", none:"#7f8c8d" };
 const ACTION_LABEL = { remove:"Remove tree", work:"Pruning or excavation", protect:"Protection measures", none:"No action required" };
@@ -4829,9 +4902,29 @@ const LT_IMPACT_D = [
   ["Minor root loss; not expected to change tree condition","Minor root loss, condition unchanged"],
   ["Possible decline; condition to be monitored","Possible decline, monitor"]
 ];
-// A proposed action beginning "Remove" is a removal; "Potential removal" is the
-// owner's option and is deliberately NOT counted as one.
-function tppRemoval(t){ return /^Remove\b/i.test(String(t.PROP_ACT||"")); }
+/* WHAT IS BEING REMOVED — THE TREE, OR SOMETHING ON IT.
+
+   Found in Chris's Phase 1 data, not reported: T31, "Remove deadwood for worker
+   safety", was being counted as a tree removal. It was matched by "begins with
+   Remove", so it was pulled into the compensation count and printed a dash in the
+   long-term impact column as though the tree were coming down. A deadwood prune is
+   the opposite of a removal: the tree stays.
+
+   The proposed action is free text as often as it is a list entry, so this reads the
+   OBJECT of the verb. Remove the tree — a removal. Remove the deadwood, the limbs,
+   the stump, the sprouts, the ivy — a treatment. "Potential removal" stays out too,
+   as it always has: that is the owner's option, not a decision. */
+/* The noun anywhere in the first clause, not immediately after the verb — "remove
+   obstructing limbs" and "remove the low branches over the sidewalk" are the same
+   instruction as "remove limbs", and an adjective should not turn a prune into a
+   felling. Bounded to one clause so a sentence that removes the TREE and mentions a
+   stump later is still a removal. */
+const REMOVE_NOT_TREE = /^remove\b[^.;]{0,44}?\b(?:dead\s?wood|limbs?|branch(?:es)?|stubs?|suckers?|sprouts?|stumps?|ivy|vines?|deadfall)\b/i;
+function tppRemoval(t){
+  const v = String(t.PROP_ACT || "").trim();
+  if(!/^Remove\b/i.test(v)) return false;
+  return !REMOVE_NOT_TREE.test(v);
+}
 
 /* Whether a project is a tree protection plan is asked once and remembered against
    the project name, so a crew doing ordinary street work never sees these fields. */
@@ -6765,6 +6858,59 @@ function renderStats(){
     h += barBlock("By project", Object.entries(pj).sort((a,b)=>b[1]-a[1]), n, ()=>"#d98cb3");
   }
 
+  /* ================= WHERE THE REMOVAL COUNT COMES FROM =================
+     Chris: "the field Potential Construction Impact only notes 2 trees for removal
+     but there should be 12."
+
+     It was reporting the data faithfully — but a removal can be written in FOUR
+     places in this app, they are read by different things, and nothing showed that
+     they disagreed:
+
+       Proposed action        the report table, the compensation count, this figure
+       Recommended action     the ✕ marks on the plan and the treatments table
+       Activity               an inspection record of work already done
+       Recommended treatment  the arborist's prescription
+
+     On Phase 1 the proposed actions said two and the recommended actions said none,
+     so the plan would have printed no removal marks at all and nothing said so. This
+     block is the answer to "why does it say two" without exporting anything. */
+  {
+    const rmAct  = list.filter(t=>tppRemoval(t));
+    const rmRec  = list.filter(t=>/remove tree/i.test(String(t.REC_ACT||"")));
+    const rmTrea = list.filter(t=>/^Removal/i.test(String(t.RECOTREA||"")));
+    const rmActy = list.filter(t=>/^(Removed|Stump removed)$/i.test(String(t.ACTIVITY||"")));
+    const no = t => t.TREE_NO ? "T"+t.TREE_NO : (t.TAG_NO ? "tag "+t.TAG_NO : "?");
+    const few = a2 => a2.slice(0,10).map(no).join(", ") + (a2.length>10 ? " …" : "");
+    /* A dead tree with nothing proposed for it is the commonest way a removal goes
+       unrecorded, and it is the first thing a reviewer asks about. */
+    const deadIdle = list.filter(t=>
+      /^(Dead|Death imminent)$/i.test(String(t.HEALTH||"")) && !markedForRemoval(t));
+    /* Written in one field and not the other: the plan and the table then disagree. */
+    const recNotAct = rmRec.filter(t=>!tppRemoval(t));
+    const actNotRec = rmAct.filter(t=>!/remove tree/i.test(String(t.REC_ACT||"")));
+    /* THE COLUMN HE WAS READING. "Potential Construction Impact" is IMPACT_POT, a
+       different field from the proposed action, and it is the one the report table
+       prints under that heading. Twelve trees proposed for removal with two of them
+       saying so in this column is the whole of Chris's question, and nothing in the
+       app said the two disagreed. */
+    const rmNoImpact = list.filter(t=> markedForRemoval(t) &&
+      !/remov|mortality/i.test(String(t.IMPACT_POT||"")));
+
+    h += `<div class="stath">Removals — where the number comes from</div>
+      <div class="hint" style="margin:0">
+        <b>${forRemoval}</b> counted for this project.
+        Proposed action ${rmAct.length} · Recommended action ${rmRec.length} ·
+        Recommended treatment ${rmTrea.length} · Activity ${rmActy.length}.`;
+    const flags = [];
+    if(deadIdle.length) flags.push(`<b>${deadIdle.length}</b> dead or dying with no removal recorded — ${esc(few(deadIdle))}`);
+    if(recNotAct.length) flags.push(`<b>${recNotAct.length}</b> where the recommended action says remove but the proposed action does not — ${esc(few(recNotAct))}`);
+    if(actNotRec.length) flags.push(`<b>${actNotRec.length}</b> where the proposed action says remove but the recommended action does not, so no ✕ will print on the plan — ${esc(few(actNotRec))}`);
+    if(rmNoImpact.length) flags.push(`<b>${rmNoImpact.length}</b> marked for removal whose <b>potential construction impact</b> does not say so, which is the column the report table prints — ${esc(few(rmNoImpact))}`);
+    h += flags.length
+      ? `<br><br>Worth a look:<br>• ` + flags.join("<br>• ") + `</div>`
+      : `<br>The four agree.</div>`;
+  }
+
   h += `<div class="stath">Data completeness</div>
     <div class="hint" style="margin:0">
       ${multi} multi-stem · ${unsynced} not yet synced · ${n-reviewed} not yet field checked<br>
@@ -7253,6 +7399,11 @@ function openTree(i){
     $("fTAG_NO").value  = t.TAG_NO  || "";
     if($("fYR_EXEMPT")) $("fYR_EXEMPT").value = ["Y","N"].indexOf(String(t.YR_EXEMPT||"").toUpperCase())>=0 ? String(t.YR_EXEMPT).toUpperCase() : "";
     $("fIMPACT_POT").value = t.IMPACT_POT || "";
+    /* A retired field appears only on a tree that already has one, so an old record
+       can still be read and corrected while a new one is not offered the choice. */
+    [["rowPROGNOSIS", t.PROGNOSIS], ["rowREC_ACT", t.REC_ACT]].forEach(([id, v])=>{
+      const e = $(id); if(e) e.style.display = String(v || "").trim() ? "" : "none";
+    });
     $("fREC_ACT").value    = t.REC_ACT || "";
     paintMulti("IMPACT_POT"); paintMulti("REC_ACT");
     paintTreats(t);
@@ -15932,6 +16083,13 @@ const QUERY_FIELDS = [
   ["PROP_ACT",   "Proposed action",        "list"],
   ["LT_IMPACT",  "Potential long term impact", "list"],
   ["IMPACT_POT", "Potential construction impact", "text"],
+  /* THE SAME GAP, MIRRORED. IMPACT_POT could be searched and not set; REC_ACT and
+     PROGNOSIS could be set and not searched. Find-then-set only works when a field
+     is in both lists, and these three arrived together as the tree protection
+     fields — so they belong in both. REC_ACT is a tick list, so it is matched as
+     text: "remove tree" has to be found inside a combination. */
+  ["REC_ACT",    "Recommended action",     "text"],
+  ["PROGNOSIS",  "Future prognosis",       "list"],
   ["TPZ_FENC",   "TPZ fencing",            "yesno"],
   ["ROOT_EXC",   "Root-sensitive excavation", "yesno"],
   ["TREE_REM",   "Tree removal",           "yesno"],
@@ -16213,9 +16371,23 @@ function openSelSheet(from){
    name), so setting them in bulk would leave those stale unless everything were
    re-derived — and in any case they are per-tree measurements that should never be
    the same for fifty trees. */
+/* IMPACT_POT AND REC_ACT WERE SEARCHABLE BUT NOT SETTABLE.
+
+   Chris marked twelve trees for removal under Proposed action, and the report
+   table's "Potential Construction Impact" column still said two — because that
+   column is IMPACT_POT, a different field, filled on only two of them. He could
+   FIND the twelve (IMPACT_POT has always been in QUERY_FIELDS) and then had no way
+   to set them together: the field was missing from this list, so bringing them into
+   line meant opening twelve trees by hand.
+
+   Both are multi-select on the tree form and a bulk set replaces the whole
+   combination, which the screen says in as many words. That is the right behaviour
+   for a bulk change — "make these twelve say this" — and the undo stack covers it. */
 const BULK_FIELDS = [
   ["LOCATION",  "Location / ownership"],
   ["PROP_ACT",  "Proposed action"],
+  ["IMPACT_POT","Potential construction impact"],
+  ["REC_ACT",   "Recommended action"],
   ["LT_IMPACT", "Potential long term impact"],
   ["PROGNOSIS", "Future prognosis"],
   ["HEALTH",    "Condition rating"],
@@ -16247,8 +16419,14 @@ function bulkValues(field){
   if(field === "HEALTH")    return HEALTH_D;
   if(field === "COMP_INCL") return COMP_INCL_D;
   if(field === "YR_EXEMPT") return YR_EXEMPT_D;
+  /* The two multi-select fields keep their own lists — they are not in
+     DOMAIN_FIELDS because on the tree form they are tick lists, not dropdowns. */
+  if(MULTI_FIELDS[field]) return MULTI_FIELDS[field];
   return DOMAIN_FIELDS[field] || null;
 }
+/* Which of them replace a combination rather than a single value, so the screen can
+   say so before the button is pressed rather than after. */
+function bulkIsMulti(field){ return !!MULTI_FIELDS[field]; }
 function bulkFieldLabel(field){
   const hit = BULK_FIELDS.find(f=>f[0]===field);
   return hit ? hit[1] : field;
@@ -16264,6 +16442,7 @@ function bulkFieldChanged(){
   const d = f ? bulkValues(f) : null;
   const sel = $("selValueSel"), txt = $("selValueTxt");
   $("selValueLabel").textContent = f ? bulkFieldLabel(f) : "Value";
+  { const m = $("selMultiNote"); if(m) m.style.display = (f && bulkIsMulti(f)) ? "" : "none"; }
   if(!f){ sel.style.display="none"; txt.style.display="none"; return; }
   if(d){
     sel.style.display = "block"; txt.style.display = "none";
