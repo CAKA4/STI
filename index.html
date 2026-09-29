@@ -2262,7 +2262,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v203";
+const APP_BUILD  = "2026-09-29 · v205";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2270,7 +2270,7 @@ const APP_BUILD  = "2026-09-29 · v203";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-29 · v159";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-09-29 · v161";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -4791,6 +4791,37 @@ function planCats(t){
   return out;
 }
 function planCatLabel(k){ const h = PLAN_CATS.find(c=>c[0]===k); return h ? h[1] : k; }
+
+/* A TREE BEING REMOVED CANNOT HAVE "NO CONSTRUCTION IMPACT ANTICIPATED".
+
+   Chris, three times: "Potential Construction Impact still only shows 2 trees for
+   removal." Measured off the workbook he sent: twelve trees read "Remove for
+   excavation of sanitary sewar" and ten of them read "None" in the impact column,
+   on the same row.
+
+   They were not left blank. "None" is the NEW TREE DEFAULT — FIELD_DEFAULTS sets
+   fIMPACT_POT to it — so a tree asserts no impact from the moment it is created and
+   goes on asserting it until somebody opens that picker. Nobody opened it, because
+   the decision had already been written in the proposed action.
+
+   So the column was not incomplete, it was CONTRADICTING the column beside it, on a
+   drawing set going to a municipality. A document must not do that.
+
+   The value shown for a removal is therefore the removal, wherever the recorded
+   impact is the untouched default or nothing at all. A real assessment — root loss,
+   grade change, trunk damage — is never overwritten: somebody looked and wrote that
+   down. This is the same convention the long term impact column has always used,
+   where a removal prints a dash rather than whatever was recorded.
+
+   THE UNDERLYING FIELD IS NOT TOUCHED. Statistics names the trees whose impact does
+   not say so, and Layers → Find trees by attribute → Change a field sets them for
+   real in four steps. This only guarantees the paper is not self-contradictory. */
+const IMPACT_NONE = /^(|none|none anticipated|n\/a|na|nil)$/i;
+function impactForReport(t){
+  const v = String((t && t.IMPACT_POT) || "").trim();
+  if(markedForRemoval(t) && IMPACT_NONE.test(v)) return "Removed";
+  return v;
+}
 
 /* What the tree needs, reduced to one word so the map can show it. A removal
    outranks everything; then any work; then protection; then nothing. */
@@ -15492,7 +15523,7 @@ const SCHED_A_EXTRA = [
   ["Recorded by",                t=>t.CRUISER || ""],
   ["Date",                       t=>t.DATE || ""],
   ["Tree ID",                    t=>t.TREE_ID || ""],
-  ["Potential impact",           t=>t.IMPACT_POT || ""],
+  ["Potential impact",           t=>impactForReport(t)],
   ["Future prognosis",           t=>t.PROGNOSIS || ""],
   ["Recommended action",         t=>t.REC_ACT || ""]
 ];
