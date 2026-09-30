@@ -2263,7 +2263,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-30 · v207";
+const APP_BUILD  = "2026-09-30 · v208";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -21189,10 +21189,16 @@ function drawFitted(g, im, box, align, minY){
 
    So the two are lined up by their ink rather than by their edges. Measured on a
    200 px-wide copy, which is a millisecond and plenty for finding a row. */
+/* SAMPLED BY HEIGHT, NOT BY WIDTH — v208. The copy used to be 200 px WIDE, which
+   for a portrait page is 259 rows, and one row of it is 7 px of the placed page. At
+   v206's ink line that error was hidden by the clamp at the top of the sheet; with
+   the page hung 1.5 cm down it showed as a 0.9 mm stagger between two pages side by
+   side. What is wanted is a precise ROW, so the copy is sized by rows: 600 of them,
+   about 3 px of placed page, and still a fraction of a megapixel to scan. */
 function inkTopFrac(im){
   try{
-    const w = Math.min(200, im.width || 200);
-    const h = Math.max(1, Math.round((im.height || 1) * w / (im.width || 1)));
+    const h = Math.max(1, Math.min(600, im.height || 600));
+    const w = Math.max(1, Math.round((im.width || 1) * h / (im.height || 1)));
     const c = document.createElement("canvas"); c.width = w; c.height = h;
     const g = c.getContext("2d");
     g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h);
@@ -21221,11 +21227,58 @@ function inkTopFrac(im){
    Clamping to the slot instead is what pinned the second page to the top of TPP2
    while the first stayed centred an inch below it. The crop bounds that sliver, so
    the lift is always small; 0 just says "not off the sheet". */
+/* HOW FAR DOWN THE PAPER THE FIRST LINE OF A REPORT PAGE SITS.
+
+   Chris: "The top of the arborist report pages on the assembled document touch the
+   top of the document. Set each of the pages from the arborist report about 1.5cm
+   from the top of the document to create a buffer of white space at the top."
+
+   v206 hung every page so its first ink met the top of the CONTENT RECT, which is
+   the neat line — 0.14 in, about 3.5 mm, off the paper edge. Consistent, which is
+   what he asked for then, but it put the first line of type hard against the frame
+   with no white above it at all.
+
+   MEASURED FROM THE PAPER EDGE, not from the neat line, because that is what "the
+   top of the document" means to the person holding it. Never above the neat line:
+   the content rect is the floor, so shrinking the margin one day cannot push type
+   out through the frame. And it is one number for the whole document, so the
+   alignment v206 bought is not given back — every page on every sheet still starts
+   on the same line, 1.5 cm down instead of 0.35 cm down. */
+const TPP_INK_TOP_CM = 1.5;
+function tppInkLine(W, H){
+  const r = tppContentRect(W, H);
+  return Math.max(r.y, Math.round(PDF_DPI * (TPP_INK_TOP_CM / 2.54)));
+}
 function tppHangY(inkLine, inkFrac, imW, imH, box){
   const iw = imW || box.w, ih = imH || box.h;
   const s = Math.min(box.w/iw, box.h/ih);
   const h = ih*s;
   return Math.max(0, Math.min(inkLine - (inkFrac||0)*h, box.y + box.h - h));
+}
+
+/* WHERE A REPORT PAGE ACTUALLY LANDS — the whole placement, in one function with no
+   canvas in it.
+
+   It is one function because the first version of the v208 test worked the geometry
+   out for ITSELF and then asserted its own arithmetic: taking the buffer back out of
+   the slot did not fail a single one of them. A test that recomputes the thing it is
+   testing tests nothing. The composer calls this and so does the suite.
+
+   `i` is which half of the sheet. The box is the slot with the buffer taken off the
+   TOP and the bottom left where it was, so nothing can print below the neat line and
+   a page limited by the width of its half-sheet — an 8.5 x 11, which is most of them
+   — is not scaled any differently than before. */
+function tppPageBox(slot, lift){
+  return { x:slot.x, y:slot.y + lift, w:slot.w, h:slot.h - lift };
+}
+function tppPagePlace(W, H, i, imW, imH, inkFrac){
+  const inkLine = tppInkLine(W, H);
+  const lift    = inkLine - tppContentRect(W, H).y;
+  const box     = tppPageBox(tppSlots(W, H)[i], lift);
+  const iw = imW || box.w, ih = imH || box.h;
+  const s  = Math.min(box.w/iw, box.h/ih);
+  return { box:box, inkLine:inkLine, lift:lift, w:iw*s, h:ih*s,
+           y: tppHangY(inkLine, inkFrac, iw, ih, box) };
 }
 
 /* One assembled sheet: up to two portrait pages side by side, then the frame. The
@@ -21234,7 +21287,6 @@ async function composeTppSheet(W, H, pages, frameOpt){
   const cv = document.createElement("canvas"); cv.width=W; cv.height=H;
   const g = cv.getContext("2d");
   g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
-  const slots = tppSlots(W, H);
   /* ONE INK LINE FOR EVERY PAGE OF THE DOCUMENT — v206.
 
      Chris: "you did a nice job on the front page keeping the top of the report and
@@ -21261,13 +21313,25 @@ async function composeTppSheet(W, H, pages, frameOpt){
      position he asked the rest to match. A page with white above its first line has
      its paper edge a little higher than the slot — blank paper, under a frame that
      is drawn afterwards. */
-  const inkLine = tppContentRect(W, H).y;
+  /* THE BUFFER IS TAKEN OUT OF THE SLOT BEFORE THE PAGE IS SCALED — v208.
+
+     Hanging the ink 1.5 cm down without also shortening the box works for an
+     8.5 x 11 page, which is limited by the WIDTH of its half-sheet and has room to
+     spare below. A taller page — legal, or a long crop — is limited by the HEIGHT,
+     fills the slot exactly, and `tppHangY`'s bottom clamp would quietly hand it
+     straight back to the neat line: the one page shape that most needs the buffer
+     would be the one that never got it, and nothing would say so.
+
+     So the slot is shortened by the buffer and its top moved down to the ink line.
+     The bottom edge is unchanged, so nothing can print below the neat line; a page
+     that was already width-limited is not scaled any differently; and a page that
+     was height-limited comes out a few per cent smaller, which is the price of the
+     white space and is the same on every sheet. */
   for(let i=0; i<Math.min(2, pages.length); i++){
     const im = await loadImageData(pages[i]);
     if(!im) continue;
-    const box = slots[i];
-    drawFitted(g, im, box,
-               tppHangY(inkLine, inkTopFrac(im), im.width, im.height, box), 0);
+    const pl = tppPagePlace(W, H, i, im.width, im.height, inkTopFrac(im));
+    drawFitted(g, im, pl.box, pl.y, 0);
   }
   await drawTppFrame(g, W, H, frameOpt || {});
   return { data: cv.toDataURL("image/jpeg", 0.93), w:W, h:H };
