@@ -2,8 +2,13 @@
    © 2026 Chris Gynan. All rights reserved. Proprietary — no license granted.
    Caches the app shell + map libraries so the app opens with no signal after the first
    online visit. Bump CACHE when you change index.html so devices pick up the new build. */
-const CACHE = "st-treecard-v206";
+const CACHE = "st-treecard-v207";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
+/* The user guide is cached but is deliberately NOT part of the shell. addAll() is
+   all-or-nothing: a deployment that has not got the PDF in it yet would fail the
+   whole install and leave the crew with no offline app at all, over a document.
+   It is added the same tolerant way the map libraries are. */
+const EXTRA = ["./Street-Tree-user-guide.pdf"];
 // Map libraries (cross-origin). Cached so the map shell works offline after one online load.
 // (Imagery tiles are NOT cached here — those still need a connection.)
 const LIBS = [
@@ -15,7 +20,7 @@ const LIBS = [
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(SHELL).then(() => Promise.all(LIBS.map(u => c.add(u).catch(() => {})))))
+      .then(c => c.addAll(SHELL).then(() => Promise.all(LIBS.concat(EXTRA).map(u => c.add(u).catch(() => {})))))
       .then(() => self.skipWaiting())
   );
 });

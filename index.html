@@ -943,6 +943,7 @@
       <div class="mbody">
         <button class="menuitem" onclick="openSettings()">Cruiser, project &amp; ID settings</button>
         <button class="menuitem" onclick="showHelp()">How this app works</button>
+        <button class="menuitem" onclick="openUserGuide()">📘 User guide (PDF) — open or save</button>
         <button class="menuitem" onclick="renumberProject()">Renumber what is showing 1, 2, 3…</button>
         <button class="menuitem" onclick="clearProjectLocal()">Clear a project from this phone</button>
         <button class="menuitem danger" onclick="clearAllData()">Clear all data on this device</button>
@@ -2262,7 +2263,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v206";
+const APP_BUILD  = "2026-09-30 · v207";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -13973,6 +13974,13 @@ function tablePages(rows, title, W, H, M, foot){
    The arborist report's FIRST page is its title page, and it is pulled out to sit in
    the left slot of sheet 1 with the contents beside it. */
 let docMissing = [];
+function docTablePages(id, name, rect, M){
+  const rows = docTableRows(id);
+  /* Only Schedule A carries a money column, so only Schedule A carries the
+     note that explains it. */
+  const foot = (id === "schedA") ? valueNotes(currentProject()) : null;
+  return tablePages(rows, name, rect.w, rect.h, M, foot).map(p => p.data);
+}
 async function docBlocks(W, H){
   docMissing = [];
   const slots = tppSlots(W, H);
@@ -14027,12 +14035,13 @@ async function docBlocks(W, H){
         if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg.map(p => p.data) });
 
       } else if(dsec.kind === "table"){
-        const rows = docTableRows(dsec.id);
-        /* Only Schedule A carries a money column, so only Schedule A carries the
-           note that explains it. */
-        const foot = (dsec.id === "schedA") ? valueNotes(currentProject()) : null;
-        const pg = tablePages(rows, dsec.name, rect.w, rect.h, M, foot);
-        if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg.map(p => p.data) });
+        const pg = docTablePages(dsec.id, dsec.name, rect, M);
+        /* `tbl` marks the block as one that can be DRAWN AGAIN from the data. The
+           sheet numbering is not known until every block has been measured, and the
+           TPP page column is stamped from that numbering — so Schedule A has to be
+           re-drawn once, after the measuring, or it prints the numbers from the
+           previous document. */
+        if(pg.length) out.push({ name:dsec.name, lay:"full", pages: pg, tbl: dsec.id });
 
       } else if(dsec.kind === "maps"){
         /* Counted now, drawn later — a map sheet prints its own number. */
@@ -14107,6 +14116,30 @@ async function buildDocument(){
     }
     at += n;
   });
+
+  /* THE TPP PAGE, STAMPED HERE — between measuring and drawing.
+
+     Chris: "Can we include the TPP page number column on the tree inventory table?
+     Ensure they are correct."
+
+     This is the only place in the app that knows both which plan sheet a tree falls
+     on AND what that sheet will be called, and it is the last moment before the
+     tables are committed to paper. The plan index is TPP{b.start}; the first plan
+     sheet is TPP{b.start+1}; so cell `no` prints on TPP{b.start + no}.
+
+     Re-drawing the tables afterwards is safe because the COLUMN SET does not change
+     — wantSheetCol() already said yes on the strength of the maps section, before
+     anything was measured — so the page count cannot move and the numbering just
+     worked out stays true. It is checked rather than assumed. */
+  const mapsB = blocks.find(x => x.lay === "maps" && x.start);
+  if(mapsB && stampSheetNos(mapsB.cells, mapsB.start)){
+    const M2 = Math.round(PDF_DPI*0.30);
+    blocks.forEach(b2 => {
+      if(!b2.tbl) return;
+      const pg = docTablePages(b2.tbl, b2.name, rect, M2);
+      if(pg.length === b2.pages.length) b2.pages = pg;
+    });
+  }
 
   /* THE INDEX MAP, WORKED OUT ONCE AND GIVEN TO EVERY SHEET.
 
@@ -15403,10 +15436,34 @@ function schedAColumns(project){
     if(c[0] === "__VALUE__"){ valueColumns(project).forEach(v=>out.push(v)); return; }
     out.push(c);
   });
+  /* THE TPP PAGE, IN THE REPORT TABLE ITSELF.
+
+     Chris: "Can we include the TPP page number column on the tree inventory table?"
+
+     It was in the Schedule A CSV and in the emailed workbook but NOT in the table
+     printed inside the document — so the one copy of the table a reviewer actually
+     holds was the one that would not tell him which sheet to turn to. One function
+     answers for all three now. */
+  if(wantSheetCol()) out.push(SCHED_A_SHEET);
   return out;
 }
-// Appended to the report table only when a series has actually been produced.
-const SCHED_A_SHEET = ["Map sheet", t=>t.SHEET_NO || ""];
+/* WHETHER THE COLUMN IS WORTH PRINTING.
+
+   Once a number has been stamped, plainly yes. Before that — the first document of
+   a new project — the answer still has to be yes if the document is going to carry
+   plan sheets, because the numbers are stamped DURING that build. Deciding it on
+   the stamps alone would leave the column out of the first document of every
+   project and in from the second, and, worse, would change the table's page count
+   half way through assembly, after the sheet numbering had been worked out. */
+function docHasMapSheets(){
+  try{ return docSections().some(d => d.on && d.kind === "maps"); }
+  catch(e){ return false; }
+}
+function wantSheetCol(){
+  try{ if(trees.some(t => t.SHEET_NO)) return true; }catch(e){}
+  return docHasMapSheets();
+}
+const SCHED_A_SHEET = ["TPP page", t=>t.SHEET_NO || ""];
 /* The number used on every report output. A tree recorded before TREE_NO existed has
    none, and Schedule A was printing a blank while the photo captions fell back to the
    tree's position — so the table and the photographs disagreed, which is worse than
@@ -15539,9 +15596,10 @@ function exportScheduleA(){
     "OK — the report table only: the thirteen columns in the Arborist Report.\n" +
     "Cancel — those thirteen plus every other attribute, appended after Notes.");
   const base = schedAColumns(currentProject());
+  /* schedAColumns carries the TPP page column now, so it is NOT appended here as
+     well — it used to be, and appending it to a list that already held it printed
+     the column twice. */
   let cols = full ? base : base.concat(SCHED_A_EXTRA);
-  // Only worth a column once the sheets exist.
-  if(list.some(t=>t.SHEET_NO)) cols = cols.concat([SCHED_A_SHEET]);
   const rows = [cols.map(c=>c[0])];
   list.forEach((t,i)=>rows.push(cols.map(c=>c[1](t,i))));
   /* HOW THE MONEY COLUMN WAS WORKED OUT, under the table. A blank row first so
@@ -20072,6 +20130,39 @@ function sheetGrid(scale, tpp, ovPct){
   out.forEach((c,i)=>c.no=i+1);
   return out;
 }
+/* WHICH SHEET SHOWS A TREE, AND WHAT THAT SHEET IS CALLED.
+
+   `base` is the number printed on the sheet BEFORE the first cell. The document
+   puts the plan index on TPP{b.start} and the first plan sheet on TPP{b.start+1},
+   so base is b.start and a tree on cell 1 is stamped 11 where the index is TPP10.
+   A caller with sheets numbered from one passes 0.
+
+   Returns how many trees changed, so the caller can decide whether anything that
+   has already been drawn from the old numbers needs drawing again. */
+function stampSheetNos(cells, base){
+  const b = isFinite(Number(base)) ? Number(base) : 0;
+  let stamped = 0;
+  seriesTrees().forEach(t=>{
+    const la=num(t.LAT), lo=num(t.LON);
+    /* NEAREST CENTRE, not the first match. With the sheets overlapping, a tree in a
+       shared strip is on two of them, and `find` would index it to whichever came
+       first in the grid — quite possibly the sheet where it sits hard against the
+       edge. The table should send a reader to the sheet that shows it best, which is
+       the one it is most central on. It also has to be a stable choice, or the
+       column churns and re-syncs on every export. */
+    let cell = null, bestD = Infinity;
+    (cells||[]).forEach(c=>{
+      if(!(la<=c.n && la>=c.s && lo>=c.w && lo<=c.e)) return;
+      const dx = lo - (c.w+c.e)/2, dy = la - (c.n+c.s)/2;
+      const d = dx*dx + dy*dy;
+      if(d < bestD - 1e-18){ bestD = d; cell = c; }
+    });
+    const no = cell ? (b + cell.no) : "";
+    if(String(t.SHEET_NO||"") !== String(no)){ t.SHEET_NO = no; t._sent = false; stamped++; }
+  });
+  if(stamped){ persistTrees(); setTimeout(syncNow, 1200); }
+  return stamped;
+}
 function refreshSheetEstimate(){
   const scale = parseInt($("mapScale").value,10);
   const g = sheetGround(scale);
@@ -20132,28 +20223,16 @@ async function runSeriesExport(){
   const padLon = Math.max((b.e-b.w)*0.12, 0.00090);
   const all = L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]);
 
-  /* Stamp each tree with the sheet it falls on, so the inventory table can say
-     where to look for it. Written back and re-synced. */
-  let stamped = 0;
-  seriesTrees().forEach(t=>{
-    const la=num(t.LAT), lo=num(t.LON);
-    /* NEAREST CENTRE, not the first match. With the sheets overlapping, a tree in a
-       shared strip is on two of them, and `find` would index it to whichever came
-       first in the grid — quite possibly the sheet where it sits hard against the
-       edge. The table should send a reader to the sheet that shows it best, which is
-       the one it is most central on. It also has to be a stable choice, or the
-       column churns and re-syncs on every export. */
-    let cell = null, bestD = Infinity;
-    cells.forEach(c=>{
-      if(!(la<=c.n && la>=c.s && lo>=c.w && lo<=c.e)) return;
-      const dx = lo - (c.w+c.e)/2, dy = la - (c.n+c.s)/2;
-      const d = dx*dx + dy*dy;
-      if(d < bestD - 1e-18){ bestD = d; cell = c; }
-    });
-    const no = cell ? cell.no : "";
-    if(String(t.SHEET_NO||"") !== String(no)){ t.SHEET_NO = no; t._sent=false; stamped++; }
-  });
-  if(stamped){ persistTrees(); setTimeout(syncNow, 1200); }
+  /* THE MAP SERIES NO LONGER STAMPS SHEET_NO.
+
+     It used to, with its own 1..n cell index — and that is what was wrong with the
+     column. The column is called TPP Page and it has to match the number PRINTED on
+     the sheet the reader turns to, which is TPP11, not "cell 1". This export is a
+     different product on a different grid: its own scale, its own paper size, its
+     own sheets numbered from one, with an index sheet of its own. Stamping from
+     here overwrote a correct set of TPP pages with numbers belonging to a PDF
+     nobody was holding. buildDocument does the stamping now, where the printed page
+     number is actually known — see stampSheetNos.  */
 
   const pages=[];
   toast(`Building ${cells.length+1} sheets…`);
@@ -22926,6 +23005,37 @@ function clearAllData(){
   toast("Device data cleared");
 }
 
+/* THE PRINTABLE GUIDE, SHIPPED WITH THE APP.
+
+   Chris: "Include the user guide as a downloadable link in the app."
+
+   The PDF sits beside index.html in the deployment and the service worker keeps a
+   copy, so it opens in the field with no signal. It is opened in a new tab rather
+   than forced as a download — a phone shows it straight away and still offers Save,
+   which a crew member is far more likely to manage than a file that vanishes into
+   Downloads. If the tab is blocked, or the deployment has not got the PDF yet, the
+   app says so instead of appearing to do nothing. */
+const USER_GUIDE_FILE = "Street-Tree-user-guide.pdf";
+function openUserGuide(){
+  closeMenu();
+  /* Resolved by hand rather than with `new URL` — the app runs from a page that
+     may carry a query or a hash, and this keeps the folder and drops both without
+     depending on a constructor. */
+  const url = String(location.href).split("#")[0].split("?")[0].replace(/[^/]*$/, "") + USER_GUIDE_FILE;
+  let w = null;
+  try{ w = window.open(url, "_blank", "noopener"); }catch(e){ w = null; }
+  if(w) return;
+  /* Popup blocked, or an in-app browser that will not open tabs: fall back to a
+     plain link click, which the same browsers do allow. */
+  try{
+    const a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener";
+    a.download = USER_GUIDE_FILE;
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){
+    toast("Could not open the guide — it is at " + url, true);
+  }
+}
 function showHelp(){
   closeMenu();
   $("infoTitle").textContent="How this app works";
@@ -23038,7 +23148,8 @@ function showHelp(){
     <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. If one shows blank, pan to your site and tap <b>Test these over this view</b> — the app asks each service for a real tile there and keeps whatever settings work. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
-    <p><b>Map sheet number</b><br>Producing a map series stamps each tree with the sheet it falls on, so the inventory table can say where to find it. The column appears in Schedule A once a series has been made.</p>
+    <p><b>TPP page number</b><br>Assembling the document stamps each tree with the <b>sheet it falls on</b>, and stamps it with the number that is actually printed on that sheet — so a tree shown on <i>TPP12</i> reads 12, not "cell 2". The column is called <b>TPP page</b> and appears in Schedule A, in the Schedule A CSV and in the emailed workbook. Where sheets overlap, a tree caught on two of them is indexed to the one it sits most centrally on, which is the sheet that shows it best. The numbers are written the moment the document is assembled, before the table is drawn, so the table and the sheets always agree; the standalone map export deliberately leaves the column alone, because its sheets are a different product numbered from one.</p>
+    <p><b>User guide</b><br><i>Menu → Settings &amp; help → User guide (PDF)</i> opens the printable guide — starting a project, loading layers, editing trees, making a map, uploading drawings and finalising the plan. It is kept on the phone with the app, so it opens with no signal.</p>
     <p><b>Protection zones on the map</b><br>The 🛡 button draws each tree's protection zone as a dashed circle at its true size on the ground — 2.4 m up to 24 cm DBH, then DBH ÷ 10 — so you can see at a glance where zones overlap and where works would encroach. A tree with no DBH yet gets no circle. They sit under the pins and cannot take a tap meant for a tree, and the setting is remembered.</p>
     <p><b>Protection zone and replacements</b><br>Both are worked out from DBH, and <b>every</b> tree carries its compensation figure whether or not it is coming down — the arborist decides what counts, not the app. <b>Count in compensation</b> defaults to following the proposed action and can be set to yes or no per tree. The statistics show the counted total alongside what it would be if every tree were removed. <b>TPZ_M</b> is the tree protection zone radius: 2.4 m up to 24 cm DBH, then DBH ÷ 10. <b>REPL_REQ</b> is the number of replacement trees the DBH earns under the City table — 0 up to 20 cm, then 1, 2, 3, 4 and 5 through the bands. The statistics panel totals both, which are the figures a tree preservation plan has to state.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
