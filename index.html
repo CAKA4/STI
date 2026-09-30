@@ -620,6 +620,7 @@
   <button id="btnTPZ" onclick="toggleTPZ()" title="Tree protection zones">🛡</button>
   <button id="btnCrown" onclick="toggleCrown()" title="Crown diameter circles">🌳</button>
   <button id="btnMarks" onclick="toggleMarks()" title="Pruning (P) and removal (✕) marks">✂</button>
+  <button id="btnChecked" onclick="toggleChecked()" title="Field-checked halo — the red ring on trees somebody has opened and saved">✔</button>
   <button id="btnSymbol" onclick="cycleSymbol()" title="Colour trees by…">🎯</button>
   <button id="btnPdf" onclick="togglePDF()" title="Site plan" style="display:none">🗺</button>
 </div>
@@ -919,7 +920,7 @@
         <button class="menuitem" onclick="exportFeatsGeoJSON()">Fences &amp; plantings (GeoJSON)</button>
         <div class="mini" style="padding:10px 4px 8px">The document</div>
         <button class="menuitem" onclick="openTppText()">TPP wording &amp; branding</button>
-        <button class="menuitem" onclick="openSchedB()">Schedule B — tree photographs (PDF)</button>
+        <button class="menuitem" onclick="openSchedB()">Appendix A — tree photographs (PDF)</button>
         <button class="menuitem" onclick="openDetails()">Standard detail drawings</button>
         <button class="menuitem" onclick="openVersions()">🗂 Plan versions — save this arrangement, or bring one in</button>
         <button class="menuitem prime" onclick="openDoc()">📄 Assemble the final document — add your arborist report here</button>
@@ -1828,11 +1829,11 @@
 <div class="sheet" id="schedBSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
-    <h2>Schedule B — tree photographs</h2>
+    <h2>Appendix A — tree photographs</h2>
     <div class="hint">A document of its own, one photograph to a page, captioned so every picture can be found in Schedule A.</div>
 
     <div class="row2">
-      <div class="fld"><label>Title</label><input id="sbTitle" type="text" placeholder="Schedule B" oninput="schedBPreview()"></div>
+      <div class="fld"><label>Title</label><input id="sbTitle" type="text" placeholder="Appendix A" oninput="schedBPreview()"></div>
       <div class="fld"><label>Subtitle</label><input id="sbSub" type="text" placeholder="Tree Photographs" oninput="schedBPreview()"></div>
     </div>
     <div class="fld">
@@ -2263,7 +2264,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-30 · v208";
+const APP_BUILD  = "2026-09-30 · v210";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3082,7 +3083,8 @@ async function initMap(){
   renderAnnots();
   renderTPZ();
   renderCrown();
-  { const b=$("btnMarks"); if(b) b.classList.toggle("on", marksOn); }
+  { const b=$("btnMarks");   if(b) b.classList.toggle("on", marksOn); }
+  { const b=$("btnChecked"); if(b) b.classList.toggle("on", checkedOn); }
   buildLegend();
   fmap.on("moveend zoomend", scheduleRedraw);
   fmap.on("zoomstart", ()=>{ if(labelLayer) labelLayer.clearLayers(); });   // labels are the costly part
@@ -3373,6 +3375,31 @@ function toggleMarks(){
   toast(marksOn ? "Pruning and removal marks on" : "Marks off");
 }
 
+/* THE RED RING ON A TREE SOMEBODY HAS CHECKED — and the switch that takes it off.
+
+   Chris: "i edited some trees and they have a red outline now ... what do i do to
+   make the red outline disappear?"
+
+   Nothing, until now. The halo is set the moment a tree is opened and saved and
+   there was no way to turn it off — it showed on screen AND printed on every plan
+   sheet with a "Field checked" row in the legend, which is a working note on a
+   client's drawing.
+
+   It stays on by default, because it is what tells a crew how far along a street
+   they are, and the crews are not going to go looking for a switch. But it is a
+   switch now, it is remembered, and — as with the protection zones, the crowns and
+   the pruning marks — THE SHEET FOLLOWS THE SCREEN. What you can see is what
+   prints, which is the only rule anybody can hold in their head. */
+let checkedOn = true;
+try{ const v = STORE && STORE.getItem("st_checkon"); if(v === "0") checkedOn = false; }catch(e){}
+function toggleChecked(){
+  checkedOn = !checkedOn;
+  if(STORE){ try{ STORE.setItem("st_checkon", checkedOn?"1":"0"); }catch(e){} }
+  const b=$("btnChecked"); if(b) b.classList.toggle("on", checkedOn);
+  renderPins(); buildLegend();
+  toast(checkedOn ? "Field-checked halo on — it prints on the plan too"
+                  : "Field-checked halo off, on screen and on the plan");
+}
 function pinStyle(t){
   return { radius: 7, weight: 2,
            color: t._sent ? "#ffffff" : "#ffd54f",   // amber ring = not yet synced
@@ -3408,7 +3435,7 @@ function renderPins(){
     if(lat==null||lon==null) continue;
     if(!b.contains([lat,lon])) continue;          // off screen: skip entirely
     if(drawn>=PIN_MAX){ pinsTruncated = true; break; }
-    if(t._reviewed) L.circleMarker([lat,lon], Object.assign({renderer:pinRenderer}, haloStyle())).addTo(pinLayer);
+    if(checkedOn && t._reviewed) L.circleMarker([lat,lon], Object.assign({renderer:pinRenderer}, haloStyle())).addTo(pinLayer);
     const m = L.circleMarker([lat,lon], Object.assign({renderer:pinRenderer}, pinStyle(t)));
     m._treeIdx = i;
     m.addTo(pinLayer)
@@ -13398,8 +13425,16 @@ function docSections(){
      ticks are kept, and the Appendix added in v140 turns up for everybody rather
      than only on a phone that has never assembled a document. */
   const have = {};
+  const def  = defaultSections();
   l.forEach(d => { if(d && d.id) have[d.id] = 1; });
-  defaultSections().forEach(d => { if(!have[d.id]) l.push(d); });
+  def.forEach(d => { if(!have[d.id]) l.push(d); });
+  /* A DEFAULT THAT HAS BEEN RENAMED SINCE — see SECTION_RENAMES. */
+  l.forEach(d => {
+    const olds = d && d.id && SECTION_RENAMES[d.id];
+    if(!olds) return;
+    const now = def.find(x => x.id === d.id);
+    if(now && olds.indexOf(String(d.name || "").trim()) >= 0) d.name = now.name;
+  });
   return l;
 }
 /* RETURNS WHETHER IT ACTUALLY SAVED. It used to swallow the exception, so a storage
@@ -13411,6 +13446,22 @@ function docSave(l){
   catch(e){ docSaveFailed = String((e && e.name) || e || "failed"); return false; }
 }
 let docSaveFailed = "";
+/* WHAT A SECTION USED TO BE CALLED.
+
+   Chris: "in the menu system, please rename SCHEDULE B - TREE PHOTOGRAPHS TO
+   APPENDIX A - TREE PHOTOGRAPHS" — his arborist report already calls it Appendix A,
+   and the plan was contradicting the report it is bound with.
+
+   Renaming it in defaultSections() alone would have done NOTHING for anybody who
+   has opened the assembly screen once, which is everybody: the saved list wins, and
+   it was written under the old name. So a saved name that is still the OLD DEFAULT
+   is brought forward — that wording is the app's, not the user's. A name somebody
+   has typed themselves is left exactly as it is, which is the whole reason this is
+   a list of specific old strings rather than "overwrite the name". */
+const SECTION_RENAMES = {
+  schedB: ["Schedule B — Tree Photographs", "Schedule B - Tree Photographs",
+           "Schedule B — tree photographs", "Schedule B"]
+};
 function defaultSections(){
   return [
     {id:"contents",  name:"Contents",                       kind:"toc",    on:true,  fixed:true},
@@ -13419,7 +13470,7 @@ function defaultSections(){
     {id:"table1",    name:"Table 1 — List of trees by species and location", kind:"table", on:true},
     {id:"landscape", name:"Landscaping plan",              kind:"landscape", on:true},
     {id:"details",   name:"Standard details",               kind:"details",on:true},
-    {id:"schedB",    name:"Schedule B — Tree Photographs",   kind:"photos", on:true},
+    {id:"schedB",    name:"Appendix A — Tree Photographs",    kind:"photos", on:true},
     {id:"appendix",  name:"Appendix — Standard drawings",    kind:"appendix", on:true}
   ];
 }
@@ -15663,7 +15714,7 @@ function exportYRCompensation(){
   toast(`York Region: ${totN} replacement trees · ${money(totV)} · ${money(required)} after plantings`);
 }
 
-/* ---------- Schedule B — Tree Photographs ---------- */
+/* ---------- Appendix A — Tree Photographs (called Schedule B until v210) ---------- */
 /* One photograph per page on a 10 x 7.5 inch landscape sheet, captioned
    T<tree number>-<Common_name>-<Condition>, matching the existing schedules so a
    reviewer sees the same thing they are used to. */
@@ -15686,12 +15737,17 @@ const SCHED_B_W_IN = 10, SCHED_B_H_IN = 7.5;   // 4:3, as the existing appendice
  *  can act on. Everything after it is yours.
  * ================================================================== */
 const SCHEDB_KEY = "st_schedb";
-const SCHEDB_DEF = { title:"Schedule B", sub:"Tree Photographs", site:"",
+const SCHEDB_DEF = { title:"Appendix A", sub:"Tree Photographs", site:"",
                      fields:["SPECIES","HEALTH"], sep:"-" };
 let schedB = Object.assign({}, SCHEDB_DEF);
 try{
   const r = JSON.parse((STORE && STORE.getItem(SCHEDB_KEY)) || "null");
   if(r && typeof r === "object") schedB = Object.assign({}, SCHEDB_DEF, r);
+  /* The cover page's own title is saved per device the moment the screen is opened,
+     so the rename has to reach that copy too or the menu says Appendix A and the
+     page it builds still says Schedule B. Only the old DEFAULT is replaced; a title
+     somebody typed is theirs. */
+  if(String(schedB.title || "").trim() === "Schedule B") schedB.title = SCHEDB_DEF.title;
 }catch(e){}
 function persistSchedB(){ if(STORE){ try{ STORE.setItem(SCHEDB_KEY, JSON.stringify(schedB)); }catch(e){} } }
 
@@ -15764,7 +15820,7 @@ function schedBPreview(){
 }
 function saveSchedB(){
   readSchedBForm(); persistSchedB();
-  toast("Schedule B setup saved");
+  toast("Appendix A setup saved");
   closeSchedB();
 }
 
@@ -15871,7 +15927,7 @@ async function exportScheduleB(opt){
     g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
     g.fillStyle="#12201a"; g.textAlign="center";
     g.font=`bold ${Math.round(PDF_DPI*0.42)}px sans-serif`;
-    g.fillText(schedB.title || "Schedule B", W/2, H*0.34);
+    g.fillText(schedB.title || SCHEDB_DEF.title, W/2, H*0.34);
     g.font=`${Math.round(PDF_DPI*0.28)}px sans-serif`;
     if(schedB.sub) g.fillText(schedB.sub, W/2, H*0.44);
     g.font=`${Math.round(PDF_DPI*0.17)}px sans-serif`; g.fillStyle="#3f5147";
@@ -15900,7 +15956,7 @@ async function exportScheduleB(opt){
          Drive round trip before anything happens. */
       if(stopped()){
         setStatus(`${visibleTrees().length} trees on device`);
-        toast("Schedule B stopped", true);
+        toast("Appendix A stopped", true);
         return { ok:false, stopped:true, done:n + missing, of:shots };
       }
       /* The width the page will actually use, rounded up a little so a photograph is
@@ -15930,18 +15986,18 @@ async function exportScheduleB(opt){
       g.textAlign="left";
       pages.push({data:cv.toDataURL("image/jpeg",0.90), w:W, h:H});
     }
-    setStatus(`Schedule B: ${seq} of ${list.length} trees`);
+    setStatus(`Appendix A: ${seq} of ${list.length} trees`);
   }
 
   const bytes = jpegPdfPages(pages, SCHED_B_W_IN*72, SCHED_B_H_IN*72);
   const blob = new Blob([bytes],{type:"application/pdf"});
   const url = URL.createObjectURL(blob), a=document.createElement("a");
   const slug = (site||exportTag()).replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
-  a.href=url; a.download=`ScheduleB_TreePhotographs_${slug}_${nowStr().slice(0,10)}.pdf`;
+  a.href=url; a.download=`AppendixA_TreePhotographs_${slug}_${nowStr().slice(0,10)}.pdf`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),4000);
   setStatus(`${visibleTrees().length} trees on device`);
-  toast(`Schedule B: ${n} photograph(s) over ${pages.length} pages`
+  toast(`Appendix A: ${n} photograph(s) over ${pages.length} pages`
         + (fetched?` · ${fetched} from Drive`:"")
         + (missing?` · ${missing} could not be found`:""));
   return { ok:true, photos:n, pages:pages.length, fetched:fetched, missing:missing,
@@ -19332,7 +19388,7 @@ async function runSingleExport(opt){
 
   shown.forEach(t=>{
     const p=P(num(t.LAT),num(t.LON));
-    if(t._reviewed){ g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
+    if(checkedOn && t._reviewed){ g.beginPath(); g.arc(p[0],p[1],R*1.9,0,7);
                      g.strokeStyle="#FF1744"; g.lineWidth=R*0.42; g.stroke(); }
     g.beginPath(); g.arc(p[0],p[1],R,0,7);
     /* symbolColor, NOT healthColor. The sheet drew health colours whatever the mode
@@ -22086,7 +22142,7 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     const lab = r.label.length>labelCh ? r.label.slice(0,labelCh-1)+"…" : r.label;
     g.fillText(lab, px2+Math.round(PDF_DPI*0.13), py);
   });
-  if(shown.some(t=>t._reviewed)){
+  if(checkedOn && shown.some(t=>t._reviewed)){
     const py = ly+Math.round(PDF_DPI*0.16)+Math.ceil(present.length/2)*rowH;
     g.beginPath(); g.arc(lx+8, py-Math.round(PDF_DPI*0.035), Math.round(PDF_DPI*0.055),0,7);
     g.strokeStyle="#FF1744"; g.lineWidth=3; g.stroke();
@@ -23154,7 +23210,7 @@ function showHelp(){
 
     <p><b>Sheet &amp; photo check</b><br><i>Menu → Sync &amp; the Sheet → Sheet &amp; photo check</i>, or the <i>check</i> link beside a photograph that would not load. It asks the Sheet the things the app cannot see from the outside and prints the answers: <b>which Code.gs the Sheet is actually running</b>, how many folders answer to the name <i>Street Tree Photos</i> and which one is being used, whether one named photograph is there and how it was found, and how many photographs on this device have never reached Drive. It settles a stale deployment <b>without the Sheet being updated first</b>: an action a deployment has never heard of falls through to its own index, and a reply of that shape is proof the Sheet is behind.</p>
 
-    <p><b>Why a photograph is slow on a machine that did not take it</b><br>The phone that took a photograph has it in its own store and never asks for it. Every other machine has to fetch it from Drive, and what it fetches now is <b>Drive's own thumbnail</b> — about a hundredth of the bytes — rather than the full-size photograph. Before that, a picture 46 pixels across was being served as half a megabyte of image, a third bigger again once encoded, and handed over for the browser to parse; on the desktop that regularly ran past the wait and came back <i>timed out</i>. The full image is still fetched when you open one full size, and for Schedule B, where the wait is expected. The viewer opens on the thumbnail straight away and swaps the full size in when it lands, so it never sits blank looking broken. The <b>Drive</b> button beside <i>Edit</i> opens the original in Drive if you would rather not wait at all.</p>
+    <p><b>Why a photograph is slow on a machine that did not take it</b><br>The phone that took a photograph has it in its own store and never asks for it. Every other machine has to fetch it from Drive, and what it fetches now is <b>Drive's own thumbnail</b> — about a hundredth of the bytes — rather than the full-size photograph. Before that, a picture 46 pixels across was being served as half a megabyte of image, a third bigger again once encoded, and handed over for the browser to parse; on the desktop that regularly ran past the wait and came back <i>timed out</i>. The full image is still fetched when you open one full size, and for the photograph appendix, where the wait is expected. The viewer opens on the thumbnail straight away and swaps the full size in when it lands, so it never sits blank looking broken. The <b>Drive</b> button beside <i>Edit</i> opens the original in Drive if you would rather not wait at all.</p>
 
     <p><b>When a photograph will not show</b><br>The popup lays out a <b>slot for each photograph the moment it opens</b>, so a tree with photographs never looks like one without any while they are being fetched, and a slot that cannot be filled is marked and <b>says why</b> — four things used to look identical and only one of them is about the photograph. <i>No photographs on this tree</i> means exactly that. <i>The photo store is open in another tab or window</i> is the one to know about on a desktop: close the other tabs showing this app and reload. <i>No connection</i> and <i>not found on Drive</i> are the other two. <b>Try again</b> beside the message forgets the failure and re-asks, which matters when a photograph is still being backed up from somebody's phone. The same message appears under the strip in the edit form and in the full-size viewer.</p>
 
@@ -23184,7 +23240,7 @@ function showHelp(){
     <p><b>Tree protection plans</b><br>The first time you record a tree in a project, the app asks whether it is a tree protection plan. Say no and the form stays short. Say yes and a collapsible <b>🛡 Tree protection plan</b> section appears, holding the tree number on the plan (numbered automatically), tag number, location/ownership, proposed action and potential long-term impact — all with the wording used in the Schedule A tables. The section stays folded until you open it, and opens itself on any tree that already has something in it. The answer is remembered per project and can be changed in settings.</p>
     <p><b>Two values, and the document picks one</b><br>Every tree carries two money figures, because they answer different questions. <b>Tree value</b> is what the tree is worth, by the trunk formula: the replacement cost of a nursery tree spread over its trunk area gives a rate per cm², and that rate is applied to this tree's trunk area and adjusted for condition, species and location. It grows smoothly with diameter. <b>Offsetting value</b> is what it costs to offset removing it — replacement plantings from the Region's table × one cost, so it steps: a 29 cm and a 34 cm tree are both size class C and both come out the same. On a real job the appraisal ran several times the offsetting on big trees and lower on small ones, so they are kept separate rather than reconciled. Which one the report prints is chosen in <i>Assemble the document → Value column</i> — offsetting, appraisal, both, or none — and remembered per project. The appraisal rate and its condition factors are in <i>Settings</i>; a condition left blank produces <b>no</b> value rather than a guessed one, because a plausible figure in a submitted report is worse than an obvious gap.</p>
     <p><b>York Region tree removal offsetting</b><br>Follows the Region's <b>May 2025</b> table, which replaced the older calculation the app used before. It is a lookup rather than a formula: a <b>size class</b> from the DBH (A to E), a <b>species classification</b> (desirable, less desirable, or exempt — ash, Tree-of-Heaven, European alder, Russian olive and buckthorn are exempt outright), and a <b>condition class</b> (Good and Satisfactory are healthy; potential trouble and declining are poor; death imminent and dead are exempt). Those three read the number of replacement trees straight off the Region's table, and the offsetting value is that number times one replacement cost — <b>$1,290</b> as at May 2025, with no deciduous or coniferous split any more. The rate and its year are in <i>Settings</i>, because the Region reviews the figure. The tree form shows all three classes beside the answer so you can check it against the Region's own workbook without doing any arithmetic, and <i>Menu → Get data out → York Region compensation table</i> produces the CSV in their column order.</p>
-    <p><b>Schedules A and B</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Schedule B</b> as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so Schedule B builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
+    <p><b>Schedule A and Appendix A</b><br><i>Menu → Get data out</i> produces both: <b>Schedule A</b> as a CSV — either the thirteen columns in report order, or those thirteen plus every other attribute appended after Notes, so the report table still pastes straight in. Sorted by tree number, ready to drop into the table; and <b>Appendix A — Tree Photographs</b> (called Schedule B until v210, to match the arborist report) as a PDF of one photograph per page on a 10 × 7.5 inch sheet, captioned <i>T1-Silver_maple-Satisfactory</i>, after a title page. Photographs come from the phone where it has them and from <b>Drive</b> where it does not, so it builds on an office machine that never held a single one. Both follow the Showing filter, date range included.</p>
     <p><b>Finding trees by attribute</b><br><i>Menu → Find trees by attribute</i> searches on any field, with as many conditions as you like — <i>Recorded by is Kathleen Conners</i> <b>and</b> <i>Condition rating is Dead</i> — and hands the result to the same selection sheet the lasso uses, so the bulk edit, <b>Assign project</b> and the undo all work on it. Conditions are ANDed: every one has to be true, because an OR would quietly return the whole job the first time a row was left half filled in. The operators are <i>is</i>, <i>is not</i>, <i>contains</i>, <i>is blank</i>, <i>is not blank</i>, and <i>at least</i> / <i>at most</i> on a number — two of those make a range. Each field offers <b>the values actually present on the trees in view</b>, in the pick list's own order, with anything the crew typed that is not on the list appended so those trees can still be found. The search covers what the <i>Showing</i> filter is set to and nothing beyond it, so another project cannot be edited by accident, and the selection sheet prints the search that found the trees beside the count.</p>
     <p><b>Measuring</b><br>The <b>📏</b> button on the map rail measures a <i>distance</i> or an <i>area</i>. Tap along the line, or round the shape; <b>✛ Centre</b> drops a point exactly at the middle of the map, which is the only way to hit a lot corner accurately with a thumb. Every leg is labelled on the map as you go, and the reading shows metric first with feet, miles or acres beside it — a distance gives the legs and the straight line end to end, an area gives its perimeter. Switching between <i>Distance</i> and <i>Area</i> <b>keeps the points</b>, so the same shape can be read both ways, and <b>Copy</b> puts the figure on the clipboard for a report or an email. Nothing is saved: it is a tape measure, not a record.<br><br>The arithmetic is not the usual web-map kind. Every point is projected into a Transverse Mercator centred on the shape itself before the area or the length is worked out, which agrees with a proper geodesic calculation to less than a part per million. The spherical formula most mapping tools use is about two parts in a thousand out at this latitude — 364 m² on an 18.5 ha block — and that is the difference between two acreages on a plan.</p>
 
@@ -23206,12 +23262,13 @@ function showHelp(){
     <p>Tick the sections and order them with the arrows. <b>Add PDFs</b> asks what each one is as it goes in, because that wording is what the contents page prints — the ✎ button renames a section later. The <b>first sheet is the report’s title page on the left and the contents on the right</b>; the contents lists itself as TPP1, names every standard detail separately, and ends with your note. It is written last, from where the sheets actually landed, so it cannot disagree with the document.</p>
     <p>Fill in <i>TPP wording &amp; branding</i> first — prepared for, the title block, the base data credits, the landscaping wording and your logo. It is kept on the phone and carried to the next plan, so only the top two boxes normally change between jobs. The <b>landscaping sheet</b> prints your wording above the plant list, banded caliper-outside-the-woodlot then saplings-in-the-woodlot, each split deciduous and coniferous; leave the wording blank and the whole section is left out. Schedule A wraps its cells rather than cutting them, so the condition notes print in full.</p>
     <p><b>Fences and plantings</b><br>Both live under <i>🛡 Tree protection &amp; reporting → On site</i>, which appears once the project is set to a tree protection plan. <i>Draw the tree protection fence</i> lets you tap along the line with the running length shown; <i>Place proposed plantings</i> puts a tree at each tap. Both then open a form: a planting takes <b>species</b> (the same picker the inventory uses), <b>stock size</b>, <b>address</b> and <b>notes</b>; a fence takes its <b>type</b>, with the length measured for you, plus address and notes. The address fills itself in from the parcel layer or the geocoder, exactly as a tree's does. Tap either on the map to edit or delete it. Both export as GeoJSON and reach their own tabs on the Sheet. <i>Get data out</i> then produces <b>Table 1 — species by location</b> and the <b>Landscaping plant list</b>, grouped by species and stock size with the botanical two-letter key.</p>
-    <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Schedule B on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
+    <p><b>Sheet size</b><br>Plan sets are drawn at <b>17 × 11 in</b> — letter is too small to read a site plan on — so that is the default, matching the Arborist Report format. <b>11 × 8.5 in</b> is offered where a letter document is wanted. The choice drives the map sheets, the tables and the assembled document together, so one document never mixes sizes. Appendix A — the photographs — on its own keeps the 10 × 7.5 in page your existing appendices use, since 4:3 lets a photograph fill it; inside the assembled document the photographs are rendered at the document size instead.</p>
     <p><b>Shared layers on Drive</b><br><i>Menu → Bring data in → ☁ Layers on Drive</i> lists everything in the <b>Street Tree Layers</b> folder in Drive — site plans, boundaries, reference files — so the whole crew sees the same set. <b>Nobody needs access to Drive</b>: the Sheet fetches on their behalf, the same way they write trees without access to the Sheet. A file is fetched only when you tap it and is not kept on the phone, which matters when a job has many large plans: the folder is the library, the phone holds what is open.</p>
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
     <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. If one shows blank, pan to your site and tap <b>Test these over this view</b> — the app asks each service for a real tile there and keeps whatever settings work. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
     <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
+    <p><b>The red ring on a tree</b><br>A tree turns red the moment somebody opens it and saves it — that is the <b>field-checked</b> halo, and on an imported street it shows at a glance how much is left to do. It is drawn on the exported plan as well, with a <i>Field checked</i> row in the legend. The <b>✔</b> button on the map rail turns it off, on screen and on the plan together, and the app remembers which way you left it. Nothing about the tree changes — the halo is only being shown or hidden.</p>
     <p><b>TPP page number</b><br>Assembling the document stamps each tree with the <b>sheet it falls on</b>, and stamps it with the number that is actually printed on that sheet — so a tree shown on <i>TPP12</i> reads 12, not "cell 2". The column is called <b>TPP page</b> and appears in Schedule A, in the Schedule A CSV and in the emailed workbook. Where sheets overlap, a tree caught on two of them is indexed to the one it sits most centrally on, which is the sheet that shows it best. The numbers are written the moment the document is assembled, before the table is drawn, so the table and the sheets always agree; the standalone map export deliberately leaves the column alone, because its sheets are a different product numbered from one.</p>
     <p><b>User guide</b><br><i>Menu → Settings &amp; help → User guide (PDF)</i> opens the printable guide — starting a project, loading layers, editing trees, making a map, uploading drawings and finalising the plan. It is kept on the phone with the app, so it opens with no signal.</p>
     <p><b>Protection zones on the map</b><br>The 🛡 button draws each tree's protection zone as a dashed circle at its true size on the ground — 2.4 m up to 24 cm DBH, then DBH ÷ 10 — so you can see at a glance where zones overlap and where works would encroach. A tree with no DBH yet gets no circle. They sit under the pins and cannot take a tap meant for a tree, and the setting is remembered.</p>
