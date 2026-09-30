@@ -2262,7 +2262,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-29 · v205";
+const APP_BUILD  = "2026-09-29 · v206";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -21075,17 +21075,23 @@ function loadImageData(src){
 /* Fitted, never filled: the aspect ratio of the page is the page. `align` of "top"
    hangs it from the top of the box instead of centring it, which is how the contents
    is made to start on the same line as the title page beside it. */
-function drawFitted(g, im, box, align){
+function drawFitted(g, im, box, align, minY){
   const iw = im.width || box.w, ih = im.height || box.h;
   const s = Math.min(box.w/iw, box.h/ih);
   const w = iw*s, h = ih*s;
   const x = box.x + (box.w-w)/2;
   /* `align` is "top", or a NUMBER meaning "put the image's top edge exactly here" —
-     which is how the contents is made to start on the ink of the page beside it
-     rather than on the edge of its own white margin. Clamped into the box, because a
-     page hung above its own slot would be drawn over the sheet's frame. */
+     which is how a page is made to start on the ink of the page beside it rather
+     than on the edge of its own white margin.
+
+     `minY` is how far above the slot that edge may go. A page cropped to its ink
+     still carries a sliver of white above the first line, so lining pages up BY THE
+     INK means their paper edges sit a little higher than the slot — on blank paper,
+     under the frame, which is drawn last. Without it the clamp pinned a page to the
+     top of its slot and the alignment silently failed, which is the fault on TPP2. */
+  const lo = (typeof minY === "number") ? minY : box.y;
   let y = (align === "top") ? box.y : box.y + (box.h-h)/2;
-  if(typeof align === "number") y = Math.max(box.y, Math.min(align, box.y + box.h - h));
+  if(typeof align === "number") y = Math.max(lo, Math.min(align, box.y + box.h - h));
   g.drawImage(im, x, y, w, h);
   return {x:x, y:y, w:w, h:h};
 }
@@ -21123,6 +21129,26 @@ function inkTopFrac(im){
   }catch(e){}                                  // tainted canvas: treat the edge as the ink
   return 0;
 }
+/* WHERE A PAGE'S TOP EDGE GOES so that its FIRST INK lands on `inkLine`.
+
+   Pulled out as arithmetic with no canvas in it, because the whole of v206 is this
+   one number and a rule that cannot be measured is a rule that quietly stops being
+   true. `inkFrac` is where the ink starts as a fraction of the image's own height;
+   the caller measures it.
+
+   THE FLOOR IS THE SHEET, NOT THE SLOT. A page cropped to its ink still carries a
+   sliver of white above the first line, so lining pages up by the INK puts their
+   paper edges a little above the slot — blank paper, under a frame drawn afterwards.
+   Clamping to the slot instead is what pinned the second page to the top of TPP2
+   while the first stayed centred an inch below it. The crop bounds that sliver, so
+   the lift is always small; 0 just says "not off the sheet". */
+function tppHangY(inkLine, inkFrac, imW, imH, box){
+  const iw = imW || box.w, ih = imH || box.h;
+  const s = Math.min(box.w/iw, box.h/ih);
+  const h = ih*s;
+  return Math.max(0, Math.min(inkLine - (inkFrac||0)*h, box.y + box.h - h));
+}
+
 /* One assembled sheet: up to two portrait pages side by side, then the frame. The
    frame goes LAST so nothing can be drawn over the title block. */
 async function composeTppSheet(W, H, pages, frameOpt){
@@ -21130,31 +21156,39 @@ async function composeTppSheet(W, H, pages, frameOpt){
   const g = cv.getContext("2d");
   g.fillStyle="#ffffff"; g.fillRect(0,0,W,H);
   const slots = tppSlots(W, H);
-  /* TOP-ALIGNED, NOT EACH CENTRED IN ITS OWN SLOT.
+  /* ONE INK LINE FOR EVERY PAGE OF THE DOCUMENT — v206.
 
-     Chris: "on TPP1 move the top of the CONTENTS table, the top line, so it is in
-     line with the top of the Arborist Report — to ensure symmetry in layout."
+     Chris: "you did a nice job on the front page keeping the top of the report and
+     table of contents at the same height … There are some pages however where the
+     arborist report pages are not lined up at the top, and in some cases the pages
+     are shorter and centred on the page. These should be at the same height on the
+     page as the front cover."
 
-     Two pages of different proportions, each centred in its own half, start and end
-     at different heights, and the eye reads that as a mistake rather than as two
-     pages that happen to be different shapes. The FIRST page sets the top edge and
-     the second is hung from it. */
-  let firstInk = null;
+     Two faults, one cause. Every uploaded page is cropped to its own ink before it
+     is placed, so a page that ends half way down trims SHORT — and a short page
+     centred in its slot floats into the middle of the sheet. That is TPP6. The
+     second page was then hung so its ink met the FIRST PAGE'S ink, and that offset
+     was clamped into the slot, so when it needed to rise above a centred first page
+     it was pinned to the slot top while the first stayed low. That is TPP2: two
+     report pages side by side, an inch apart.
+
+     Neither is fixed by aligning the pair to each other — v168 and v172 both did
+     that and both were right about the pair. The pair itself was landing somewhere
+     different on every sheet, because the line came from whichever page happened to
+     be on the left. It has to come from the SHEET.
+
+     So every page, on every sheet, is hung so its first ink lands on the top of the
+     content area: the line the full-bleed cover already sits on, which is the
+     position he asked the rest to match. A page with white above its first line has
+     its paper edge a little higher than the slot — blank paper, under a frame that
+     is drawn afterwards. */
+  const inkLine = tppContentRect(W, H).y;
   for(let i=0; i<Math.min(2, pages.length); i++){
     const im = await loadImageData(pages[i]);
     if(!im) continue;
     const box = slots[i];
-    let r;
-    if(i === 1 && firstInk !== null){
-      /* Where this page's own top edge has to go for its INK to land on the line the
-         first page's ink set. Worked out before drawing, because it decides the
-         scale: the page is fitted to the slot, then hung by that offset. */
-      const s = Math.min(box.w/(im.width||box.w), box.h/(im.height||box.h));
-      r = drawFitted(g, im, box, firstInk - inkTopFrac(im) * (im.height||box.h) * s);
-    } else {
-      r = drawFitted(g, im, box, null);
-    }
-    if(i === 0 && r) firstInk = r.y + inkTopFrac(im) * r.h;
+    drawFitted(g, im, box,
+               tppHangY(inkLine, inkTopFrac(im), im.width, im.height, box), 0);
   }
   await drawTppFrame(g, W, H, frameOpt || {});
   return { data: cv.toDataURL("image/jpeg", 0.93), w:W, h:H };
