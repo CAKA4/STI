@@ -214,6 +214,19 @@
     background:var(--surface2); color:var(--text); cursor:pointer }
   .stepper input{ text-align:center; font-family:var(--mono); font-size:19px }
   .btnrow{ display:flex; gap:8px; margin-top:6px }
+  /* SAVE, KEPT WITHIN REACH.
+
+     Chris: "sometimes all I do is enter the species and its diameter and take a
+     photo. It would be handy to have a save button up here ... so I don't have to
+     scroll all the way down to the bottom to save the tree."
+
+     Sticky inside .sheet-inner, which is the box that scrolls — so it is at the top
+     of the form when the form opens AND still there once you have scrolled down to
+     the defects. Where sticky is not honoured it degrades to a plain button at the
+     top of the form, which is exactly what was asked for, so there is nothing to
+     fall back to. Opaque, because content scrolls underneath it. */
+  .savebar{ position:sticky; top:0; z-index:5; margin:0 0 12px; padding:4px 0 8px;
+            background:var(--surface); border-bottom:1px solid var(--line) }
   .btnrow button{ flex:1; padding:14px; border-radius:12px; font-size:15px; font-weight:700;
     border:1px solid var(--line2); background:var(--surface2); color:var(--text); cursor:pointer }
   .btnrow button.primary{ background:var(--accent-dk); border-color:var(--accent); color:#fff }
@@ -641,6 +654,10 @@
     <h2 id="sheetTitle">New tree</h2>
     <div class="idline" id="sheetId">—</div>
 
+    <div class="btnrow savebar" id="topSaveRow">
+      <button type="button" class="primary" onclick="saveTree()">💾 Save tree</button>
+    </div>
+
     <div class="btnrow" id="confirmRow">
       <button type="button" onclick="confirmAllPending()">✓ Accept defaults <span id="pendCount"></span></button>
     </div>
@@ -935,6 +952,7 @@
         <button class="menuitem" onclick="openStats()">Statistics</button>
         <button class="menuitem" onclick="openQuery()">Find trees by attribute — edit, move or delete</button>
         <button class="menuitem" onclick="selectShowing()">Select everything showing — edit or move it</button>
+        <button class="menuitem" id="selBackItem" style="display:none" onclick="reopenSelSheet()">↩ Back to the selected trees (<span id="selBackN">0</span>)</button>
         <button class="menuitem" onclick="openArchive()">Photo archive (<span id="archCount">0</span>)</button>
       </div>
     </div>
@@ -2264,7 +2282,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-09-30 · v210";
+const APP_BUILD  = "2026-10-01 · v212";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -16489,7 +16507,13 @@ function selFinish(){
   openSelSheet("");
 }
 
+/* WHAT FOUND THEM, remembered — so the sheet can be reopened saying the same thing
+   it said the first time. "Zoom to them" closes it now (v211), and a selection you
+   can no longer see is a selection you cannot get back to without running the
+   search again. */
+let selFrom = "";
 function openSelSheet(from){
+  selFrom = from || "";
   $("selCount").textContent = `${selected.length} tree(s) selected` + (from ? ` · ${from}` : "");
   $("selProject").innerHTML = projects.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")
     + `<option value="__new__">＋ A project not on the list…</option>`;
@@ -18451,9 +18475,40 @@ function applySelProject(){
   toast(n ? `${n} tree(s) moved to ${name}` : `They were all in ${name} already`);
 }
 function closeSelSheet(){ $("selSheet").classList.remove("show"); }
+function reopenSelSheet(){
+  closeMenu();
+  if(!selected.length){ toast("Nothing is selected", true); return; }
+  openSelSheet(selFrom);
+}
+/* ZOOM TO THEM, AND THEN ACTUALLY SHOW THEM.
+
+   Chris: "when I select the attribute and then zoom to, the form should close and
+   the map should open to those trees I've selected. Currently it does nothing, the
+   form just stays open. however, when I press the back button, the map does show
+   the location of the trees selected."
+
+   It was never doing nothing — it was fitting the map correctly, underneath a
+   full-screen sheet. Pressing Back closed the sheet and revealed a map that had
+   been right all along, which is the worst shape a bug can take: it looks broken
+   and it looks intermittent.
+
+   The selection is NOT cleared. `selected` survives the sheet closing, so the bulk
+   edit, Assign project and the undo are all still waiting on the same trees; the
+   toast says so, because a selection you cannot see is a selection you will forget
+   you are holding. */
 function selZoomTo(){
   if(!selected.length) return;
-  fmap.fitBounds(selected.map(t=>[num(t.LAT),num(t.LON)]),{padding:[40,40]});
+  const pts = selected.map(t=>[num(t.LAT), num(t.LON)])
+                      .filter(p => p[0] != null && p[1] != null);
+  if(!pts.length){ toast("Those trees have no position to zoom to", true); return; }
+  closeSelSheet();
+  /* AFTER the sheet is closed, not before: a map fitted behind an overlay is the
+     fault above. A maxZoom because fitBounds on ONE tree is a zero-size box, which
+     Leaflet answers by going to its deepest zoom — a grey screen with a pin on it. */
+  fmap.fitBounds(pts, { padding:[40,40], maxZoom: 20 });
+  toast(pts.length === selected.length
+          ? `${selected.length} tree(s) still selected`
+          : `${pts.length} of ${selected.length} shown — the rest have no position`);
 }
 
 /* ================================================================== *
@@ -19918,7 +19973,9 @@ async function runSingleExport(opt){
     extra.forEach(p=>pages.push(p));
   }
   if(!pages.length) throw new Error("no pages were produced");
-  const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72);
+  /* Numbered whether it is one sheet or a sheet plus sixteen pages of photographs —
+     "Page 1 of 1" on a single sheet is not noise, it says there is nothing missing. */
+  const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72, { pageNumbers:true });
   const blob = new Blob([bytes],{type:"application/pdf"});
   const url = URL.createObjectURL(blob), a=document.createElement("a");
   const slug = title.replace(/\|/g," ").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
@@ -20071,9 +20128,23 @@ async function drawKeyMap(g, x, y, w, h, opt){
     // no series: just the extent of what this sheet shows
     const x1 = X(lonToPx(bounds.getWest(),kz)),  x2 = X(lonToPx(bounds.getEast(),kz));
     const y1 = Y(latToPx(bounds.getNorth(),kz)), y2 = Y(latToPx(bounds.getSouth(),kz));
-    const bw = Math.max(x2-x1, 8), bh = Math.max(y2-y1, 8);
+    /* THE LITTLE RED SQUARE, BIG ENOUGH TO FIND. Chris: "For the index map make the
+       little red square that represents the map sheet slightly larger in point size
+       so it's more visible."
+
+       Two things were against it. Its MINIMUM size was 8 px — about a millimetre of
+       paper at 200 dpi — so a 1:1,000 sheet inside a whole-project key map came out
+       as a dot. And its outline was 3 px of red laid straight over an aerial photo
+       full of reds and browns. The floor is now a fraction of the key map's own
+       size, the line is heavier, and a dark casing sits under it so the red reads
+       against whatever the imagery happens to be. */
+    const floorPx = Math.max(14, Math.round(Math.min(w, h) * 0.085));
+    const bw = Math.max(x2-x1, floorPx), bh = Math.max(y2-y1, floorPx);
     g.fillStyle = "rgba(255,23,68,.15)"; g.fillRect(x1, y1, bw, bh);
-    g.strokeStyle="#FF1744"; g.lineWidth=context ? 4 : 3;
+    const lwBox = Math.max(context ? 4 : 3, Math.round(Math.min(w, h) * 0.022));
+    g.strokeStyle="rgba(18,32,26,.65)"; g.lineWidth=lwBox + 3;
+    g.strokeRect(x1, y1, bw, bh);
+    g.strokeStyle="#FF1744"; g.lineWidth=lwBox;
     g.strokeRect(x1, y1, bw, bh);
   }
   g.restore();
@@ -20317,7 +20388,7 @@ async function runSeriesExport(){
     extra.forEach(p=>pages.push(p));
   }
 
-  const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72);
+  const bytes = jpegPdfPages(pages, PDF_W_IN*72, PDF_H_IN*72, { pageNumbers:true });
   const blob = new Blob([bytes],{type:"application/pdf"});
   const url = URL.createObjectURL(blob), a=document.createElement("a");
   const slug = title.replace(/\|/g," ").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
@@ -20579,10 +20650,21 @@ async function buildPhotoPages(shown, W, H, M, title){
       }
       g.strokeStyle="#9fb0a5"; g.lineWidth=2; g.strokeRect(cx+pad, cy+pad, boxW, boxH);
 
-      // caption: the tree number is what ties it to the map
+      /* CAPTIONED WITH THE TREE NUMBER — which is what the comment above it has said
+         since the day it was written, while the line underneath printed TREE_ID.
+
+         Chris: "The photos are numbered with the unique ID, not the photo number
+         such as T1."
+
+         T1 is what is on the tag, on the map label and in Schedule A; CG-00839-A is
+         the record key in the Sheet and ties a photograph to nothing a reader is
+         holding. The key is kept only as the fallback for a tree that has no number
+         at all, because an unlabelled photograph is worse than a long label. */
       let ty = cy+pad+boxH+Math.round(PDF_DPI*0.13);
       g.fillStyle="#0d1a13"; g.font=`bold ${Math.round(PDF_DPI*0.105)}px sans-serif`;
-      g.fillText(item.t.TREE_ID + (item.of>1 ? "  ("+item.seq+" of "+item.of+")" : ""), cx+pad, ty);
+      const tno = parseInt(item.t.TREE_NO, 10);
+      const who = (tno > 0) ? ("T" + tno) : String(item.t.TREE_ID || "—");
+      g.fillText(who + (item.of>1 ? "  ("+item.seq+" of "+item.of+")" : ""), cx+pad, ty);
       ty += Math.round(PDF_DPI*0.13);
       g.fillStyle="#3f5147"; g.font=`${Math.round(PDF_DPI*0.095)}px sans-serif`;
       const sp = String(item.t.SPECIES||"— no species —");
@@ -20689,15 +20771,26 @@ function sheetScaleText(given, sc, z, lat){
    bar in a 1.4 inch box, and walked over the sheet number. Now the caller says how
    much room there is and the LARGEST round distance that fits inside it wins. x is
    the CENTRE of the box, so the bar is centred like everything else in there. */
+/* `plate` means THE FIELD MAP EXPORT — the bar sits on the drawing over aerial
+   imagery and needs something white under it. The TPP title block passes no plate,
+   because there the bar is in a cell on white paper with its own ratio above it.
+
+   Chris: "Add a measured scale bar to the maps." There was one, and it was 1.6 in
+   long with 5 pt figures on a 17 x 11 sheet — small enough to read as decoration
+   rather than as a measurement. On the drawing it is now half as long again, with a
+   taller bar, readable figures and the HALFWAY DIVISION LABELLED, which is what
+   makes a bar measurable rather than merely indicative: you can step off 10 m on it
+   without a ruler. Inside the TPP title block nothing changes. */
 function drawScaleBar(g, xCentre, yBottom, sc, z, lat, boxW, plate){
   const mPerPx = 156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,z) / sc;
-  const avail  = Math.max(Math.round(PDF_DPI*0.5), (boxW || Math.round(PDF_DPI*1.6)));
+  const avail  = Math.max(Math.round(PDF_DPI*0.5),
+                          (boxW || Math.round(PDF_DPI*(plate ? 2.4 : 1.6))));
   const steps  = [1,2,5,10,15,20,25,50,75,100,150,200,250,500,750,1000,2000,5000];
   let m = steps[0];
   for(const cand of steps){ if(cand/mPerPx <= avail) m = cand; else break; }
   const px = Math.min(avail, m/mPerPx);
-  const h  = Math.round(PDF_DPI*0.055);
-  const fs = Math.round(PDF_DPI*0.075);
+  const h  = Math.round(PDF_DPI*(plate ? 0.085 : 0.055));
+  const fs = Math.round(PDF_DPI*(plate ? 0.105 : 0.075));
   const x  = xCentre - px/2;
   const y  = yBottom - fs*0.15;
   g.save();
@@ -20716,8 +20809,20 @@ function drawScaleBar(g, xCentre, yBottom, sc, z, lat, boxW, plate){
   }
   g.strokeStyle="#12201a"; g.lineWidth=1.5; g.strokeRect(x, y - h, px, h);
   g.fillStyle="#12201a"; g.font=`${fs}px ${TPP_FONT}`; g.textBaseline="alphabetic";
-  g.textAlign="left";   g.fillText("0", x, y - h - Math.round(fs*0.35));
-  g.textAlign="right";  g.fillText(m + " m", x + px, y - h - Math.round(fs*0.35));
+  const ty2 = y - h - Math.round(fs*0.35);
+  g.textAlign="left";   g.fillText("0", x, ty2);
+  g.textAlign="right";  g.fillText(m + " m", x + px, ty2);
+  /* THE HALFWAY FIGURE, on the drawing only. A bar labelled at its two ends is read
+     off end to end; one labelled at the middle can be stepped off. Printed only
+     where the half is a whole number and there is room for it — a "7.5" between a 0
+     and a 15 reads as clutter, and two figures touching read as one. */
+  if(plate && (m % 2 === 0)){
+    const half = String(m/2);
+    const room = px/2 - Math.max(g.measureText("0").width, g.measureText(m+" m").width);
+    if(room > g.measureText(half).width*0.8){
+      g.textAlign="center"; g.fillText(half, x + px/2, ty2);
+    }
+  }
   g.restore();
   g.textAlign="left";
 }
@@ -22159,23 +22264,66 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
     g.fillText(sheetNote, bx+bw/2, by+bh/2);
     g.textAlign="left"; g.textBaseline="alphabetic";
   }
+  /* THE AUTHOR'S NAME, ONCE. Chris: "My name appears twice on the map only once is
+     needed." It was hard-coded into the credits line AND derived into Recorded by,
+     so on his own sheets it printed twice. Dropped from the credits WHEN THE
+     RECORDED BY LINE ALREADY CARRIES IT — on a sheet recorded by somebody else the
+     authorship credit is not a duplicate and stays. */
+  const credit = (String(recLabel).trim().toLowerCase() === "chris gynan")
+                 ? "" : "   ·   Chris Gynan";
   g.font=`${Math.round(PDF_DPI*0.075)}px sans-serif`; g.fillStyle="#8fb59c"; g.textAlign="left";
-  g.fillText(AERIAL_CREDIT + "   ·   Chris Gynan" + (missing?"   ·   some imagery unavailable":""),
+  g.fillText(AERIAL_CREDIT + credit + (missing?"   ·   some imagery unavailable":""),
              padL, top + panelH - Math.round(PDF_DPI*0.13));
+  /* "WGS84 · zoom 19" — Chris: "remove the word XOOM and the number beside it ...
+     not sure what that means." Which is the answer: the web-mercator tile zoom is a
+     fact about how the imagery was fetched, not about the drawing, and nobody
+     reading a plan has any use for it. The datum stays, because a coordinate on this
+     sheet is meaningless without it. */
   g.textAlign="right";
-  g.fillText("WGS84 · zoom "+z, x+w-Math.round(PDF_DPI*0.20), top + panelH - Math.round(PDF_DPI*0.13));
+  g.fillText("WGS84", x+w-Math.round(PDF_DPI*0.20), top + panelH - Math.round(PDF_DPI*0.13));
   g.textAlign="left";
 }
 
 /* PDF built from one or more full-page JPEGs. Written by hand rather than pulling in
    a PDF library: one less thing to load, and it works from the cache offline.
    Object numbering: 1 catalog, 2 pages, then three objects per page. */
-function jpegPdfPages(images, pageW, pageH){
+/* PAGE NUMBERS, WRITTEN AS PDF TEXT RATHER THAN PAINTED ON THE PAGE.
+
+   Chris: "Also, the pages should be numbered."
+
+   The obvious way is to draw "Page 4 of 21" on each canvas — and it cannot be done,
+   because a page is encoded to JPEG the moment it is finished and the TOTAL is not
+   known until the last one exists. Stamping them afterwards means decoding and
+   re-encoding twenty-one 3400 x 2200 images, several seconds on a phone, for twelve
+   characters.
+
+   Here the whole array IS in hand, and a PDF page is a content stream: one line of
+   text operators and a base-14 Helvetica costs nothing to write and nothing to
+   render. So the number is exact, the total is exact, and the export is not a
+   millisecond slower.
+
+   Right-aligned by measurement rather than by a text operator, because PDF has no
+   such thing — Helvetica's digits and lower case average close enough to 0.5 em for
+   a twelve-character string in the bottom margin.
+
+   OPT-IN. The assembled tree protection plan numbers its own sheets in the title
+   block (TPP1, TPP2) and a second number in the corner would contradict it. */
+const PDF_FOOT_PT = 8;
+function pdfFooterText(i, n){ return "Page " + (i+1) + " of " + n; }
+function pdfFooterOps(txt, pageW){
+  const wTxt = txt.length * PDF_FOOT_PT * 0.5;
+  const tx = Math.max(6, pageW - 25 - wTxt), ty = 9;
+  return "BT /F1 " + PDF_FOOT_PT + " Tf 0.25 0.31 0.27 rg 1 0 0 1 " +
+         tx.toFixed(2) + " " + ty + " Tm (" + txt + ") Tj ET\n";
+}
+function jpegPdfPages(images, pageW, pageH, opt){
   const parts=[], offsets=[]; let len=0;
   const push = s => { const u=(typeof s==="string")?strBytes(s):s; parts.push(u); len+=u.length; };
   const obj  = s => { offsets.push(len); push(s); };
 
   const n = images.length;
+  const foot = !!(opt && opt.pageNumbers);
+  const fontNo = 3 + n*3;                    // one shared font, written last
   const kids = [];
   for(let i=0;i<n;i++) kids.push((3+i*3)+" 0 R");
 
@@ -22185,9 +22333,11 @@ function jpegPdfPages(images, pageW, pageH){
 
   images.forEach((im,i)=>{
     const pageNo=3+i*3, contNo=pageNo+1, imgNo=pageNo+2;
+    const fontRes = foot ? " /Font << /F1 "+fontNo+" 0 R >>" : "";
     obj(pageNo+" 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+pageW+" "+pageH+"]"+
-        " /Resources << /XObject << /Im0 "+imgNo+" 0 R >> >> /Contents "+contNo+" 0 R >>\nendobj\n");
-    const content="q "+pageW+" 0 0 "+pageH+" 0 0 cm /Im0 Do Q\n";
+        " /Resources << /XObject << /Im0 "+imgNo+" 0 R >>"+fontRes+" >> /Contents "+contNo+" 0 R >>\nendobj\n");
+    const content="q "+pageW+" 0 0 "+pageH+" 0 0 cm /Im0 Do Q\n"
+                + (foot ? pdfFooterOps(pdfFooterText(i, n), pageW) : "");
     obj(contNo+" 0 obj\n<< /Length "+content.length+" >>\nstream\n"+content+"endstream\nendobj\n");
     const b64=im.data.slice(im.data.indexOf(",")+1);
     const bin=atob(b64);
@@ -22200,7 +22350,9 @@ function jpegPdfPages(images, pageW, pageH){
     push("\nendstream\nendobj\n");
   });
 
-  const xref=len, total=3+n*3;
+  if(foot) obj(fontNo+" 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+
+  const xref=len, total=3+n*3+(foot?1:0);
   let x="xref\n0 "+total+"\n0000000000 65535 f \n";
   offsets.forEach(o=>{ x += String(o).padStart(10,"0")+" 00000 n \n"; });
   x += "trailer\n<< /Size "+total+" /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF\n";
@@ -22382,6 +22534,14 @@ function openMenu(){
              : "Everything on this device is on the Sheet");
     } }
   $("menuStats").textContent = `${trees.length} on this device${scope} · ${un} unsynced${iq?` · ${iq} visits queued`:""} · ${settings.cruiser||"no name"} · ${settings.project||"no project"}`;
+  /* The way back to a selection that is still live but no longer on screen. Hidden
+     when there is nothing selected rather than greyed out — an entry you can never
+     press is an entry to read past every time you open the menu. */
+  { const el = $("selBackItem");
+    if(el){
+      el.style.display = selected.length ? "" : "none";
+      const n = $("selBackN"); if(n) n.textContent = String(selected.length);
+    } }
   updateProjBtn();
   updateArchCount();
   paintMenuReady();     // what it knows now, with no waiting
@@ -23180,6 +23340,7 @@ function showHelp(){
     <p><b>Any other layer you find useful</b><br>Load as many as you like: aerial-derived boundaries, hydro corridors, sidewalks, ward boundaries, last year's plantings. Points, lines and polygons all draw. A layer left as <i>Backdrop only</i> is never edited and never exported — it is there to help you work. Each gets its own colour, an on/off switch, a zoom-to button, and its own label settings, so you can label parcels with their roll number while trees show species and DBH.</p>
     <div class="stath" style="margin:16px 0 8px">FILLING THE FORM</div>
     <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. A new tree also starts with sensible values already in place — target occupancy, consequences, potential impact, recommended action and long-term impact, and on a tree protection job the location, proposed action and future prognosis as well. Location is worked out from where the tree actually stands: inside a parcel it takes that parcel's property, and a tree in no parcel is in the road allowance, which has no polygon of its own. The risk rating then resolves as soon as you set the likelihood of failure — that one is never assumed, because it is a structural judgement. All of them are still red until you touch them, so an untouched rating reads as untouched. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
+    <p><b>Saving without scrolling</b><br>There is a <b>💾 Save tree</b> button at the top of the form as well as at the bottom. It stays with you as you scroll, so a tree that only needs a species, a diameter and a photograph is three taps and a save rather than a scroll to the end. It is the same save: the tree still needs a position and a species, and it still asks once if there is no photograph.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
@@ -23226,7 +23387,7 @@ function showHelp(){
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p><b>Showing the zone distance with the number</b><br>A dashed circle tells a contractor where the fence goes; the figure beside it is what they measure to. The label list on the export offers <i>Tree number and protection zone</i> — <b>T1 / 2.4 m</b> — and <i>Number, species and protection zone</i>, and the same thing is available on screen as a field called <b>Protection zone, with units</b> in <i>Menu → Label settings</i>. Where no zone has been stored for a tree, the figure is worked out from its DBH, because the circle is drawn for those trees too and a circle with no dimension beside it is not a specification. A tree with neither gets no dimension rather than a nought.</p>
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
