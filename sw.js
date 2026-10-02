@@ -2,7 +2,7 @@
    © 2026 Chris Gynan. All rights reserved. Proprietary — no license granted.
    Caches the app shell + map libraries so the app opens with no signal after the first
    online visit. Bump CACHE when you change index.html so devices pick up the new build. */
-const CACHE = "st-treecard-v212";
+const CACHE = "st-treecard-v213";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 /* The user guide is cached but is deliberately NOT part of the shell. addAll() is
    all-or-nothing: a deployment that has not got the PDF in it yet would fail the

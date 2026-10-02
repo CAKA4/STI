@@ -1440,11 +1440,23 @@
     </div>
     <div class="fld">
       <label>Photo pages</label>
-      <select id="mapPhotos">
+      <select id="mapPhotos" onchange="mapPhotosChanged()">
         <option value="0">Map only</option>
         <option value="1">Add photo pages after the map</option>
       </select>
       <div class="mini" id="mapPhotoNote">—</div>
+    </div>
+    <div class="fld" id="mapPhotoNRow" style="display:none">
+      <label>Photographs per page</label>
+      <select id="mapPhotoN" onchange="mapPhotosChanged()">
+        <option value="1">1 — full page each</option>
+        <option value="2">2 — side by side</option>
+        <option value="4">4 — two by two</option>
+        <option value="6" selected>6 — three by two</option>
+        <option value="9">9 — three by three</option>
+        <option value="12">12 — four by three</option>
+      </select>
+      <div class="mini">Fewer to a page means a bigger photograph; the captions scale with them.</div>
     </div>
     <div class="btnrow">
       <button class="primary" onclick="runMapExport()">Create the PDF</button>
@@ -2282,7 +2294,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-10-01 · v212";
+const APP_BUILD  = "2026-10-02 · v213";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -19126,14 +19138,33 @@ function exportMapPDF(){
   const withPhotos = shown.reduce((a,t)=>a+String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length,0);
   $("mapOptScope").textContent = `${shown.length} tree(s) in view · ${scopeLabel()}`;
   $("mapTitle").value = lastMapTitle || settings.project || "Street Tree Inventory";
-  $("mapPhotoNote").textContent = withPhotos
-    ? `${withPhotos} photo(s) on these trees · 6 to a page`
-    : "No photos on the trees in view";
   $("mapPhotos").value = "0";
+  { const el = $("mapPhotoN");
+    if(el){ el.value = String(photosPerPage()); } }
+  mapPhotoCount = withPhotos;
+  mapPhotosChanged();
   $("mapSheets").value = "view";
   $("mapSheetSize").value = sheetSize;
   mapSheetsChanged();
   $("mapOptSheet").classList.add("show");
+}
+/* How many photographs are on the trees in view, worked out once when the screen
+   opens rather than on every change of the per-page list. */
+let mapPhotoCount = 0;
+function mapPhotosChanged(){
+  const on = $("mapPhotos") && $("mapPhotos").value === "1";
+  const row = $("mapPhotoNRow"); if(row) row.style.display = on ? "" : "none";
+  const per = photosPerPage();
+  if(STORE){ try{ STORE.setItem("st_photoper", String(per)); }catch(e){} }
+  const note = $("mapPhotoNote");
+  if(!note) return;
+  if(!mapPhotoCount){ note.textContent = "No photos on the trees in view"; return; }
+  /* The PAGE COUNT, not just the rate — "120 photographs at 6 to a page" is a sum
+     to do in your head at the moment you are deciding, and the answer (20 pages) is
+     the thing that actually decides it. */
+  const pages = Math.ceil(mapPhotoCount/per);
+  note.textContent = `${mapPhotoCount} photo(s) on these trees`
+    + (on ? ` · ${per} to a page · ${pages} page(s)` : "");
 }
 function closeMapOpt(){ $("mapOptSheet").classList.remove("show"); }
 function mapSheetTrees(){
@@ -19969,7 +20000,7 @@ async function runSingleExport(opt){
   if($("mapDetails") && $("mapDetails").value==="1")
     (await detailPagesReady(W,H,M)).forEach(p=>pages.push(p));
   if(wantPhotoPages){
-    const extra = await buildPhotoPages(shown, W, H, M, title);
+    const extra = await buildPhotoPages(shown, W, H, M, title, photosPerPage());
     extra.forEach(p=>pages.push(p));
   }
   if(!pages.length) throw new Error("no pages were produced");
@@ -20384,7 +20415,7 @@ async function runSeriesExport(){
   if(wantPhotoPages){
     setStatus("Map series: photo pages");
     const W=Math.round(PDF_W_IN*PDF_DPI), H=Math.round(PDF_H_IN*PDF_DPI), M=Math.round(PDF_DPI*0.35);
-    const extra = await buildPhotoPages(seriesTrees(), W, H, M, title);
+    const extra = await buildPhotoPages(seriesTrees(), W, H, M, title, photosPerPage());
     extra.forEach(p=>pages.push(p));
   }
 
@@ -20589,7 +20620,34 @@ async function photoImage(name, max){
   return im ? { im:im, fromDrive:fromDrive } : null;
 }
 
-async function buildPhotoPages(shown, W, H, M, title){
+/* HOW MANY PHOTOGRAPHS GO ON A PAGE.
+
+   Chris: "When including photos as part of the map output, provide an option to
+   select the number of photos per page."
+
+   Six was hard-coded. Six is right for a run of street trees being matched back to
+   a plan; it is wrong for a forest inspection where the point of the photograph is
+   the stem, and wrong again for a quick contact sheet of a hundred and twenty.
+
+   The grids are LISTED rather than worked out, because the right arrangement on a
+   landscape sheet is a judgement about the shape of a photograph, not a square
+   root: four goes two by two, not four in a row. */
+const PHOTO_GRIDS  = { 1:[1,1], 2:[2,1], 4:[2,2], 6:[3,2], 9:[3,3], 12:[4,3] };
+const PHOTOS_PER_DEF = 6;
+function photoGridOf(n){
+  const k = parseInt(n, 10);
+  return PHOTO_GRIDS[k] || PHOTO_GRIDS[PHOTOS_PER_DEF];
+}
+/* The MAP EXPORT's setting, remembered per device. The assembled document's
+   photograph section does not read it — that layout is part of a signed-off plan
+   and must not change because somebody picked 12 for a field contact sheet. */
+function photosPerPage(){
+  const el = (typeof $ === "function") ? $("mapPhotoN") : null;
+  let v = el && parseInt(el.value, 10);
+  if(!(v > 0)){ try{ v = parseInt(STORE && STORE.getItem("st_photoper"), 10); }catch(e){ v = 0; } }
+  return PHOTO_GRIDS[v] ? v : PHOTOS_PER_DEF;
+}
+async function buildPhotoPages(shown, W, H, M, title, perPage){
   const wanted=[];
   shown.forEach(t=>{
     const names=String(t.PHOTOS||"").split(";").map(x=>x.trim()).filter(Boolean);
@@ -20600,7 +20658,10 @@ async function buildPhotoPages(shown, W, H, M, title){
   // Same order as the map reads, north to south, so page order follows the sheet.
   wanted.sort((a,b)=> num(b.t.LAT)-num(a.t.LAT) || a.seq-b.seq);
 
-  const COLS=3, ROWS=2, PER=COLS*ROWS;
+  /* No argument means SIX — the caller that passes nothing is the assembled
+     document, and its pages are not the map export's to re-lay-out. */
+  const grid = photoGridOf(perPage == null ? PHOTOS_PER_DEF : perPage);
+  const COLS=grid[0], ROWS=grid[1], PER=COLS*ROWS;
   const pages=[]; let missing=0, fetched=0;
   const total = Math.ceil(wanted.length/PER);
 
@@ -20624,7 +20685,13 @@ async function buildPhotoPages(shown, W, H, M, title){
     const gridY = M+headH+Math.round(PDF_DPI*0.18);
     const gridH = H-M-gridY;
     const cellW = (W-M*2)/COLS, cellH = gridH/ROWS;
-    const capH  = Math.round(PDF_DPI*0.30);
+    /* THE CAPTION SCALES WITH THE CELL. A fixed 0.30 in caption block is right for
+       six to a page and is a third of the frame at twelve — and the type under a
+       four-across photograph has to come down with it or "Autumn Blaze Freeman
+       Maple · Good" is cut to three words. Measured against the six-up cell, so
+       the layout Chris already has comes out byte for byte the same. */
+    const capS  = Math.max(0.70, Math.min(1.25, cellH / (gridH/2)));
+    const capH  = Math.round(PDF_DPI*0.30*capS);
     const pad   = Math.round(PDF_DPI*0.09);
 
     for(let k=0;k<PER;k++){
@@ -20660,13 +20727,13 @@ async function buildPhotoPages(shown, W, H, M, title){
          the record key in the Sheet and ties a photograph to nothing a reader is
          holding. The key is kept only as the fallback for a tree that has no number
          at all, because an unlabelled photograph is worse than a long label. */
-      let ty = cy+pad+boxH+Math.round(PDF_DPI*0.13);
-      g.fillStyle="#0d1a13"; g.font=`bold ${Math.round(PDF_DPI*0.105)}px sans-serif`;
+      let ty = cy+pad+boxH+Math.round(PDF_DPI*0.13*capS);
+      g.fillStyle="#0d1a13"; g.font=`bold ${Math.round(PDF_DPI*0.105*capS)}px sans-serif`;
       const tno = parseInt(item.t.TREE_NO, 10);
       const who = (tno > 0) ? ("T" + tno) : String(item.t.TREE_ID || "—");
       g.fillText(who + (item.of>1 ? "  ("+item.seq+" of "+item.of+")" : ""), cx+pad, ty);
-      ty += Math.round(PDF_DPI*0.13);
-      g.fillStyle="#3f5147"; g.font=`${Math.round(PDF_DPI*0.095)}px sans-serif`;
+      ty += Math.round(PDF_DPI*0.13*capS);
+      g.fillStyle="#3f5147"; g.font=`${Math.round(PDF_DPI*0.095*capS)}px sans-serif`;
       const sp = String(item.t.SPECIES||"— no species —");
       const hl = item.t.HEALTH ? "  ·  "+item.t.HEALTH : "";
       let line = sp+hl;
@@ -23387,7 +23454,7 @@ function showHelp(){
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p><b>Showing the zone distance with the number</b><br>A dashed circle tells a contractor where the fence goes; the figure beside it is what they measure to. The label list on the export offers <i>Tree number and protection zone</i> — <b>T1 / 2.4 m</b> — and <i>Number, species and protection zone</i>, and the same thing is available on screen as a field called <b>Protection zone, with units</b> in <i>Menu → Label settings</i>. Where no zone has been stored for a tree, the figure is worked out from its DBH, because the circle is drawn for those trees too and a circle with no dimension beside it is not a specification. A tree with neither gets no dimension rather than a nought.</p>
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
