@@ -2294,7 +2294,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-10-02 · v213";
+const APP_BUILD  = "2026-10-04 · v214";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -14231,8 +14231,14 @@ async function buildDocument(){
   let keyBounds = null, keyCells = null;
   try{
     const mapsBlock = blocks.find(x => x.lay === "maps");
+    /* THE KEY MAP HOLDS THE WHOLE GRID TOO — v214. It draws every sheet numbered
+       and picks out the one in hand, so a key map sized to the trees loses the
+       outer sheets exactly as the index did, and on a tiny map the loss is harder
+       to notice. Where there is no map series it falls back to the trees, which is
+       the right extent for a key map that only has to say "the job is here". */
+    keyBounds = mapsBlock ? seriesIndexBounds(mapsBlock.cells, 0.03) : null;
     const sb = seriesBounds();
-    if(sb && isFinite(sb.n)){
+    if(!keyBounds && sb && isFinite(sb.n)){
       const padLat = Math.max((sb.n-sb.s)*0.10, 0.0006);
       const padLon = Math.max((sb.e-sb.w)*0.10, 0.0008);
       keyBounds = L.latLngBounds([sb.s-padLat, sb.w-padLon],[sb.n+padLat, sb.e+padLon]);
@@ -14264,10 +14270,15 @@ async function buildDocument(){
   for(const b of blocks){
     if(!b.start) continue;
     if(b.lay === "maps"){
-      const bnds = seriesBounds();
-      const padLat = Math.max((bnds.n-bnds.s)*0.12, 0.00065);
-      const padLon = Math.max((bnds.e-bnds.w)*0.12, 0.00090);
-      const all = L.latLngBounds([bnds.s-padLat, bnds.w-padLon],[bnds.n+padLat, bnds.e+padLon]);
+      /* SIZED TO THE GRID, not to the trees — v214. The same fault the standalone
+         map series had: the grid is centred on the trees and is wider than they
+         are, so an index drawn to the trees' extent cuts the outer sheets and their
+         numbers off the paper. */
+      const all = seriesIndexBounds(b.cells) ||
+                  (function(){ const bn = seriesBounds();
+                     const padLat = Math.max((bn.n-bn.s)*0.12, 0.00065);
+                     const padLon = Math.max((bn.e-bn.w)*0.12, 0.00090);
+                     return L.latLngBounds([bn.s-padLat, bn.w-padLon],[bn.n+padLat, bn.e+padLon]); })();
       setStatus("Assembling: plan index sheet");
       sheets.push(await runSingleExport({
         bounds: all, title: title, grid: b.cells, tppFrame: true,
@@ -19943,7 +19954,7 @@ async function runSingleExport(opt){
   if(!opt.grid){ try{ drawAnnotsOn(g, P, b); }catch(err){} }
   g.restore();
 
-  if(opt.grid) drawSheetGrid(g, opt.grid, P);
+  if(opt.grid) drawSheetGrid(g, opt.grid, P, { x:fx, y:fy, w:fw, h:fh });
 
   /* On a TPP sheet the key map, the north arrow and the scale bar all live in the
      title block column, so they must NOT also be stamped over the map. */
@@ -20338,7 +20349,22 @@ function refreshSheetEstimate(){
 }
 
 // The sheet layout, drawn on the index page so a reader can find the right sheet.
-function drawSheetGrid(g, cells, P){
+/* THE GROUND AN INDEX SHEET HAS TO COVER: every cell of the grid, with a little
+   paper round it. Returns null when there is no grid, so the caller can fall back
+   to the trees' own extent — a single-sheet export has no index to draw.
+
+   6% rather than the trees' 12%: the grid already carries most of a sheet of slack
+   round the outermost tree, and padding it as generously again shrinks every cell
+   on the index for nothing. */
+function seriesIndexBounds(cells, padFrac){
+  if(!cells || !cells.length || typeof L === "undefined" || !L.latLngBounds) return null;
+  let n=-90, s=90, e=-180, w=180;
+  cells.forEach(c=>{ if(c.n>n)n=c.n; if(c.s<s)s=c.s; if(c.e>e)e=c.e; if(c.w<w)w=c.w; });
+  const f = isFinite(padFrac) ? padFrac : 0.06;
+  const pLat = Math.max((n-s)*f, 0.0004), pLon = Math.max((e-w)*f, 0.0006);
+  return L.latLngBounds([s-pLat, w-pLon],[n+pLat, e+pLon]);
+}
+function drawSheetGrid(g, cells, P, frame){
   g.save();
   cells.forEach(c=>{
     const a=P(c.n,c.w), b2=P(c.s,c.e);
@@ -20346,11 +20372,25 @@ function drawSheetGrid(g, cells, P){
     g.setLineDash([12,7]);
     g.strokeRect(a[0],a[1],b2[0]-a[0],b2[1]-a[1]);
     g.setLineDash([]);
+    /* THE NUMBER PLATE IS KEPT ON THE PAPER. With the index sized to the grid it
+       is already inside, and this only ever nudges it by a pixel; but a number
+       drawn off the sheet is invisible and says nothing about being wrong, which is
+       exactly how this went out. Kept inside the CELL as well, so the plate never
+       drifts onto a neighbouring sheet's square and mislabels it. */
     const bw=Math.round(PDF_DPI*0.34), bh=Math.round(PDF_DPI*0.22);
-    g.fillStyle="rgba(255,23,68,.95)"; g.fillRect(a[0],a[1],bw,bh);
+    const x2=b2[0], y2=b2[1];
+    let px = a[0], py = a[1];
+    if(frame){
+      px = Math.min(Math.max(px, frame.x), frame.x + frame.w - bw);
+      py = Math.min(Math.max(py, frame.y), frame.y + frame.h - bh);
+      /* never outside its own cell, when the cell is big enough to hold the plate */
+      if(x2 - a[0] > bw) px = Math.min(Math.max(px, a[0]), x2 - bw);
+      if(y2 - a[1] > bh) py = Math.min(Math.max(py, a[1]), y2 - bh);
+    }
+    g.fillStyle="rgba(255,23,68,.95)"; g.fillRect(px,py,bw,bh);
     g.fillStyle="#fff"; g.font=`bold ${Math.round(PDF_DPI*0.14)}px sans-serif`;
     g.textAlign="center"; g.textBaseline="middle";
-    g.fillText(String(c.no), a[0]+bw/2, a[1]+bh/2);
+    g.fillText(String(c.no), px+bw/2, py+bh/2);
   });
   g.textAlign="left"; g.textBaseline="alphabetic";
   g.restore();
@@ -20371,15 +20411,28 @@ async function runSeriesExport(){
   if(STORE){ try{ STORE.setItem("st_maptitle", title); }catch(e){} }
   const wantPhotoPages = $("mapPhotos").value === "1";
 
-  const b = seriesBounds();
-  /* Padded per axis, not by one figure applied to both. A tall narrow job got 6% of
-     its HEIGHT added to its width and almost nothing to its height, so the outermost
-     trees sat hard against the frame edge with their labels running off. 12% of each
-     dimension, with a floor of roughly 70 m so a tight cluster still gets room —
-     which works out at about 150 px of clear paper round the outermost trees. */
-  const padLat = Math.max((b.n-b.s)*0.12, 0.00065);
-  const padLon = Math.max((b.e-b.w)*0.12, 0.00090);
-  const all = L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]);
+  /* THE INDEX SHEET IS SIZED TO THE GRID, NOT TO THE TREES.
+
+     Chris: "This map of a project failed to show the index page numbers on the
+     first sheet."
+
+     It had been drawn to the TREES' extent plus 12%, which is right for a map of
+     trees and wrong for an index. sheetGrid centres the grid on the trees and each
+     cell covers a full sheet-width of GROUND — 432 m across at 1:1,000 on tabloid —
+     with the overlap adding more again. A line of trees 500 m long therefore sits
+     inside a grid 820 m wide, and the outer cells, their dashed outlines and the
+     corner plate carrying their NUMBER all fall outside the frame. drawSheetGrid is
+     drawn after the clip is released, so the plate was not clipped away neatly: it
+     was painted off the edge of the paper. Reproduced exactly — a two-cell strip put
+     cell 1's number plate at x = -389 on a 3400 px sheet.
+
+     An index whose job is to say which sheet is which has to contain every sheet.
+     The trees are inside the grid by construction, so sizing to the grid shows both. */
+  const all = seriesIndexBounds(cells) ||
+              (function(){ const b = seriesBounds();
+                 const padLat = Math.max((b.n-b.s)*0.12, 0.00065);
+                 const padLon = Math.max((b.e-b.w)*0.12, 0.00090);
+                 return L.latLngBounds([b.s-padLat, b.w-padLon],[b.n+padLat, b.e+padLon]); })();
 
   /* THE MAP SERIES NO LONGER STAMPS SHEET_NO.
 
@@ -20655,8 +20708,32 @@ async function buildPhotoPages(shown, W, H, M, title, perPage){
   });
   if(!wanted.length) return [];
 
-  // Same order as the map reads, north to south, so page order follows the sheet.
-  wanted.sort((a,b)=> num(b.t.LAT)-num(a.t.LAT) || a.seq-b.seq);
+  /* IN TREE-NUMBER ORDER — T1, T2, T3 — v214.
+
+     Chris: "the Tree numbers are sorted from high to low rather than low to high."
+
+     They were sorted NORTH TO SOUTH, which is the order the numbering itself uses
+     when it is handed out, so on a job numbered that way the two agreed and nobody
+     noticed. Number a job the other way round — or inherit numbers from an imported
+     layer, which is most of them — and the photographs come out T103 first.
+
+     The photographs exist to be matched against Schedule A, so they are now in
+     Schedule A's order, and from the same comparator: by tree number; unnumbered
+     trees after the numbered ones, north to south, which is the order they would be
+     numbered in; and a tree's own photographs in the order they were taken. */
+  wanted.sort((a,b)=>{
+    const x=parseInt(a.t.TREE_NO,10), y=parseInt(b.t.TREE_NO,10);
+    if(isFinite(x) && isFinite(y)){ if(x!==y) return x-y; }
+    else if(isFinite(x)) return -1;
+    else if(isFinite(y)) return 1;
+    else {
+      const la=num(b.t.LAT), lb=num(a.t.LAT);
+      if(la!=null && lb!=null && la!==lb) return la-lb;
+      const c = String(a.t.TREE_ID).localeCompare(String(b.t.TREE_ID));
+      if(c) return c;
+    }
+    return a.seq-b.seq;
+  });
 
   /* No argument means SIX — the caller that passes nothing is the assembled
      document, and its pages are not the map export's to re-lay-out. */
