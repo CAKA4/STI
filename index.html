@@ -607,6 +607,18 @@
   .layerrow button{ padding:7px 9px; font-size:12px; border-radius:8px; border:1px solid var(--line2);
     background:var(--field); color:var(--text); cursor:pointer }
   .layerrow button.on{ background:var(--accent-dk); border-color:var(--accent); color:#fff }
+  /* ---------- sign in (v215) ---------- */
+  .pinbox{ display:flex; justify-content:center; gap:14px; margin:10px 0 14px }
+  .pinbox i{ width:16px; height:16px; border-radius:50%; border:2px solid #9fb0a5; display:block }
+  .pinbox i.on{ background:#1d7a45; border-color:#1d7a45 }
+  .keypad{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; max-width:300px; margin:0 auto 10px }
+  .keypad button{ padding:16px 0; font-size:22px; font-weight:700; border-radius:12px;
+    border:1.5px solid #9fb0a5; background:#eef2ee; color:#0d1a13 }
+  .keypad button:active{ background:#d5e3d9 }
+  .keypad button.blank{ visibility:hidden }
+  .signedrow{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:10px 12px; border:1.5px solid #9fb0a5; border-radius:12px; background:#eef2ee; margin-bottom:8px }
+  .signedrow button{ padding:8px 12px; border-radius:9px; border:1.5px solid #9fb0a5; background:#fff; font-weight:600; font-size:13px }
 </style>
 </head>
 <body>
@@ -974,20 +986,52 @@
   </div>
 </div>
 
+<!-- ===== sign in (v215) ===== -->
+<div class="sheet" id="loginSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2>Sign in</h2>
+    <div class="hint" id="loginHint">The Sheet asks who you are before it sends or receives anything. Pick your name and enter the 4-digit PIN the owner gave you.</div>
+    <div class="fld">
+      <label>Your name</label>
+      <select id="loginName" onchange="loginNamePick()"></select>
+    </div>
+    <div class="fld" id="loginOtherRow" style="display:none">
+      <label>Name, exactly as the owner has it</label>
+      <input id="loginOther" type="text" autocomplete="username" placeholder="Type your name">
+    </div>
+    <div class="pinbox" id="pinDots"><i></i><i></i><i></i><i></i></div>
+    <div class="keypad">
+      <button type="button" onclick="pinKey('1')">1</button><button type="button" onclick="pinKey('2')">2</button><button type="button" onclick="pinKey('3')">3</button>
+      <button type="button" onclick="pinKey('4')">4</button><button type="button" onclick="pinKey('5')">5</button><button type="button" onclick="pinKey('6')">6</button>
+      <button type="button" onclick="pinKey('7')">7</button><button type="button" onclick="pinKey('8')">8</button><button type="button" onclick="pinKey('9')">9</button>
+      <button type="button" class="blank" tabindex="-1">·</button><button type="button" onclick="pinKey('0')">0</button><button type="button" onclick="pinKey('del')">⌫</button>
+    </div>
+    <div class="mini" id="loginMsg" style="min-height:18px;text-align:center"></div>
+    <div class="btnrow">
+      <button type="button" onclick="loginLater()">Later</button>
+      <button type="button" class="primary" id="loginGo" onclick="loginSubmit()">Sign in</button>
+    </div>
+    <div class="mini" style="margin-top:8px">Later keeps you recording — trees stay on this phone and go up once you sign in. Forgotten PIN? The owner can give you a new one from the Sheet.</div>
+  </div>
+</div>
+
 <!-- ===== settings ===== -->
 <div class="sheet" id="settingsSheet">
   <div class="sheet-inner">
     <div class="grab"></div>
     <h2>Cruiser &amp; ID settings</h2>
-    <div class="hint">Pick your name so every tree you record is attributed to you. The list is shared with the rest of the crew through the Sheet.</div>
+    <div class="hint">Pick your name so every tree you record is attributed to you. The list comes from the Sheet — new crew are added there by the owner, who gives each person their PIN.</div>
+    <div class="signedrow" id="signedRow" style="display:none">
+      <div id="signedText">Signed in</div>
+      <button type="button" onclick="authSignOut()">Sign out</button>
+    </div>
     <div class="fld">
       <label>Your name</label>
       <select id="setCruiser" onchange="onUserPick()"></select>
+      <div class="mini" id="setCruiserNote" style="display:none">Your name is the one you signed in with. Sign out to switch.</div>
     </div>
-    <div class="fld" id="newUserRow" style="display:none">
-      <label>New name</label>
-      <input id="setNewUser" type="text" placeholder="Type your name" autocomplete="name">
-    </div>
+    <input id="setNewUser" type="hidden">
     <div class="fld"><label>Email</label><input id="setEmail" type="email" placeholder="you@example.com"></div>
     <div class="fld">
       <label>Project</label>
@@ -2294,7 +2338,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-10-04 · v214";
+const APP_BUILD  = "2026-10-04 · v215";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -2302,7 +2346,7 @@ const APP_BUILD  = "2026-10-04 · v214";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-09-29 · v161";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-10-04 · v162";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -2316,6 +2360,181 @@ function isBackendUrl(u){
   return /^https:\/\/script\.google\.com\/macros\/s\/[^\/]+\/exec/.test(String(u||"").trim());
 }
 const connected = isBackendUrl(SCRIPT_URL);
+
+/* ====================================================================
+   WHO IS USING THIS PHONE  (v215)
+
+   The Sheet's script now refuses anything that does not carry a login token. The
+   token is got ONCE, by name + 4-digit PIN, and kept on the device; the PIN is never
+   stored and never sent again. Every request carries the token — authQ() puts it on
+   a JSONP URL, gsBody() into a POST body — so the thirty-odd call sites did not each
+   need to learn about logins.
+
+   WHETHER A LOGIN IS NEEDED AT ALL is the Sheet's decision (Tree Tools → Who can
+   sign in → Turn login ON). Until the owner throws that switch the script answers
+   as it always did, and this phone, with or without a token, carries on. That is
+   what lets the new backend and the new app go out on different days.
+
+   A REFUSAL IS ITS OWN STATE, not an error. The script's refusal reply calls
+   __stAuthRefused, one hook, so a stale login shows the keypad once instead of every
+   tool saying "could not reach the Sheet" in its own words. Nothing on the device is
+   touched: the trees stay queued and go up after the next sign-in. Sync asks the
+   Sheet "is my token still good?" BEFORE it sends, because a no-cors POST cannot
+   read a refusal and would otherwise look like success.
+   ==================================================================== */
+const AKEY = "st_auth";
+let auth = { token:"", name:"", required:null, checked:0 };
+try{ const a = JSON.parse(STORE && STORE.getItem(AKEY)); if(a && typeof a === "object") auth = Object.assign(auth, a); }catch(e){}
+function persistAuth(){ if(STORE){ try{ STORE.setItem(AKEY, JSON.stringify({ token:auth.token, name:auth.name, required:auth.required })); }catch(e){} } }
+function authQ(){ return auth.token ? "token=" + encodeURIComponent(auth.token) + "&" : ""; }
+function gsBody(o){
+  const b = Object.assign({}, o || {});
+  if(auth.token) b._token = auth.token;
+  return JSON.stringify(b);
+}
+function signedIn(){ return !!auth.token; }
+
+/* The hook the script's refusal reply calls. Throttled: a burst of refused requests
+   when the app opens is one keypad, not six. */
+let authRefusedAt = 0;
+window.__stAuthRefused = function(body){
+  const had = !!auth.token;
+  auth.required = true; auth.checked = 0;
+  auth.token = "";                      // whatever we had, the Sheet no longer honours it
+  persistAuth();
+  const now = Date.now();
+  if(now - authRefusedAt < 4000) return;
+  authRefusedAt = now;
+  refreshSignedRow();
+  openLogin(had ? "Your sign-in is no longer valid — enter your PIN to carry on." : "");
+};
+
+/* "Do I need to sign in, and is my token good?" One JSONP call, remembered for five
+   minutes so a sync every couple of minutes does not double its traffic. Resolves
+   true when the Sheet is happy OR cannot be reached (the caller will fail the normal
+   way); false only on a definite refusal, by which time the keypad is already up. */
+function authEnsure(){
+  return new Promise(res=>{
+    if(!connected || isOffline()) return res(true);
+    if(Date.now() - auth.checked < 300000 && (auth.token || auth.required === false)) return res(true);
+    jsonpGet(auth.token ? "authcheck" : "authstatus", {}, r=>{
+      if(!r){ res(true); return; }
+      if(r.ok){
+        auth.required = !!r.required; auth.checked = Date.now(); persistAuth();
+        if(auth.required && !auth.token){ openLogin(); res(false); return; }
+        res(true); return;
+      }
+      if(r.error === "auth"){ res(false); return; }   // the hook has shown the keypad
+      res(true);
+    }, 20000);
+  });
+}
+
+/* ---- the keypad ---- */
+let pin = "", loginBusy = false;
+function paintPin(){
+  const dots = $("pinDots").children;
+  for(let i = 0; i < dots.length; i++) dots[i].className = i < pin.length ? "on" : "";
+}
+function pinKey(k){
+  if(loginBusy) return;
+  if(k === "del"){ pin = pin.slice(0, -1); paintPin(); return; }
+  if(pin.length >= 4) return;
+  pin += k; paintPin();
+  if(pin.length === 4) setTimeout(loginSubmit, 120);
+}
+function loginNames(){
+  const sel = $("loginName");
+  const names = users.map(u=>u.name).filter(Boolean).sort((a,b)=>a.localeCompare(b));
+  const cur = auth.name || settings.cruiser || "";
+  if(cur && names.indexOf(cur) < 0) names.unshift(cur);
+  sel.innerHTML = `<option value="">— choose your name —</option>` +
+    names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("") +
+    `<option value="__other__">My name is not here…</option>`;
+  sel.value = cur && names.indexOf(cur) >= 0 ? cur : "";
+  loginNamePick();
+}
+function loginNamePick(){
+  $("loginOtherRow").style.display = $("loginName").value === "__other__" ? "block" : "none";
+  if($("loginName").value === "__other__") setTimeout(()=>$("loginOther").focus(), 60);
+}
+function openLogin(msg){
+  if($("loginSheet").classList.contains("show")){ if(msg) $("loginMsg").textContent = msg; return; }
+  pin = ""; paintPin(); loginBusy = false;
+  $("loginMsg").textContent = msg || "";
+  $("loginGo").disabled = false;
+  loginNames();
+  $("loginSheet").classList.add("show");
+}
+function closeLogin(){ $("loginSheet").classList.remove("show"); }
+function loginLater(){
+  closeLogin();
+  toast("Not signed in — trees stay on this phone until you are", true);
+}
+function loginSubmit(){
+  if(loginBusy) return;
+  let name = $("loginName").value;
+  if(name === "__other__") name = $("loginOther").value;
+  name = String(name || "").trim();
+  if(!name){ $("loginMsg").textContent = "Choose your name first."; return; }
+  if(pin.length !== 4){ $("loginMsg").textContent = "Enter your 4-digit PIN."; return; }
+  if(isOffline()){ $("loginMsg").textContent = "No connection — signing in needs one."; return; }
+  loginBusy = true; $("loginGo").disabled = true; $("loginMsg").textContent = "Checking…";
+  jsonpGet("login", { name:name, pin:pin, device:settings.device || "", app:APP_BUILD }, r=>{
+    loginBusy = false; $("loginGo").disabled = false;
+    if(!r){ $("loginMsg").textContent = "Could not reach the Sheet. Try again in a moment."; return; }
+    if(r.ok && r.token){
+      auth.token = r.token; auth.name = r.name || name; auth.required = !!r.required; auth.checked = Date.now();
+      persistAuth();
+      /* The person who signed in is the person recording. A different name left in
+         Settings from before would file their trees under somebody else. */
+      if(settings.cruiser !== auth.name){ settings.cruiser = auth.name; if(r.email && !settings.email) settings.email = r.email; persistSettings(); }
+      pin = ""; paintPin(); closeLogin();
+      refreshSignedRow();
+      toast("Signed in as " + auth.name);
+      setTimeout(()=>syncEverything({ loud:false }), 400);
+      return;
+    }
+    pin = ""; paintPin();
+    const e = r.error || "";
+    if(e === "locked")        $("loginMsg").textContent = `Too many wrong PINs — locked for ${r.minutes || 15} minute(s).`;
+    else if(e === "nopin")    $("loginMsg").textContent = "No PIN has been set for this name yet — ask the owner.";
+    else if(e === "inactive") $("loginMsg").textContent = "This name has been switched off — ask the owner.";
+    else if(e === "refused")  $("loginMsg").textContent = r.triesLeft != null
+                                ? `Wrong name or PIN — ${r.triesLeft} tr${r.triesLeft === 1 ? "y" : "ies"} left before it locks.`
+                                : "Wrong name or PIN.";
+    else                      $("loginMsg").textContent = "The Sheet refused: " + (e || "unknown");
+  }, 30000);
+}
+function authSignOut(){
+  if(!auth.token){ openLogin(); return; }
+  const pend = trees.filter(t=>!t._sent).length;
+  if(!confirm("Sign out of this phone?" + (pend ? `\n\n${pend} tree(s) are still waiting to send. They stay here and go up after the next sign-in.` : "") +
+              "\n\nYou will need your PIN to sync again.")) return;
+  const t = auth.token;
+  auth.token = ""; persistAuth();
+  if(!isOffline()) jsonpGet("logout", { token:t }, ()=>{}, 10000);
+  refreshSignedRow();
+  toast("Signed out");
+}
+function refreshSignedRow(){
+  const row = $("signedRow"); if(!row) return;
+  row.style.display = (auth.token || auth.required) ? "flex" : "none";
+  $("signedText").innerHTML = auth.token ? `Signed in as <b>${esc(auth.name)}</b>`
+                                         : `Not signed in — <b>the Sheet needs a PIN</b>`;
+  const b = row.querySelector("button");
+  b.textContent = auth.token ? "Sign out" : "Sign in";
+  b.onclick = auth.token ? authSignOut : function(){ openLogin(); };
+  const sel = $("setCruiser"), note = $("setCruiserNote");
+  if(sel){ sel.disabled = !!auth.token; if(note) note.style.display = auth.token ? "block" : "none"; }
+}
+/* On opening and on coming back into signal: learn whether the switch has been
+   thrown, and if it has and this phone has no token, ask once — with the stored name
+   already picked, which is the whole of the "device transition". */
+function authStart(){
+  if(!connected || isOffline()) return;
+  authEnsure().then(()=>{ refreshSignedRow(); });
+}
 
 /* ---- Aurora domain values, verbatim from the Town of Aurora field app ---- */
 
@@ -2646,7 +2865,7 @@ try{ const s = JSON.parse(STORE&&STORE.getItem(SPKEY)); if(Array.isArray(s)&&s.l
    and pushed to the Sheet so everyone sees the same names. */
 const UKEY="st_users", PUKEY="st_pendusers";
 const PJKEY="st_projects", PPKEY="st_pendprojects";
-const ADD_USER = "__add__";
+/* ADD_USER removed in v215 — crew are added on the Sheet, not from a phone. */
 let users = [];        try{ users = JSON.parse(STORE&&STORE.getItem(UKEY)) || []; }catch(e){ users=[]; }
 let pendingUsers = []; try{ pendingUsers = JSON.parse(STORE&&STORE.getItem(PUKEY)) || []; }catch(e){ pendingUsers=[]; }
 function persistUsers(){ if(STORE){ try{ STORE.setItem(UKEY, JSON.stringify(users)); }catch(e){} } }
@@ -4389,7 +4608,7 @@ function removeImportBatch(id){
 
   if(synced.length && connected && !isOffline()){
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"deletebatch", ids:synced})}).catch(()=>{});
+      body:gsBody({_action:"deletebatch", ids:synced})}).catch(()=>{});
   }
   toast(`Removed ${ids.length} imported tree(s)`);
 }
@@ -4505,7 +4724,7 @@ function flushInspections(){
   pendingInspections = pendingInspections.slice(batch.length);
   persistPendInsp();
   fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body:JSON.stringify({_action:"inspectbatch", rows:batch})})
+    body:gsBody({_action:"inspectbatch", rows:batch})})
     .then(()=>{ flushingInsp=false;
                 if(pendingInspections.length) setTimeout(flushInspections, 2000); })
     .catch(()=>{ pendingInspections = batch.concat(pendingInspections); persistPendInsp(); flushingInsp=false; });
@@ -6579,7 +6798,7 @@ function verifySync(quiet){
     cleanup();
   };
   sc.onerror=()=>{ if(!quiet) toast("Could not reach the Sheet",true); cleanup(); };
-  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=ids&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -7160,7 +7379,7 @@ function flushDomains(){
   if(!connected || isOffline() || !pendingDomains.length) return;
   pendingDomains.slice().forEach(d=>{
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"adddomain",field:d.field,value:d.value,cruiser:settings.cruiser})})
+      body:gsBody({_action:"adddomain",field:d.field,value:d.value,cruiser:settings.cruiser})})
       .then(()=>{ pendingDomains = pendingDomains.filter(x=>!(x.field===d.field&&x.value===d.value)); persistPendDomains(); })
       .catch(()=>{});
   });
@@ -7187,7 +7406,7 @@ function fetchDomains(){
     cleanup();
   };
   sc.onerror=cleanup;
-  sc.src = SCRIPT_URL + sep + "action=domains&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=domains&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -7800,7 +8019,7 @@ function deleteTree(){
   renderPins();
   if(!wasNew && connected && !isOffline()){
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"delete",TREE_ID:id,by:settings.cruiser||""})}).catch(()=>{});
+      body:gsBody({_action:"delete",TREE_ID:id,by:settings.cruiser||""})}).catch(()=>{});
   }
   // Undo is ten seconds on this phone; the Deleted tab is the real safety net.
   if(lastDeleted) showUndo(`Deleted ${id} — kept on the Deleted tab`);
@@ -8166,7 +8385,7 @@ function addNewSpecies(){
     species.push(name); species.sort((a,b)=>a.localeCompare(b)); persistSpecies();
     if(connected && !isOffline()){
       fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-        body:JSON.stringify({_action:"addspecies",name:name})}).catch(()=>{});
+        body:gsBody({_action:"addspecies",name:name})}).catch(()=>{});
     }
   }
   chooseSpecies(name);
@@ -8197,7 +8416,7 @@ function fetchSpecies(){
     cleanup();
   };
   sc.onerror = cleanup;
-  sc.src = SCRIPT_URL + sep + "action=species&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=species&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -8621,7 +8840,7 @@ function flushPhotos(){
 }
 function uploadPhoto(r){
   return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body:JSON.stringify({_action:"photo",filename:r.filename,data:r.data,tree:r.tree,cruiser:r.cruiser,time:r.time,lat:r.lat,lon:r.lon})})
+    body:gsBody({_action:"photo",filename:r.filename,data:r.data,tree:r.tree,cruiser:r.cruiser,time:r.time,lat:r.lat,lon:r.lon})})
     .then(()=>{ if(HAS_IDB) return idbSetUploaded(r.filename);
                 pendingMem = pendingMem.filter(x=>x.filename!==r.filename); })
     .catch(()=>{});
@@ -8696,7 +8915,7 @@ function fetchPhotoLinks(quiet){
     cleanup();
   };
   sc.onerror=()=>{ if(!quiet) toast("Could not reach the Sheet",true); cleanup(); };
-  sc.src = SCRIPT_URL + sep + "action=photolinks&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=photolinks&callback=" + cb;
   document.body.appendChild(sc);
 }
 function applyPhotoLinks(map){
@@ -8762,7 +8981,7 @@ function sendTree(t){
   if(!connected){ toast("Saved on this phone",true); return; }
   if(isOffline()){ netDot(); return; }
   fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body:JSON.stringify(payload(t))})
+    body:gsBody(payload(t))})
     .then(()=>{ markSent(t); persistTrees(); renderPins(); })
     .catch(()=>{ netDot(); });
 }
@@ -8819,7 +9038,7 @@ function fetchSheetIds(){
     setTimeout(()=>finish(null), 30000);
     /* NO PROJECT FILTER. Every tree on the device is tested against this, so it has
        to be every tree on the Sheet. */
-    sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
+    sc.src = SCRIPT_URL + sep + authQ() + "action=ids&callback=" + cb;
     document.body.appendChild(sc);
   });
 }
@@ -8834,7 +9053,7 @@ function sendTreeChunks(list, onProgress){
       if(k >= parts.length){ persistTrees(); renderPins(); return res(done); }
       fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
         headers:{ "Content-Type":"text/plain;charset=utf-8" },
-        body: JSON.stringify({ _action:"treebatch", trees: parts[k].map(payload) }) })
+        body: gsBody({ _action:"treebatch", trees: parts[k].map(payload) }) })
         .then(()=>{
           parts[k].forEach(markSent);
           done += parts[k].length;
@@ -8855,6 +9074,9 @@ async function syncEverything(opts){
   if(!connected){ if(opts.loud) toast("This build has no backend address", true); return; }
   if(isOffline()){ if(opts.loud) toast("No connection", true); netDot(); return; }
   if(syncBusy){ if(opts.loud) toast("Already syncing…"); return; }
+  /* Ask before sending. A no-cors POST cannot read a refusal, so a stale login
+     would otherwise send everything and be told nothing. */
+  if(!(await authEnsure())){ if(opts.loud) toast("Sign in to sync", true); netDot(); return; }
   syncBusy = true; syncLast = Date.now();
   try{
     stampExistingSigs();
@@ -8978,7 +9200,7 @@ function cmpFetchRows(){
     window[cb] = r => finish((r && r.trees) || null);
     sc.onerror = ()=>finish(null);
     setTimeout(()=>finish(null), 45000);
-    sc.src = SCRIPT_URL + sep + "action=trees&callback=" + cb +
+    sc.src = SCRIPT_URL + sep + authQ() + "action=trees&callback=" + cb +
              (currentProject() && !showAllProjects ? "&project=" + encodeURIComponent(currentProject()) : "");
     document.body.appendChild(sc);
   });
@@ -9418,7 +9640,7 @@ function verifyAndRetry(pass){
       toast(`Re-sending ${missing.length} tree(s)…`);
       const part = missing.slice(0,100);
       fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-        body:JSON.stringify({_action:"treebatch", trees:part.map(payload)})})
+        body:gsBody({_action:"treebatch", trees:part.map(payload)})})
         .then(()=>{ part.forEach(markSent); persistTrees(); renderPins();
                     setTimeout(()=>verifyAndRetry(pass+1), 8000); })
         .catch(()=>{});
@@ -9439,7 +9661,7 @@ function verifyAndRetry(pass){
      unfiltered; this one did not.
 
      THE SET ASKED FOR HAS TO BE THE SET BEING TESTED. */
-  sc.src = SCRIPT_URL + sep + "action=ids&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=ids&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -9485,7 +9707,7 @@ function pullFromSheet(){
     cleanup();
   };
   sc.onerror=()=>{ toast("Could not reach the Sheet",true); cleanup(); };
-  sc.src = SCRIPT_URL + sep + "action=trees&callback=" + cb +
+  sc.src = SCRIPT_URL + sep + authQ() + "action=trees&callback=" + cb +
            /* currentProject(), not settings.project. settings.project is what a NEW
               tree is stamped with; what you are looking at is the Showing filter.
               Asking for the wrong one meant "Load trees from Sheet" fetched the
@@ -10548,7 +10770,7 @@ function flushSettings(){
   pendingSettings.slice().forEach(p => {
     const k = settingsKey(p);
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify(Object.assign({_action:"settings"}, p))})
+      body:gsBody(Object.assign({_action:"settings"}, p))})
       .then(()=>{ pendingSettings = pendingSettings.filter(x => settingsKey(x) !== k); persistPendSettings(); })
       .catch(()=>{});
   });
@@ -12122,6 +12344,11 @@ function runDiag(){
   const name = diagPhotoName();
   const paint = extra => { $("diagOut").innerHTML = out.join("") + (extra || ""); };
   out.push(diagLine("ok", "This app", esc(APP_BUILD)));
+  out.push(diagLine(auth.token ? "ok" : (auth.required ? "bad" : "ok"), "Sign-in",
+    auth.token ? `signed in as <b>${esc(auth.name)}</b>` +
+                 (auth.required === false ? " — the Sheet is not asking for a PIN yet" : "")
+               : (auth.required ? "<b>not signed in</b> — the Sheet needs a PIN before it will sync. Menu → Settings → Sign in."
+                                : "not needed yet — the owner has not turned login on")));
   if(!connected){
     out.push(diagLine("bad", "No Sheet address is set", "Nothing can be fetched."));
     paint(); return;
@@ -12477,7 +12704,7 @@ function syncFeats(){
   });
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({_action:"feats", rows: rows}) })
+    body: gsBody({_action:"feats", rows: rows}) })
     .then(()=>{ pending.forEach(f=>f._sent=true); persistFeats(); updateSubLine(); })
     .catch(()=>{});
 }
@@ -12546,7 +12773,7 @@ function syncAnnots(){
   }));
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({ _action:"notes", rows: rows }) })
+    body: gsBody({ _action:"notes", rows: rows }) })
     .then(()=>{ pending.forEach(a=> a._sent = true); annSave(); updateSubLine(); })
     .catch(()=>{});
 }
@@ -12556,7 +12783,7 @@ function flushAnnDeletes(){
   annDeletes = []; persistAnnDeletes();
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({ _action:"notedel", ids: batch }) })
+    body: gsBody({ _action:"notedel", ids: batch }) })
     .then(()=>{ updateSubLine(); })
     .catch(()=>{ annDeletes = batch.concat(annDeletes); persistAnnDeletes(); });
 }
@@ -12593,7 +12820,7 @@ function flushFeatDeletes(){
   featDeletes = []; persistFeatDeletes();
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body: JSON.stringify({_action:"featdelete", rows: batch}) })
+    body: gsBody({_action:"featdelete", rows: batch}) })
     .then(()=>{ updateSubLine(); })
     .catch(()=>{ featDeletes = batch.concat(featDeletes); persistFeatDeletes(); });
 }
@@ -14446,7 +14673,7 @@ function uploadLayerFile(file){
       $("driveBody").innerHTML = `<div class="mini">Uploading <b>${esc(file.name)}</b> — part ${i+1} of ${parts}…</div>`;
       fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
         headers:{"Content-Type":"text/plain;charset=utf-8"},
-        body: JSON.stringify({ _action:"layerput", uploadId:uploadId, part:i, parts:parts,
+        body: gsBody({ _action:"layerput", uploadId:uploadId, part:i, parts:parts,
                                name:file.name, mime:file.type||"application/octet-stream",
                                by:settings.cruiser||"", data: b64.slice(i*UP_CHUNK,(i+1)*UP_CHUNK) }) })
         .then(()=>{ i++; setTimeout(send, 400); })
@@ -15155,7 +15382,7 @@ function prettyDetailName(src, page, pages){
 const DETAIL_CHUNK = 1500000;             // characters of base64 per slice, as PF_CHUNK
 function postJson(body){
   return fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
-    headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+    headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: gsBody(body) });
 }
 /* SENT IN ORDER, WITH ROOM TO BREATHE.
 
@@ -16500,7 +16727,7 @@ function deleteSelection(){
   closeSelSheet();
   if(synced.length && connected && !isOffline()){
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"deletebatch", ids:synced, by:settings.cruiser||""})}).catch(()=>{});
+      body:gsBody({_action:"deletebatch", ids:synced, by:settings.cruiser||""})}).catch(()=>{});
   }
   toast(`Deleted ${n} tree(s)` + (synced.length ? ` — ${synced.length} kept on the Deleted tab` : ""));
 }
@@ -18161,7 +18388,7 @@ function houseSave(){
   houseSnapshot().then(({kit, logoTooBig})=>{
     fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
       headers:{ "Content-Type":"text/plain;charset=utf-8" },
-      body: JSON.stringify({ _action:"kitput", project:KIT_HOUSE, kit:JSON.stringify(kit),
+      body: gsBody({ _action:"kitput", project:KIT_HOUSE, kit:JSON.stringify(kit),
                              rev:houseState.rev || 0,
                              by: settings.cruiser || "", device: deviceTag() }) })
       .then(()=>{
@@ -18196,7 +18423,7 @@ function houseFetch(then){
   window[cb] = resp => finish(resp);
   sc.onerror = ()=> finish(null);
   setTimeout(()=> finish(null), 20000);
-  sc.src = SCRIPT_URL + sep + "action=kitget&callback=" + cb + "&project=" + encodeURIComponent(KIT_HOUSE);
+  sc.src = SCRIPT_URL + sep + authQ() + "action=kitget&callback=" + cb + "&project=" + encodeURIComponent(KIT_HOUSE);
   document.body.appendChild(sc);
 }
 
@@ -18286,7 +18513,7 @@ function kitSync(opts){
     cleanup();
   };
   sc.onerror = ()=>{ if(opts.loud) toast("Could not reach the Sheet", true); cleanup(); };
-  sc.src = SCRIPT_URL + sep + "action=kitget&callback=" + cb + "&project=" + encodeURIComponent(project);
+  sc.src = SCRIPT_URL + sep + authQ() + "action=kitget&callback=" + cb + "&project=" + encodeURIComponent(project);
   document.body.appendChild(sc);
 }
 function kitDecide(project, resp, opts){
@@ -18353,7 +18580,7 @@ function kitPush(project, kit, baseRev, opts){
   const json = JSON.stringify(kit);
   fetch(SCRIPT_URL, { method:"POST", mode:"no-cors",
     headers:{ "Content-Type":"text/plain;charset=utf-8" },
-    body: JSON.stringify({ _action:"kitput", project, kit:json, rev:baseRev,
+    body: gsBody({ _action:"kitput", project, kit:json, rev:baseRev,
                            by: settings.cruiser || "", device: deviceTag() }) })
     .then(()=>{
       /* no-cors, so the reply cannot be read. The revision is assumed to have moved
@@ -18580,7 +18807,7 @@ function jsonpGet(action, params, cb, ms){
   window[name] = r => { if(!settled){ settled=true; done(r); } };
   sc.onerror = () => { if(!settled){ settled=true; done(null); } };
   const q = Object.keys(params||{}).map(k=>k+"="+encodeURIComponent(params[k])).join("&");
-  sc.src = SCRIPT_URL + (SCRIPT_URL.indexOf("?")>=0?"&":"?") + "action=" + action +
+  sc.src = SCRIPT_URL + (SCRIPT_URL.indexOf("?")>=0?"&":"?") + authQ() + "action=" + action +
            (q?"&"+q:"") + "&callback=" + name;
   document.body.appendChild(sc);
   // A request that never answers must not leave the tool stuck for ever.
@@ -22595,7 +22822,7 @@ function emailPackage(){
   if(unsent && !confirm(`${unsent} tree(s) on this phone have not synced yet and would be missing from the export.\n\nSend anyway?`)) return;
 
   fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-    body:JSON.stringify({_action:"package", email:to, photos:withPhotos,
+    body:gsBody({_action:"package", email:to, photos:withPhotos,
                          project:proj, cruiser:cru})})
     .then(()=>toast(withPhotos ? `Building the package for ${scope} — the email can take a few minutes`
                                : `Sending the data for ${scope} to ${to}`))
@@ -22804,17 +23031,17 @@ function userSelect(){
   const cur = settings.cruiser || "";
   if(cur && !users.some(u=>u.name.toLowerCase()===cur.toLowerCase())) users.push({name:cur,email:settings.email||"",device:settings.device||""});
   users.sort((a,b)=>a.name.localeCompare(b.name));
+  /* No "add a new name" here since v215: a phone that can add a user is a phone
+     that can add itself past the PIN. The owner adds crew on the Sheet. */
   $("setCruiser").innerHTML =
     `<option value="">— choose your name —</option>` +
-    users.map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join("") +
-    `<option value="${ADD_USER}">＋ Add a new name…</option>`;
+    users.map(u=>`<option value="${esc(u.name)}">${esc(u.name)}</option>`).join("");
   $("setCruiser").value = cur;
+  refreshSignedRow();
   onUserPick();
 }
 function onUserPick(){
   const v = $("setCruiser").value;
-  $("newUserRow").style.display = (v===ADD_USER) ? "block" : "none";
-  if(v===ADD_USER){ setTimeout(()=>$("setNewUser").focus(),60); return; }
   const u = users.find(x=>x.name===v);
   if(u){
     if(u.email && !$("setEmail").value.trim()) $("setEmail").value=u.email;
@@ -22843,7 +23070,7 @@ function flushUsers(){
   if(!connected || isOffline() || !pendingUsers.length) return;
   pendingUsers.slice().forEach(p=>{
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"adduser",name:p.name,email:p.email,device:p.device})})
+      body:gsBody({_action:"adduser",name:p.name,email:p.email,device:p.device})})
       .then(()=>{ pendingUsers = pendingUsers.filter(x=>x.name.toLowerCase()!==p.name.toLowerCase()); persistPendUsers(); })
       .catch(()=>{});
   });
@@ -22880,7 +23107,7 @@ function flushProjects(){
   if(!connected || isOffline() || !pendingProjects.length) return;
   pendingProjects.slice().forEach(nm=>{
     fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({_action:"addproject",name:nm})})
+      body:gsBody({_action:"addproject",name:nm})})
       .then(()=>{ pendingProjects = pendingProjects.filter(x=>x.toLowerCase()!==nm.toLowerCase()); persistPendProjects(); })
       .catch(()=>{});
   });
@@ -22904,7 +23131,7 @@ function fetchProjects(){
     cleanup();
   };
   sc.onerror=cleanup;
-  sc.src = SCRIPT_URL + sep + "action=projects&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=projects&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -23130,7 +23357,7 @@ function fetchUsers(){
     cleanup();
   };
   sc.onerror=cleanup;
-  sc.src = SCRIPT_URL + sep + "action=users&callback=" + cb;
+  sc.src = SCRIPT_URL + sep + authQ() + "action=users&callback=" + cb;
   document.body.appendChild(sc);
 }
 
@@ -23229,9 +23456,9 @@ function paintPhotoQNote(){
 function closeSettings(){ $("settingsSheet").classList.remove("show"); }
 function saveSettings(){
   let name = $("setCruiser").value;
-  if(name===ADD_USER) name = $("setNewUser").value.trim();
+  if(auth.token) name = auth.name;          // the signed-in person is the recorder, full stop
   name = String(name||"").trim();
-  if(!name){ toast("Choose or type your name",true); return; }
+  if(!name){ toast(auth.required ? "Sign in first" : "Choose your name",true); if(auth.required) openLogin(); return; }
 
   let proj = $("setProject").value;
   if(proj===ADD_PROJ) proj = $("setNewProj").value;
@@ -23678,7 +23905,7 @@ document.addEventListener("touchend", e=>{
   lastTouchEnd = now;
 }, {passive:false});
 
-window.addEventListener("online", ()=>{ runGeoQueue(); netDot();
+window.addEventListener("online", ()=>{ runGeoQueue(); netDot(); authStart();
   /* One call now, rather than eight flushes and no trees. Coming back into signal is
      exactly when a crew member expects the queue to clear itself. */
   syncEverything({ loud:false }); });
@@ -23724,6 +23951,7 @@ window.addEventListener("offline", netDot);
   fetchAnnots();
   fetchUsers();
   fetchProjects();
+  setTimeout(authStart, 1500);
   fetchDomains();
   flushInspections();
   flushUsers();
