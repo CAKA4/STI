@@ -1139,9 +1139,37 @@
   <div class="sheet-inner">
     <div class="grab"></div>
     <h2>Legend</h2>
-    <div class="hint">Rename anything, put related layers under a heading, and give a
-      group one colour so a dozen servicing lines read as one entry. What a sheet
-      actually prints is still only what that sheet carries.</div>
+    <div class="hint">Choose what the tree symbols say, rename anything, put related
+      layers under a heading, and give a group one colour so a dozen servicing lines
+      read as one entry. What a sheet actually prints is still only what that sheet
+      carries.</div>
+    <div class="stath" style="margin:10px 0 6px">Trees</div>
+    <div class="fld">
+      <label>What the tree symbols show</label>
+      <select id="legSymbol" onchange="legSymbolSet(this.value)">
+        <option value="plain">Tree locations</option>
+        <option value="health">Health</option>
+        <option value="action">Recommended action</option>
+        <option value="impact">Potential impact</option>
+      </select>
+      <div class="mini"><b>Tree locations</b> draws every tree as one symbol — for a plan that shows where the trees are, not their condition. The others colour each tree by that field. Same setting as the 🎯 button on the map.</div>
+    </div>
+    <div class="fld" id="legColorRow">
+      <label>Colour of the tree symbol</label>
+      <div id="legSwatches" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+      <div class="mini">The key prints <b>Tree locations</b> — rename it under <i>Every legend item</i> below if you want other words.</div>
+    </div>
+    <div class="fld">
+      <label>Heading above the key</label>
+      <select id="legHead" onchange="legHeadSet(this.value)">
+        <option value="auto">Automatic</option>
+        <option value="plain">LEGEND</option>
+        <option value="custom">My own words…</option>
+      </select>
+      <input id="legHeadText" type="text" style="display:none;margin-top:6px" placeholder="e.g. LEGEND — TREE LOCATIONS"
+             onchange="legHeadTextSet(this.value)">
+      <div class="mini">Automatic prints “LEGEND — HEALTH” and so on when the trees are coloured by a field, and just “LEGEND” for tree locations.</div>
+    </div>
     <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left">
       <input type="checkbox" id="legCounts" onchange="legCountsSet(this.checked)" style="width:17px;height:17px;padding:0;flex:0 0 auto">
       <span>Show the figure for each sheet — fence length, trees pruned, trees removed</span>
@@ -2338,7 +2366,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-10-04 · v215";
+const APP_BUILD  = "2026-10-10 · v216";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -5113,6 +5141,8 @@ function actionClass(t){
 }
 const ACTION_COLOR = { remove:"#D0402B", work:"#E8862B", protect:"#3FA45B", none:"#7f8c8d" };
 const ACTION_LABEL = { remove:"Remove tree", work:"Pruning or excavation", protect:"Protection measures", none:"No action required" };
+const IMPACT_LABEL = { none:"No impact anticipated", some:"Some impact", fatal:"Tree mortality",
+                       "":"Not yet assessed" };
 function impactClass(t){
   const v = String(t.IMPACT_POT||"");
   if(!v.trim()) return "";
@@ -5135,18 +5165,42 @@ function impactClass(t){
 let symbolMode = "health";
 try{ symbolMode = (STORE&&STORE.getItem("st_symbol")) || "health"; }catch(e){}
 const SYMBOL_MODES = ["health","action","impact","plain"];
+/* "plain" stays the stored name so saved map versions and phones on older builds
+   still mean the same thing by it. What changed in v216 is what it is CALLED and
+   what colour it draws in.
+
+   Chris: "I need to modify the legend to better reflect the data shown. I just want
+   to say tree locations. No health etc. I should have options for the legend."
+
+   A drawing whose job is to show where the trees are should say so — "Tree
+   locations" — rather than "Tree", and it should not be forced into black: the
+   green the field map uses reads better over a summer aerial. The colour is part
+   of the legend settings, so it travels with the project like the titles do. */
 const SYMBOL_LABEL = { health:"Health", action:"Recommended action", impact:"Potential impact",
-                       plain:"Plain black points" };
+                       plain:"Tree locations" };
 const PLAIN_COLOR = "#111111";
-function cycleSymbol(){
-  symbolMode = SYMBOL_MODES[(SYMBOL_MODES.indexOf(symbolMode)+1) % SYMBOL_MODES.length];
-  if(STORE){ try{ STORE.setItem("st_symbol", symbolMode); }catch(e){} }
-  renderPins(); buildLegend();
-  toast(symbolMode==="plain" ? "Plain black tree points"
+const TREE_SWATCHES = [["#111111","Black"],["#1d7a45","Dark green"],["#3FA45B","Green"],
+                       ["#1E6FD9","Blue"],["#E8862B","Orange"],["#D0402B","Red"],["#7B3FA0","Purple"]];
+function plainColor(){
+  const c = (typeof legendCfg === "object" && legendCfg && legendCfg.treeColor) || "";
+  return /^#[0-9a-f]{6}$/i.test(c) ? c : PLAIN_COLOR;
+}
+function symbolToast(){
+  toast(symbolMode==="plain" ? "Tree locations — one symbol for every tree"
                              : "Colouring by " + SYMBOL_LABEL[symbolMode].toLowerCase());
 }
+function setSymbol(m, quiet){
+  if(SYMBOL_MODES.indexOf(m) < 0) return;
+  symbolMode = m;
+  if(STORE){ try{ STORE.setItem("st_symbol", symbolMode); }catch(e){} }
+  renderPins(); buildLegend();
+  if(!quiet) symbolToast();
+}
+function cycleSymbol(){
+  setSymbol(SYMBOL_MODES[(SYMBOL_MODES.indexOf(symbolMode)+1) % SYMBOL_MODES.length]);
+}
 function symbolColor(t){
-  if(symbolMode==="plain") return PLAIN_COLOR;
+  if(symbolMode==="plain") return plainColor();
   if(symbolMode==="action"){
     const c = actionClass(t);
     return c ? ACTION_COLOR[c] : "#37474f";        // dark grey = not yet assessed
@@ -6671,7 +6725,7 @@ function toggleLabels(){
 function legendRows(){
   /* Plain is ONE row, not none. A key that says nothing leaves the reader to guess
      whether a black dot is a tree, a survey monument or a light standard. */
-  if(symbolMode==="plain") return [["Tree", PLAIN_COLOR]];
+  if(symbolMode==="plain") return [["Tree locations", plainColor()]];
   if(symbolMode==="action")
     return Object.keys(ACTION_COLOR).map(k=>[ACTION_LABEL[k], ACTION_COLOR[k]])
              .concat([["Not yet assessed","#37474f"]]);
@@ -17883,7 +17937,7 @@ function pvApplyShows(s){
   if(s.symbol && s.symbol !== symbolMode){
     /* cycleSymbol steps through the modes; called until it lands, with a stop so a
        mode this build does not have cannot spin. */
-    for(let i = 0; i < 6 && symbolMode !== s.symbol; i++) cycleSymbol();
+    setSymbol(s.symbol, true);
   }
 }
 
@@ -22170,6 +22224,33 @@ function persistLegendCfg(){ if(STORE){ try{ STORE.setItem(LEGKEY, JSON.stringif
 function openLegendCfg(){ renderLegendCfg(); $("legendSheet").classList.add("show"); }
 function closeLegendCfg(){ $("legendSheet").classList.remove("show"); buildLegend(); }
 function legCountsSet(on){ legendCfg.counts = !!on; persistLegendCfg(); }
+/* The three tree choices on the legend sheet. Each is saved with the legend, so
+   they go to the Sheet with the project and come back on another device. The
+   symbol mode itself is the 🎯 button's — the same setting, reached by name. */
+function legSymbolSet(m){ setSymbol(m); renderLegendCfg(); }
+function legColorSet(c){
+  legendCfg.treeColor = c; persistLegendCfg();
+  renderPins(); buildLegend(); renderLegendCfg();
+}
+function legHeadSet(m){
+  legendCfg.headMode = m; persistLegendCfg();
+  $("legHeadText").style.display = m === "custom" ? "block" : "none";
+  if(m === "custom") setTimeout(()=>$("legHeadText").focus(), 60);
+}
+function legHeadTextSet(v){ legendCfg.headText = String(v || "").trim(); persistLegendCfg(); }
+function renderLegendTrees(){
+  const sel = $("legSymbol"); if(!sel) return;
+  sel.value = symbolMode;
+  $("legColorRow").style.display = symbolMode === "plain" ? "block" : "none";
+  const cur = plainColor().toLowerCase();
+  $("legSwatches").innerHTML = TREE_SWATCHES.map(([c,n])=>
+    `<button type="button" title="${esc(n)}" onclick="legColorSet('${c}')"
+       style="width:34px;height:34px;border-radius:50%;background:${c};padding:0;
+              border:${c.toLowerCase()===cur ? "3px solid #0d1a13;box-shadow:0 0 0 2px #fff inset" : "2px solid #9fb0a5"}"></button>`).join("");
+  $("legHead").value = legendCfg.headMode || "auto";
+  $("legHeadText").value = legendCfg.headText || "";
+  $("legHeadText").style.display = (legendCfg.headMode === "custom") ? "block" : "none";
+}
 
 function legGroupAdd(){
   const nm = normText(prompt("Heading for this group, as it prints in the legend:\n\n" +
@@ -22233,6 +22314,7 @@ function legHide(key, on){
 
 function renderLegendCfg(){
   { const c = $("legCounts"); if(c) c.checked = legendCfg.counts !== false; }
+  renderLegendTrees();
   const rows = legendAllRows();
 
   $("legGroups").innerHTML = !legendCfg.groups.length
@@ -22284,6 +22366,10 @@ function sheetLegendRaw(shown){
     if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
     if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
                                       (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
+    /* The impact key listed all four classes whatever the sheet carried — a sheet of
+       green trees printed "Tree mortality" and "Not yet assessed" beside them. It
+       now lists what is drawn, the same as health and action always have. */
+    if(symbolMode==="impact")  return shown.some(t=>IMPACT_LABEL[impactClass(t) || ""]===r[0]);
     return true;
   }).map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot"}));
   /* THE COLOUR THE PLAN ACTUALLY DRAWS. The sheet strokes the protection zone in
@@ -22378,6 +22464,15 @@ function legendAllRows(){
   return rows;
 }
 
+/* The line above the key. "auto" says what the colours mean when they mean
+   something and just LEGEND when every tree is one symbol; "plain" is LEGEND
+   always; "custom" is the author's own words, as typed. */
+function legendHeading(){
+  const m = legendCfg.headMode || "auto";
+  if(m === "custom" && String(legendCfg.headText || "").trim()) return String(legendCfg.headText).trim();
+  if(m === "plain" || symbolMode === "plain") return "LEGEND";
+  return "LEGEND — " + String(SYMBOL_LABEL[symbolMode]).toUpperCase();
+}
 function legendTitle(row){
   const t = legendCfg.titles[row.key];
   return (t == null || t === "") ? row.label : t;
@@ -22564,8 +22659,7 @@ function drawTitleBlock(g,W,H,panelH,shown,z,missing,title,M,sheetNote){
   const labelCh = Math.max(8, Math.floor((colW - Math.round(PDF_DPI*0.15)) / (lfs*0.52)));
 
   g.font=`bold ${Math.round(PDF_DPI*0.085)}px sans-serif`; g.fillStyle="#8fb59c";
-  g.fillText(symbolMode==="plain" ? "LEGEND"
-             : "LEGEND — " + String(SYMBOL_LABEL[symbolMode]).toUpperCase(), lx, ly);
+  g.fillText(legendHeading(), lx, ly);
   g.font=`${Math.round(lfs)}px sans-serif`;
   present.slice(0, cols*maxRows).forEach((r,i)=>{
     const col=i%cols, row=Math.floor(i/cols);
@@ -23799,7 +23893,7 @@ function showHelp(){
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
     <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. If one shows blank, pan to your site and tap <b>Test these over this view</b> — the app asks each service for a real tile there and keeps whatever settings work. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
-    <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. The legend follows whichever you pick.</p>
+    <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. Its fourth setting, <b>Tree locations</b>, draws every tree as one symbol for a plan that shows where the trees are rather than their condition. The legend follows whichever you pick. <b>Menu → Legend</b> sets the same thing by name, the colour of the tree-locations symbol, and the heading printed above the key — automatic, plain “LEGEND”, or your own words.</p>
     <p><b>The red ring on a tree</b><br>A tree turns red the moment somebody opens it and saves it — that is the <b>field-checked</b> halo, and on an imported street it shows at a glance how much is left to do. It is drawn on the exported plan as well, with a <i>Field checked</i> row in the legend. The <b>✔</b> button on the map rail turns it off, on screen and on the plan together, and the app remembers which way you left it. Nothing about the tree changes — the halo is only being shown or hidden.</p>
     <p><b>TPP page number</b><br>Assembling the document stamps each tree with the <b>sheet it falls on</b>, and stamps it with the number that is actually printed on that sheet — so a tree shown on <i>TPP12</i> reads 12, not "cell 2". The column is called <b>TPP page</b> and appears in Schedule A, in the Schedule A CSV and in the emailed workbook. Where sheets overlap, a tree caught on two of them is indexed to the one it sits most centrally on, which is the sheet that shows it best. The numbers are written the moment the document is assembled, before the table is drawn, so the table and the sheets always agree; the standalone map export deliberately leaves the column alone, because its sheets are a different product numbered from one.</p>
     <p><b>User guide</b><br><i>Menu → Settings &amp; help → User guide (PDF)</i> opens the printable guide — starting a project, loading layers, editing trees, making a map, uploading drawings and finalising the plan. It is kept on the phone with the app, so it opens with no signal.</p>
