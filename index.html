@@ -52,7 +52,14 @@
   .appbar{ position:fixed; top:0; left:0; right:0; z-index:900; background:#12201a;
     border-bottom:1px solid var(--line); padding:max(10px,env(safe-area-inset-top)) 12px 9px;
     box-shadow:0 2px 12px rgba(0,0,0,.45); display:flex; align-items:center; gap:10px; }
-  .appbar h1{ margin:0; font-size:15px; letter-spacing:.05em; font-weight:700; text-transform:uppercase; flex:1 }
+  .appbar h1{ margin:0; font-size:15px; letter-spacing:.05em; font-weight:700; text-transform:uppercase; flex:1; min-width:0 }
+  .appbar .projchip{ display:inline-flex; align-items:center; gap:6px; max-width:100%; min-height:32px; padding:3px 11px 3px 8px;
+    margin:0 0 3px -2px; border-radius:999px; border:1px solid #2f4a3a; background:#1a2d24; color:#eaf5ee;
+    font:700 15px/1.2 var(--sans); letter-spacing:.01em; text-transform:none; cursor:pointer }
+  .appbar .projchip .pic{ font-size:14px; flex:none }
+  .appbar .projchip .pn{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0 }
+  .appbar .projchip .caret{ color:#86a08c; font-size:11px; flex:none }
+  .appbar .projchip.none{ background:#3a2d12; border-color:#a77d1e; color:#ffd98a }
   .appbar .sub{ display:block; font-size:11px; color:#86a08c; font-weight:400; letter-spacing:.02em; text-transform:none }
   .pillbtn{ background:#1d2c23; border:1px solid #2f4a39; color:#bfe6cb; font-size:12px; padding:5px 11px;
     border-radius:999px; font-family:var(--mono); cursor:pointer }
@@ -144,6 +151,14 @@
   .rp-sw.on{ background:#1d7a45 }
   .rp-sw.on::after{ left:23px }
   .rp-row.active{ background:#e7f4ec; border-radius:10px }
+  .rp-note{ margin:10px 0 4px; padding:10px 12px; border-radius:11px; background:#fff6dc; border:1px solid #e8c45a;
+    font:500 14px/1.4 var(--sans); color:#3d3210 }
+  .rp-new{ display:flex; gap:8px; margin-top:4px }
+  .rp-new input{ flex:1; min-width:0; min-height:46px; padding:8px 12px; border-radius:11px; border:1.5px solid #1d7a45;
+    font:16px var(--sans); color:#0d1a13; background:#fff }
+  .rp-new button{ min-height:46px; padding:0 16px; border-radius:11px; border:1.5px solid #1d7a45; background:#1d7a45;
+    color:#fff; font:700 15px var(--sans); cursor:pointer }
+  .rp-hint{ margin:6px 2px 2px; font:400 12.5px/1.3 var(--sans); color:#5a7062 }
   /* Leaflet's zoom buttons, lifted off the bottom bar so "+" no longer covers Locate. */
   .leaflet-bottom.leaflet-right .leaflet-control-zoom{ margin-bottom:calc(78px + env(safe-area-inset-bottom)) !important;
     margin-right:calc(8px + env(safe-area-inset-right)) !important }
@@ -698,7 +713,11 @@
 <body>
 
 <div class="appbar">
-  <h1>Street Trees<span class="sub" id="subLine">—</span></h1>
+  <!-- v220: the project you are working in, in the header, one tap from switching or
+       starting another. It replaces the fixed "Street Trees" title. -->
+  <h1><button type="button" class="projchip" id="projChip" onclick="openProjects()" aria-label="Project — tap to switch or start a new one">
+        <span class="pic">📁</span><span class="pn" id="projName">Choose a project</span><span class="caret">▾</span></button>
+      <span class="sub" id="subLine">—</span></h1>
   <span class="dot" id="netDot"></span>
   <button class="pillbtn" onclick="openMenu()">☰ Menu</button>
 </div>
@@ -970,7 +989,7 @@
     <h2>Menu</h2>
     <div class="idline" id="menuStats">—</div>
 
-    <button class="menuitem prime" onclick="toggleProjectFilter()" id="projFilterBtn">🗂 Showing: —</button>
+    <button class="menuitem prime" onclick="openProjects()" id="projFilterBtn">📁 Project: —</button>
 
     <!-- Is the work safe to walk away from? One line, before any group is opened. -->
     <div id="menuReady" style="margin:10px 0 4px"></div>
@@ -2460,7 +2479,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-15 · v219";
+const APP_BUILD  = "2026-11-15 · v220";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3505,7 +3524,12 @@ function updateSubLine(){
   const pendF = (typeof feats!=="undefined" ? feats.filter(f=>!f._sent).length : 0) +
                 (typeof featDeletes!=="undefined" ? featDeletes.length : 0);
   const unsent = vis.filter(t=>!t._sent).length + pendF;
-  el.textContent = `${vis.length} trees · ${unsent} unsynced · ${scopeLabel()}`;
+  /* v220: the project is in the pill above, so this line says the count and any OTHER
+     filter that is on — a filter on but unsaid is how a report gets built on the wrong
+     trees. */
+  const extra = scopeLabel().split(" · ").slice(1);
+  el.textContent = `${vis.length} trees · ${unsent} unsynced` + (extra.length ? " · " + extra.join(" · ") : "");
+  updateProjChip();
 }
 
 // Measure the app bar and hand its height to the layout, so nothing hides beneath it.
@@ -4101,6 +4125,8 @@ function newTreeAtGPS(){
 
 function newTree(lat, lon, source, acc){
   if(!settings.cruiser){ openSettings(); toast("Set your name first",true); return; }
+  /* v220: a tree with no project is filed nowhere, and nobody finds it in a report. */
+  if(!settings.project){ openProjects(); toast("Choose or start a project first",true); return; }
 
   // Guard against recording the same tree twice — easy when a block is re-walked
   // or two of the crew overlap.
@@ -19489,7 +19515,7 @@ try{ sheetSize = (STORE&&STORE.getItem("st_sheet")) || "tabloid"; }catch(e){}
  *  so there is one record of what is showing, not two that can disagree.
  * ==================================================================== */
 let railOpen = "";
-const RAIL_TITLE = { map:"Map", layers:"Layers", tools:"Tools" };
+const RAIL_TITLE = { map:"Map", layers:"Layers", tools:"Tools", projects:"Projects" };
 function legOn(id){ const b = $(id); return !!(b && b.classList.contains("on")); }
 function rpEsc(v){ return esc(String(v == null ? "" : v)); }
 function rpSwitch(label, on, call, sub){
@@ -19562,7 +19588,8 @@ function renderRail(){
   if(!railOpen) return;
   $("rpTitle").textContent = RAIL_TITLE[railOpen] || "";
   const body = $("rpBody"), y = body.scrollTop;
-  body.innerHTML = railOpen === "map" ? railMapHtml() : railOpen === "layers" ? railLayersHtml() : railToolsHtml();
+  body.innerHTML = railOpen === "map" ? railMapHtml() : railOpen === "layers" ? railLayersHtml() :
+                   railOpen === "projects" ? railProjectsHtml() : railToolsHtml();
   body.scrollTop = y;
 }
 function openRail(which){
@@ -19599,6 +19626,112 @@ function watchRailState(){
   try{ new MutationObserver(again).observe(leg, { subtree:true, attributes:true, attributeFilter:["class","style"] }); }catch(e){}
   if(fmap) fmap.on("click", () => { if(railOpen) closeRail(); });
   refreshRailBtns();
+}
+/* ==================================================================== *
+ *  PROJECTS  (v220)
+ *
+ *  Chris: "We need to ensure the user can easily add a new project or switch between
+ *  existing ones. Add that capability, ensuring this is intuitive to new users."
+ *
+ *  Before this, "project" lived in two places that meant two different things:
+ *  Settings → Project decided where a NEW tree was filed, and Menu → Showing decided
+ *  what the map displayed, with a confirm box trying to keep them together. Now the
+ *  header says which project you are in and one panel does both: pick a project and
+ *  new trees go to it AND the map shows it, and its trees come down from the Sheet.
+ *  Starting one is a name and Create. "Every project" and the finer filters (recorder,
+ *  dates, leave out) are still there, under the list.
+ * ==================================================================== */
+let projAdding = false, projList = [];
+function projectNames(){
+  const m = new Map();
+  const add = n => { n = String(n || "").trim(); if(n && !m.has(n.toLowerCase())) m.set(n.toLowerCase(), n); };
+  projects.forEach(p => add(p.name));
+  trees.forEach(t => add(projectOf(t)));
+  add(settings.project);
+  return [...m.values()].sort((a, b) => a.localeCompare(b));
+}
+function viewingAll(){ return showAllProjects && !filterProject; }
+function railProjectsHtml(){
+  const cur = viewingAll() ? "" : currentProject().toLowerCase();
+  const counts = {}, unsent = {};
+  trees.forEach(t => { const k = projectOf(t).toLowerCase(); counts[k] = (counts[k] || 0) + 1; if(!t._sent) unsent[k] = (unsent[k] || 0) + 1; });
+  let h = "";
+  if(!settings.project)
+    h += `<div class="rp-note">Choose the job you are working on, or start a new one. Every tree you add is filed under it, and the map shows its trees.</div>`;
+  h += `<div class="rp-sec">Start a new project</div>`;
+  h += projAdding
+    ? `<div class="rp-new"><input id="newProjName" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="words"
+         placeholder="Name, e.g. Aurora Hydro 2026" onkeydown="if(event.key==='Enter'){event.preventDefault();createProject(this.value)}">
+         <button type="button" onclick="createProject($('newProjName').value)">Create</button></div>
+       <div class="rp-hint">The whole crew sees it after your next sync.</div>`
+    : rpItem("＋", "New project", "projAdding=true;renderRail();setTimeout(function(){var e=$('newProjName');if(e)e.focus();},60)",
+             "Give it a name and start recording into it");
+  projList = projectNames();
+  if(!projList.length) return h;          /* a first project to name, and nothing else to read */
+  h += `<div class="rp-sec">Switch to a project</div>`;
+  projList.forEach((n, i) => {
+    const k = n.toLowerCase(), c = counts[k] || 0, u = unsent[k] || 0, on = k === cur;
+    const sub = c ? `${c} tree${c === 1 ? "" : "s"} on this phone${u ? ` · ${u} not sent yet` : ""}`
+                  : (connected ? "Not on this phone yet — its trees come down from the Sheet" : "No trees on this phone yet");
+    h += `<button type="button" class="rp-row${on ? " sel" : ""}" onclick="switchProject(projList[${i}])">
+      <span class="tick">${on ? "✓" : ""}</span><span class="t">${rpEsc(n)}<small>${rpEsc(sub)}</small></span>${on ? "" : `<span class="go">›</span>`}</button>`;
+  });
+  h += `<div class="rp-sec">What the map shows</div>`;
+  h += rpSwitch("Trees from every project", viewingAll(), "toggleAllProjects()",
+                viewingAll() ? "New trees still go to " + rpEsc(settings.project || "the project you choose") : "Off: only the project ticked above");
+  h += rpItem("⚙", "More filters…", "closeRail();openFilter()", "Recorded by, date range, leave trees out");
+  return h;
+}
+function openProjects(){
+  try{ closeMenu(); }catch(e){}
+  if(railOpen === "projects"){ renderRail(); return; }
+  projAdding = !projectNames().length;          // nothing to switch to: go straight to naming one
+  openRail("projects");
+  if(projAdding) setTimeout(() => { const e = $("newProjName"); if(e) e.focus(); }, 120);
+}
+function afterProjectChange(){
+  persistFilters();
+  try{ STORE && STORE.setItem("st_showall", showAllProjects ? "1" : "0"); }catch(e){}
+  applyTPPMode(); refreshMenuMode(); updateProjBtn(); updateSubLine();
+  renderPins(); renderOverlays();
+}
+/* Work in this project: new trees go to it and the map shows it. Its trees, setup and
+   layers come down from the Sheet when there is signal — the same as Load trees from
+   Sheet, which is what a person switching jobs would otherwise have to know to do. */
+function switchProject(name, opts){
+  opts = opts || {};
+  name = normText(name); if(!name) return;
+  settings.project = name; persistSettings();
+  filterProject = ""; showAllProjects = false;
+  queueProject(name);
+  projAdding = false;
+  afterProjectChange();
+  closeRail();
+  const here = trees.filter(t => projectOf(t).toLowerCase() === name.toLowerCase()).length;
+  if(here) fitTrees();
+  toast(opts.isNew ? `New project “${name}” — new trees go here` : `Now working in ${name} — new trees go here`);
+  if(!opts.isNew && connected && !isOffline()) setTimeout(() => { try{ pullFromSheet(); }catch(e){} }, 900);
+}
+function createProject(raw){
+  const name = normText(raw);
+  if(!name){ toast("Type a name for the project", true); const e = $("newProjName"); if(e) e.focus(); return; }
+  const ex = projectNames().find(n => n.toLowerCase() === name.toLowerCase());
+  if(ex){ switchProject(ex); toast(`“${ex}” already exists — switched to it`); return; }
+  switchProject(name, { isNew:true });
+}
+function toggleAllProjects(){
+  showAllProjects = !viewingAll();
+  filterProject = "";
+  afterProjectChange();
+  const n = visibleTrees().length;
+  toast(showAllProjects ? `Showing every project · ${n} tree(s)` : `Showing ${settings.project || "one project"} · ${n} tree(s)`);
+  if(n) fitTrees();
+}
+function updateProjChip(){
+  const b = $("projChip"); if(!b) return;
+  const none = !settings.project;
+  $("projName").textContent = viewingAll() && !none ? "All projects" : (currentProject() || "Choose a project");
+  b.classList.toggle("none", none);
 }
 function railFade(){
   const r = document.querySelector(".map-rail"); if(!r) return;
@@ -23680,7 +23813,7 @@ function clearFilter(){
 }
 function updateProjBtn(){
   const b=$("projFilterBtn"); if(!b) return;
-  b.textContent = "🗂 Showing: " + scopeLabel() + " · tap to change";
+  b.textContent = "📁 " + (viewingAll() ? "All projects" : (currentProject() || "Choose a project")) + " · switch or start a new one";
 }
 
 function fetchUsers(){
@@ -24100,6 +24233,7 @@ function showHelp(){
     <p><b>If the app closes with a tree open</b><br>Every change you make to a tree form is written to the phone as you make it. If the app is killed — a flat battery, a dropped phone, the operating system reclaiming memory — the next launch offers the tree back exactly as you left it, photographs included, for you to check and save. Saving or cancelling clears it, so you are only ever offered a tree after an exit you did not choose. Declining throws it away rather than asking again next time.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, recorder, species, DBH class, day, treatment, risk and position source. Pick a <b>project</b> and a <b>recorder</b> at the top, and a date range — comparing one recorder against another, or last year against this year, without changing what the map shows. It starts on whatever the map is showing, and the figures export to CSV with the scope recorded in them.</p>
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
+    <p><b>Projects</b><br>The project you are working in is at the top of the screen. Tap it to <b>switch</b> to another — new trees then go to that project, the map shows it, and its trees load from the Sheet — or to start a <b>New project</b>: give it a name and tap Create. <i>Trees from every project</i> shows them all at once; <i>More filters</i> narrows by who recorded them and when.</p>
     <p><b>The three map buttons</b><br>Down the right of the map: <b>🗺 Map</b> — aerial, street or topographic base, which aerial photo (Esri, York Region, Simcoe…), roads and place names, a site plan, and saving an area for use without signal. <b>📚 Layers</b> — what the trees are coloured by, labels, protection zones, crowns, pruning and removal marks, the field-checked ring, the legend, and the reference layers. <b>🧰 Tools</b> — select a group of trees, measure, identify what is on the map, find trees by attribute, and statistics. Each opens a panel from the bottom; tap the map or ✕ to close it. While a tool is running the Tools button turns green and says which.</p>
     <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so <b>Map → Roads &amp; place names</b> adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
     <p><b>Selecting a group of trees</b><br><b>Tools → Select trees</b> draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, and <b>Undo</b> drops the last point. Only trees you can actually see are caught — the <i>Showing</i> filter decides, so a lasso drawn on one job never picks up another job's trees lying underneath.</p>
