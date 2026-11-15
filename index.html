@@ -94,6 +94,46 @@
   .map-rail.more{ -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent);
     mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent) }
   .map-rail button{ flex:none }
+  /* v218: three labelled buttons — icon above a word, so nobody has to guess. */
+  .map-rail button.rbtn{ width:58px; height:56px; padding:5px 0 4px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:2px; border-radius:14px }
+  .map-rail button.rbtn i{ font-style:normal; font-size:21px; line-height:1 }
+  .map-rail button.rbtn span{ font:700 10.5px/1.1 var(--sans); letter-spacing:.02em; color:#e6f2ea }
+  .map-rail button.rbtn.open{ background:#24402f; border:2px solid #fff; box-shadow:0 0 0 3px rgba(255,255,255,.18), 0 2px 10px rgba(0,0,0,.5) }
+  .map-rail button.rbtn.on{ background:#2f9d59; border-color:#4cc079 }
+  .map-rail button.rbtn.on span{ color:#fff }
+
+  /* The sub-buttons: a half-height panel from the bottom, so the top of the map stays in
+     view and each switch can be seen taking effect. Tap the map or ✕ to close. */
+  .rpanel{ position:fixed; left:0; right:0; bottom:0; z-index:900; max-height:min(58vh, 560px);
+    display:flex; flex-direction:column; background:#fff; color:#0d1a13; border-radius:18px 18px 0 0;
+    box-shadow:0 -6px 24px rgba(0,0,0,.45); transform:translateY(105%); transition:transform .2s ease;
+    padding-bottom:env(safe-area-inset-bottom) }
+  .rpanel.show{ transform:none }
+  .rp-head{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px 8px;
+    border-bottom:1px solid #dde4de }
+  .rp-head b{ font:800 17px/1.2 var(--sans); letter-spacing:.02em }
+  .rp-x{ width:40px; height:40px; border-radius:50%; border:1.5px solid #9fb0a5; background:#eef2ee; font-size:17px; cursor:pointer }
+  .rp-body{ overflow-y:auto; overscroll-behavior:contain; padding:6px 16px 16px; -webkit-overflow-scrolling:touch }
+  .rp-sec{ margin:14px 0 6px; font:700 11.5px/1 var(--sans); letter-spacing:.1em; text-transform:uppercase; color:#1d7a45 }
+  .rp-seg{ display:flex; gap:6px; flex-wrap:wrap }
+  .rp-seg button{ flex:1 1 0; min-width:72px; min-height:46px; padding:8px 6px; border-radius:11px;
+    border:1.5px solid #9fb0a5; background:#eef2ee; color:#0d1a13; font:700 14px/1.15 var(--sans); cursor:pointer }
+  .rp-seg button.sel{ background:#1d7a45; border-color:#1d7a45; color:#fff }
+  .rp-row{ display:flex; align-items:center; gap:12px; width:100%; min-height:50px; padding:8px 2px;
+    border:none; border-bottom:1px solid #edf1ed; background:none; text-align:left; color:#0d1a13; cursor:pointer }
+  .rp-row .t{ flex:1; font:600 15px/1.25 var(--sans) }
+  .rp-row .t small{ display:block; font:400 12.5px/1.3 var(--sans); color:#5a7062; margin-top:2px }
+  .rp-row .ic{ width:26px; text-align:center; font-size:19px; flex:none }
+  .rp-row .go{ color:#7d8f83; font-size:18px; flex:none }
+  .rp-row.sel .t{ color:#1d7a45 }
+  .rp-row .tick{ color:#1d7a45; font-weight:800; font-size:18px; flex:none; width:20px; text-align:center }
+  .rp-sw{ flex:none; width:48px; height:28px; border-radius:999px; background:#c9d3cc; position:relative; transition:background .15s }
+  .rp-sw::after{ content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .15s }
+  .rp-sw.on{ background:#1d7a45 }
+  .rp-sw.on::after{ left:23px }
+  .rp-row.active{ background:#e7f4ec; border-radius:10px }
   /* Leaflet's zoom buttons, lifted off the bottom bar so "+" no longer covers Locate. */
   .leaflet-bottom.leaflet-right .leaflet-control-zoom{ margin-bottom:calc(78px + env(safe-area-inset-bottom)) !important;
     margin-right:calc(8px + env(safe-area-inset-right)) !important }
@@ -656,7 +696,18 @@
 <div id="fmap"></div>
 <div id="crosshair"><i></i></div>
 
+<!-- v218: three labelled buttons, each opening its own sub-buttons. Chris: "I would like
+     fewer buttons on the map and have the buttons access more of the setup and tools as
+     sub buttons. For instance selecting aerial photo source is currently not intuitive." -->
 <div class="map-rail">
+  <button id="railMap" class="rbtn" onclick="openRail('map')"><i>🗺</i><span>Map</span></button>
+  <button id="railLayers" class="rbtn" onclick="openRail('layers')"><i>📚</i><span>Layers</span></button>
+  <button id="railTools" class="rbtn" onclick="openRail('tools')"><i>🧰</i><span>Tools</span></button>
+</div>
+<!-- The fifteen buttons the rail used to carry. Kept, hidden, because the code that runs
+     each tool marks its own button "on" — they remain the one record of what is showing,
+     and the panels below read them rather than keeping a second copy that could drift. -->
+<div id="railLegacy" hidden>
   <button id="btnBase" onclick="cycleBase()" title="Base map">🛰</button>
   <button id="btnLabels" onclick="toggleLabels()" oncontextmenu="openLabels();return false;" title="Labels on/off — hold to configure">🏷</button>
   <button id="btnLayers" onclick="openLayers()" title="Layers">📚</button>
@@ -672,6 +723,11 @@
   <button id="btnMarks" onclick="toggleMarks()" title="Pruning (P) and removal (✕) marks">✂</button>
   <button id="btnChecked" onclick="toggleChecked()" title="Field-checked halo — the red ring on trees somebody has opened and saved">✔</button>
   <button id="btnPdf" onclick="togglePDF()" title="Site plan" style="display:none">🗺</button>
+</div>
+
+<div class="rpanel" id="railPanel" role="dialog" aria-labelledby="rpTitle">
+  <div class="rp-head"><b id="rpTitle">—</b><button type="button" class="rp-x" onclick="closeRail()" aria-label="Close">✕</button></div>
+  <div class="rp-body" id="rpBody"></div>
 </div>
 
 <div class="legend" id="legend"></div>
@@ -1180,7 +1236,7 @@
         <option value="action">Recommended action</option>
         <option value="impact">Potential impact</option>
       </select>
-      <div class="mini"><b>Tree locations</b> draws every tree as one symbol — for a plan that shows where the trees are, not their condition. The others colour each tree by that field. Same setting as the 🎯 button on the map.</div>
+      <div class="mini"><b>Tree locations</b> draws every tree as one symbol — for a plan that shows where the trees are, not their condition. The others colour each tree by that field. Same setting as <b>Layers → Colour trees by</b> on the map.</div>
     </div>
     <div class="fld" id="legColorRow">
       <label>Colour of the tree symbol</label>
@@ -2394,7 +2450,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-15 · v217";
+const APP_BUILD  = "2026-11-15 · v218";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3349,6 +3405,7 @@ async function initMap(){
   setBase(0);
   L.control.zoom({position:"bottomright"}).addTo(fmap);
   watchRail();
+  watchRailState();
   // Metric only, and bottom-left where it does not sit under the zoom buttons.
   L.control.scale({position:"bottomleft", metric:true, imperial:false, maxWidth:170}).addTo(fmap);
   /* Explicit panes. A LayerGroup does NOT control stacking — every vector layer
@@ -15067,6 +15124,7 @@ function setImagery(id){
   setBase(0);                                  // redraw the aerial with the new source
   $("imgSheet").classList.remove("show");
   toast(imagerySource().name);
+  if(railOpen) renderRail();
 }
 
 /* ---------- the drawings the OLD version left on this device ----------------- *
@@ -19402,6 +19460,126 @@ try{ sheetSize = (STORE&&STORE.getItem("st_sheet")) || "tabloid"; }catch(e){}
    start-up and again when the project kit arrives, so every crew member saw
    "17 × 11 in (tabloid) — plan sets" pop up for no reason. Only a size somebody
    actually picks is announced now; start-up and the kit pass quiet. */
+/* ==================================================================== *
+ *  MAP · LAYERS · TOOLS  (v218)
+ *
+ *  Three rail buttons, each opening a half-height panel of labelled sub-buttons.
+ *  Every switch calls the SAME function its old rail button called, and every switch
+ *  reads its state from that old button's "on" mark (kept, hidden, in #railLegacy) —
+ *  so there is one record of what is showing, not two that can disagree.
+ * ==================================================================== */
+let railOpen = "";
+const RAIL_TITLE = { map:"Map", layers:"Layers", tools:"Tools" };
+function legOn(id){ const b = $(id); return !!(b && b.classList.contains("on")); }
+function rpEsc(v){ return esc(String(v == null ? "" : v)); }
+function rpSwitch(label, on, call, sub){
+  return `<button type="button" class="rp-row" onclick="${call};renderRail()" role="switch" aria-checked="${on}">
+    <span class="t">${label}${sub ? `<small>${sub}</small>` : ""}</span><span class="rp-sw${on ? " on" : ""}"></span></button>`;
+}
+function rpItem(icon, label, call, sub, cls){
+  return `<button type="button" class="rp-row${cls ? " " + cls : ""}" onclick="${call}">
+    <span class="ic">${icon}</span><span class="t">${label}${sub ? `<small>${sub}</small>` : ""}</span><span class="go">›</span></button>`;
+}
+function rpSeg(items){   /* [label, selected, call] */
+  return `<div class="rp-seg">${items.map(([l, on, call]) =>
+    `<button type="button" class="${on ? "sel" : ""}" onclick="${call};renderRail()" aria-pressed="${on}">${l}</button>`).join("")}</div>`;
+}
+function sitePlanLoaded(){ const b = $("btnPdf"); return !!(b && b.style.display !== "none"); }
+function railMapHtml(){
+  const aerial = baseIdx === 0;
+  let h = `<div class="rp-sec">Base map</div>` +
+    rpSeg([["🛰 Aerial", aerial, "setBase(0)"], ["🗺 Street", baseIdx === 1, "setBase(1)"], ["🗻 Topo", baseIdx === 2, "setBase(2)"]]);
+  h += `<div class="rp-sec">Aerial photo</div>`;
+  h += IMAGERY.map(src => {
+    const cur = src.id === imageryId;
+    const call = `setImagery('${src.id}');${src.id === "custom" && !src.url ? "" : "if(baseIdx!==0)setBase(0);"}`;
+    return `<button type="button" class="rp-row${cur && aerial ? " sel" : ""}" onclick="${call}renderRail()">
+      <span class="tick">${cur ? "✓" : ""}</span><span class="t">${rpEsc(src.name)}<small>${rpEsc(src.note)}</small></span></button>`;
+  }).join("");
+  h += rpItem("🔎", "Which of these covers this area?", "closeRail();openImagery();testImagery()", "Tries each source over the map you are looking at");
+  h += `<div class="rp-sec">On top of the map</div>`;
+  h += rpSwitch("Roads &amp; place names", legOn("btnRoads"), "toggleRoads()", "Street names over the aerial photo");
+  h += sitePlanLoaded()
+    ? rpSwitch("Site plan", legOn("btnPdf"), "togglePDF()", "The georeferenced PDF you loaded")
+    : rpItem("📄", "Load a site plan…", "closeRail();document.getElementById('sitePdfInput').click()", "A georeferenced PDF, laid over the map");
+  h += `<div class="rp-sec">Working without signal</div>`;
+  h += rpItem("💾", "Save this area for offline use…", "closeRail();openOffline()", "Keeps the aerial photo on this phone");
+  return h;
+}
+function railLayersHtml(){
+  let h = `<div class="rp-sec">Colour trees by</div>` +
+    rpSeg([["Health", symbolMode === "health", "setSymbol('health')"], ["Action", symbolMode === "action", "setSymbol('action')"],
+           ["Impact", symbolMode === "impact", "setSymbol('impact')"], ["Tree locations", symbolMode === "plain", "setSymbol('plain')"]]);
+  h += `<div class="rp-sec">On the trees</div>`;
+  h += rpSwitch("Labels", legOn("btnLabels"), "toggleLabels()", "Tree number, species… — set what they say below");
+  h += rpSwitch("Protection zones", legOn("btnTPZ"), "toggleTPZ()", "Each tree's TPZ circle, true size");
+  h += rpSwitch("Crown circles", legOn("btnCrown"), "toggleCrown()", "Crown spread, true size");
+  h += rpSwitch("Pruning &amp; removal marks", legOn("btnMarks"), "toggleMarks()", "P and ✕ on the trees that need them");
+  h += rpSwitch("Field-checked ring", legOn("btnChecked"), "toggleChecked()", "Red ring on trees someone has opened and saved");
+  h += `<div class="rp-sec">Legend</div>`;
+  h += rpSwitch("Show the legend on the map", legOn("btnLegend"), "toggleLegend()");
+  h += `<div class="rp-sec">Settings</div>`;
+  h += rpItem("🏷", "Label settings…", "closeRail();openLabels()", "Which fields each label shows");
+  h += rpItem("🎨", "Legend settings…", "closeRail();openLegendCfg()", "Names, colours, groups, heading");
+  h += rpItem("📚", "Reference layers…", "closeRail();openLayers()",
+              `${refLayers.length} loaded — parcels, streets, GPX tracks · add or remove`);
+  return h;
+}
+function railToolsHtml(){
+  const meas = typeof measureOn === "function" && measureOn();
+  const sel = typeof selMode !== "undefined" && selMode;
+  const idn = typeof identOn !== "undefined" && identOn;
+  let h = `<div class="rp-sec">On the map</div>`;
+  h += rpItem("⬚", sel ? "Stop selecting" : "Select trees", "closeRail();toggleSelect()", "Draw round a group, then edit or move them together", sel ? "active" : "");
+  h += rpItem("📏", meas ? "Stop measuring" : "Measure", "closeRail();toggleMeasure()", "Distance or area — tap points on the map", meas ? "active" : "");
+  h += rpItem("❓", idn ? "Stop identifying" : "Identify", "closeRail();toggleIdent()", "Tap the map to name every layer near that spot", idn ? "active" : "");
+  h += `<div class="rp-sec">Trees</div>`;
+  h += rpItem("🔍", "Find trees by attribute…", "closeRail();openQuery()", "Species, health, DBH… then edit, move or delete");
+  h += rpItem("📊", "Statistics", "closeRail();openStats()", "Counts, sizes, health, replacements");
+  return h;
+}
+function renderRail(){
+  if(!railOpen) return;
+  $("rpTitle").textContent = RAIL_TITLE[railOpen] || "";
+  const body = $("rpBody"), y = body.scrollTop;
+  body.innerHTML = railOpen === "map" ? railMapHtml() : railOpen === "layers" ? railLayersHtml() : railToolsHtml();
+  body.scrollTop = y;
+}
+function openRail(which){
+  if(railOpen === which){ closeRail(); return; }
+  railOpen = which;
+  $("rpBody").scrollTop = 0;
+  renderRail();
+  $("railPanel").classList.add("show");
+  refreshRailBtns();
+}
+function closeRail(){
+  if(!railOpen) return;
+  railOpen = "";
+  $("railPanel").classList.remove("show");
+  refreshRailBtns();
+}
+/* The Tools button says which tool is running — that is the only sign on the map that
+   Identify, say, is waiting for a tap. */
+function refreshRailBtns(){
+  ["map", "layers", "tools"].forEach(k => {
+    const b = $("rail" + k[0].toUpperCase() + k.slice(1)); if(b) b.classList.toggle("open", railOpen === k);
+  });
+  const t = $("railTools"); if(!t) return;
+  const meas = typeof measureOn === "function" && measureOn();
+  const sel = typeof selMode !== "undefined" && selMode;
+  const idn = typeof identOn !== "undefined" && identOn;
+  const [ic, word] = meas ? ["📏", "Measure"] : sel ? ["⬚", "Select"] : idn ? ["❓", "Identify"] : ["🧰", "Tools"];
+  t.querySelector("i").textContent = ic; t.querySelector("span").textContent = word;
+  t.classList.toggle("on", !!(meas || sel || idn));
+}
+function watchRailState(){
+  const leg = $("railLegacy");
+  const again = () => { refreshRailBtns(); if(railOpen) renderRail(); };
+  try{ new MutationObserver(again).observe(leg, { subtree:true, attributes:true, attributeFilter:["class","style"] }); }catch(e){}
+  if(fmap) fmap.on("click", () => { if(railOpen) closeRail(); });
+  refreshRailBtns();
+}
 function railFade(){
   const r = document.querySelector(".map-rail"); if(!r) return;
   r.classList.toggle("more", r.scrollTop + r.clientHeight < r.scrollHeight - 2);
@@ -22281,7 +22459,7 @@ function closeLegendCfg(){ $("legendSheet").classList.remove("show"); buildLegen
 function legCountsSet(on){ legendCfg.counts = !!on; persistLegendCfg(); }
 /* The three tree choices on the legend sheet. Each is saved with the legend, so
    they go to the Sheet with the project and come back on another device. The
-   symbol mode itself is the 🎯 button's — the same setting, reached by name. */
+   symbol mode itself is the one Layers → Colour trees by sets — the same setting. */
 function legSymbolSet(m){ setSymbol(m); renderLegendCfg(); }
 function legColorSet(c){
   legendCfg.treeColor = c; persistLegendCfg();
@@ -23902,8 +24080,9 @@ function showHelp(){
     <p><b>If the app closes with a tree open</b><br>Every change you make to a tree form is written to the phone as you make it. If the app is killed — a flat battery, a dropped phone, the operating system reclaiming memory — the next launch offers the tree back exactly as you left it, photographs included, for you to check and save. Saving or cancelling clears it, so you are only ever offered a tree after an exit you did not choose. Declining throws it away rather than asking again next time.</p>
     <p><b>Statistics</b><br>The chart button (or Menu → Statistics) breaks the trees down by health, recorder, species, DBH class, day, treatment, risk and position source. Pick a <b>project</b> and a <b>recorder</b> at the top, and a date range — comparing one recorder against another, or last year against this year, without changing what the map shows. It starts on whatever the map is showing, and the figures export to CSV with the scope recorded in them.</p>
     <div class="stath" style="margin:16px 0 8px">GETTING DATA OUT, AND STAYING SAFE</div>
-    <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so the 🛣 button adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
-    <p><b>Selecting a group of trees</b><br>The ⬚ button on the map draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, and <b>Undo</b> drops the last point. Only trees you can actually see are caught — the <i>Showing</i> filter decides, so a lasso drawn on one job never picks up another job's trees lying underneath.</p>
+    <p><b>The three map buttons</b><br>Down the right of the map: <b>🗺 Map</b> — aerial, street or topographic base, which aerial photo (Esri, York Region, Simcoe…), roads and place names, a site plan, and saving an area for use without signal. <b>📚 Layers</b> — what the trees are coloured by, labels, protection zones, crowns, pruning and removal marks, the field-checked ring, the legend, and the reference layers. <b>🧰 Tools</b> — select a group of trees, measure, identify what is on the map, find trees by attribute, and statistics. Each opens a panel from the bottom; tap the map or ✕ to close it. While a tool is running the Tools button turns green and says which.</p>
+    <p><b>Roads and street names</b><br>Aerial imagery carries no labels at all, so <b>Map → Roads &amp; place names</b> adds Esri's road and place-name overlays on top of it — without them a reader cannot tell which street a tree is on, which is the one thing a street tree map has to answer. They appear on the exported PDF too. The overlay is only used over the aerial; the street and topographic basemaps already have their own labels. The key map on the PDF uses a street map rather than an aerial, since a photo six zoom levels out is unreadable.</p>
+    <p><b>Selecting a group of trees</b><br><b>Tools → Select trees</b> draws a shape: tap round a group of trees, then <b>Select</b>. It tells you how many are inside as you go, and <b>Undo</b> drops the last point. Only trees you can actually see are caught — the <i>Showing</i> filter decides, so a lasso drawn on one job never picks up another job's trees lying underneath.</p>
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
@@ -23948,11 +24127,11 @@ function showHelp(){
     <p><b>Adding a layer</b><br>Two ways. From the phone, <b>Add a layer to Drive</b> in that same sheet sends it up in parts — the file is written only when the last part arrives, so a dropped connection leaves nothing half-written. Or <b>email it</b> to the account that owns the Sheet with <b>TREE LAYER</b> in the subject and the file attached, then tap <b>📧 Check email</b> in the same sheet — the crew can pull it themselves, without anyone opening the Sheet. Only senders listed on the <i>Layer senders</i> tab are accepted.</p>
     <p><b>Aerial imagery</b><br><i>Menu → Bring data in → Aerial imagery source</i> switches the aerial between Esri and municipal orthophotography — York Region 2025 and 2022, Simcoe County 2022 and 2018 — or any other ArcGIS cached tile service you paste in. If one shows blank, pan to your site and tap <b>Test these over this view</b> — the app asks each service for a real tile there and keeps whatever settings work. All are cached tile services, so they draw quickly and save for offline use like any other. Municipal imagery is sharper and more current over its own ground; outside its coverage it has nothing to show, so the map falls back to Esri on its own and tells you. An area saved offline is saved from whichever imagery you were using, kept separately per source so one vintage never overwrites another.</p>
     <p><b>Site plans</b><br><i>Menu → Sync &amp; the Sheet → Site plan</i> loads a <b>georeferenced PDF</b>. The app reads the corner positions embedded in the file, renders the page, crops it to the georeferenced frame and pins it to those four corners — so a rotated or skewed plan lands true rather than being squashed north-up. A slider sets how see-through it is, and it is kept on the device between sessions. Zipped shapefiles and GeoJSON still load through <i>Layers &amp; reference files</i>.</p>
-    <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. The 🎯 button colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. Its fourth setting, <b>Tree locations</b>, draws every tree as one symbol for a plan that shows where the trees are rather than their condition. The legend follows whichever you pick. <b>Menu → Legend</b> sets the same thing by name, the colour of the tree-locations symbol, and the heading printed above the key — automatic, plain “LEGEND”, or your own words.</p>
+    <p><b>Working through construction impacts</b><br>In a tree protection project the form carries <b>Potential impact</b>, <b>Future prognosis</b> and <b>Recommended action</b>. Impact and action are tick lists — a tree can lose roots <i>and</i> need limbs removed — and choosing “None” or “No action required” clears the rest, since those cannot be true alongside anything else. <b>Layers → Colour trees by</b> colours the trees by <b>health</b>, <b>recommended action</b> or <b>potential impact</b>; the last two show dark grey for a tree not yet assessed, so you can see what is left to do while working against a site plan. Its fourth choice, <b>Tree locations</b>, draws every tree as one symbol for a plan that shows where the trees are rather than their condition. The legend follows whichever you pick. <b>Menu → Legend</b> sets the same thing by name, the colour of the tree-locations symbol, and the heading printed above the key — automatic, plain “LEGEND”, or your own words.</p>
     <p><b>The red ring on a tree</b><br>A tree turns red the moment somebody opens it and saves it — that is the <b>field-checked</b> halo, and on an imported street it shows at a glance how much is left to do. It is drawn on the exported plan as well, with a <i>Field checked</i> row in the legend. The <b>✔</b> button on the map rail turns it off, on screen and on the plan together, and the app remembers which way you left it. Nothing about the tree changes — the halo is only being shown or hidden.</p>
     <p><b>TPP page number</b><br>Assembling the document stamps each tree with the <b>sheet it falls on</b>, and stamps it with the number that is actually printed on that sheet — so a tree shown on <i>TPP12</i> reads 12, not "cell 2". The column is called <b>TPP page</b> and appears in Schedule A, in the Schedule A CSV and in the emailed workbook. Where sheets overlap, a tree caught on two of them is indexed to the one it sits most centrally on, which is the sheet that shows it best. The numbers are written the moment the document is assembled, before the table is drawn, so the table and the sheets always agree; the standalone map export deliberately leaves the column alone, because its sheets are a different product numbered from one.</p>
     <p><b>User guide</b><br><i>Menu → Settings &amp; help → User guide (PDF)</i> opens the printable guide — starting a project, loading layers, editing trees, making a map, uploading drawings and finalising the plan. It is kept on the phone with the app, so it opens with no signal.</p>
-    <p><b>Protection zones on the map</b><br>The 🛡 button draws each tree's protection zone as a dashed circle at its true size on the ground — 2.4 m up to 24 cm DBH, then DBH ÷ 10 — so you can see at a glance where zones overlap and where works would encroach. A tree with no DBH yet gets no circle. They sit under the pins and cannot take a tap meant for a tree, and the setting is remembered.</p>
+    <p><b>Protection zones on the map</b><br><b>Layers → Protection zones</b> draws each tree's protection zone as a dashed circle at its true size on the ground — 2.4 m up to 24 cm DBH, then DBH ÷ 10 — so you can see at a glance where zones overlap and where works would encroach. A tree with no DBH yet gets no circle. They sit under the pins and cannot take a tap meant for a tree, and the setting is remembered.</p>
     <p><b>Protection zone and replacements</b><br>Both are worked out from DBH, and <b>every</b> tree carries its compensation figure whether or not it is coming down — the arborist decides what counts, not the app. <b>Count in compensation</b> defaults to following the proposed action and can be set to yes or no per tree. The statistics show the counted total alongside what it would be if every tree were removed. <b>TPZ_M</b> is the tree protection zone radius: 2.4 m up to 24 cm DBH, then DBH ÷ 10. <b>REPL_REQ</b> is the number of replacement trees the DBH earns under the City table — 0 up to 20 cm, then 1, 2, 3, 4 and 5 through the bands. The statistics panel totals both, which are the figures a tree preservation plan has to state.</p>
     <p><b>Risk rating</b><br>Failure potential on its own is not risk. Set <b>Likelihood of failure</b> (suggested from failure potential and health, and forced to Imminent on a dead tree), <b>Target occupancy</b> (how often anything is under the tree), <b>Likelihood of impact</b> (whether the failed part would actually reach it — occupancy suggests a value, but fall direction and anything in between are yours to judge) and <b>Consequences</b> (how bad if it does). The app runs ISA's two matrices and derives a rating — Low, Moderate, High or Extreme — colour-coded in the form. A dead tree over a lane nobody uses is Low; a defective one over a bus shelter is Extreme. This is what makes the inventory defensible if anyone asks later why a tree was left standing.</p>
     <p><b>Every visit is kept</b><br>Saving a tree writes a row to the <b>Inspections</b> tab as well as updating the tree. The tree holds its current state for the map; the history holds every visit. Set <b>Activity this visit</b> to record what was done — pruned, removed, planted — and a removal reason when it applies. At re-survey time, Tree Tools → Change report compares each tree's first and latest visit and reports what declined, improved or was lost.</p>
