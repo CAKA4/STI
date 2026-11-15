@@ -80,9 +80,23 @@
      `wrap-reverse` stacks the extra columns to the LEFT instead, so the first column
      stays against the border whether the rail wraps or not. align-content must be
      flex-START with wrap-reverse: the cross axis is reversed, so start is the right. */
+  /* v217: ONE column against the right edge that scrolls, instead of wrapping into a
+     second column. On a 360x640 phone the wrap put fourteen buttons in two columns over
+     a third of the map. The rail now stops above the zoom buttons (which had been
+     sitting on top of Locate), scrolls when it is taller than the room, and fades at
+     the bottom while there is more below, so nothing is hidden without a sign of it.
+     It still sits 8 px off the edge — the rule from the earlier rail fix. */
   .map-rail{ position:fixed; right:calc(8px + env(safe-area-inset-right)); top:calc(var(--barh) + 10px); z-index:810;
-    display:flex; flex-flow:column wrap-reverse; align-content:flex-start; gap:8px;
-    max-height:calc(100% - var(--barh) - 190px); pointer-events:none }
+    display:flex; flex-flow:column nowrap; gap:6px; overflow-y:auto; overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:0 0 4px;
+    max-height:calc(100% - var(--barh) - 10px - 168px - env(safe-area-inset-bottom)); pointer-events:auto }
+  .map-rail::-webkit-scrollbar{ display:none }
+  .map-rail.more{ -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent);
+    mask-image:linear-gradient(to bottom,#000 calc(100% - 40px),transparent) }
+  .map-rail button{ flex:none }
+  /* Leaflet's zoom buttons, lifted off the bottom bar so "+" no longer covers Locate. */
+  .leaflet-bottom.leaflet-right .leaflet-control-zoom{ margin-bottom:calc(78px + env(safe-area-inset-bottom)) !important;
+    margin-right:calc(8px + env(safe-area-inset-right)) !important }
   .map-rail button{ pointer-events:auto; width:44px; height:44px; border-radius:12px; background:rgba(18,32,26,.94);
     border:1px solid var(--line2); color:#cfe6d6; font-size:19px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.5) }
   .map-rail button.on{ background:#2f9d59; border-color:#4cc079; color:#fff }
@@ -147,15 +161,25 @@
   .sheet-inner input.changed{ background:#FFDD54 !important; border-color:#E6B800 !important; font-weight:700 }
   .sheet-inner .picker.changed, .sheet-inner .quick button.changed,
   .sheet-inner .chips.changed{ background:#FFDD54 !important; border-color:#E6B800 !important }
-  /* Untouched fields sit in pale red, so the form reads as a checklist: everything
-     red is still waiting on you, everything yellow you have dealt with. */
-  .sheet-inner .pending, .sheet-inner select.pending, .sheet-inner textarea.pending,
-  .sheet-inner input.pending{ background:rgba(214,64,43,.13) !important; border-color:#D6402B !important }
-  .sheet-inner .picker.pending{ background:rgba(214,64,43,.13) !important; border-color:#D6402B !important }
-  .sheet-inner .chips.pending{ background:rgba(214,64,43,.13); border:1.5px solid #D6402B;
-    border-radius:10px; padding:7px }
+  /* v217: a field not yet checked keeps its ordinary look and its LABEL carries an
+     amber dot. The form still reads as a checklist — dots are what is left — but
+     thirty pale-red boxes with red borders read as thirty errors, which they are not.
+     Yellow is kept for a value actually changed, so you still see what you edited
+     before saving. Red is left for real problems. */
+  .sheet-inner .fld label.todo{ justify-content:flex-start }
+  .sheet-inner .fld label.todo > *{ margin-left:auto }
+  .sheet-inner .fld label.todo::before{ content:""; flex:none; width:9px; height:9px; border-radius:50%;
+    background:#E8A317; box-shadow:0 0 0 2px rgba(232,163,23,.25) }
   .sheet-inner .chips.changed{ border:1.5px solid #E6B800; border-radius:10px; padding:7px }
   #confirmRow{ position:sticky; top:0; z-index:3; padding:6px 0 8px; background:#fff }
+  details.office{ margin:4px 0 14px; border:1.5px solid #9fb0a5; border-radius:12px; padding:0 12px; background:#f4f7f4 }
+  details.office > summary{ list-style:none; cursor:pointer; padding:13px 0; font-weight:700; font-size:15px; color:#0d1a13 }
+  details.office > summary::-webkit-details-marker{ display:none }
+  details.office > summary::before{ content:"▸"; display:inline-block; width:16px; color:#5a7062; transition:transform .15s }
+  details.office[open] > summary::before{ transform:rotate(90deg) }
+  details.office > summary span{ display:block; margin-left:16px; font-weight:400; font-size:12.5px; color:#5a7062 }
+  details.office[open]{ padding-bottom:4px }
+  #confirmRow .pdot{ display:inline-block; width:9px; height:9px; border-radius:50%; background:#E8A317; margin-right:8px; vertical-align:middle }
   .changedot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:#E6B800; margin-left:6px; vertical-align:middle }
   .sheet-inner .statbox{ background:#eef2ee; border-color:#9fb0a5 }
   .sheet-inner .statbox .n{ color:#0d1a13 } .sheet-inner .statbox .l{ color:#3f5147 }
@@ -432,7 +456,7 @@
   .toast.err{ background:#3a2420; border-color:#7a4436; color:#ffd9cf }
   .hint{ font-size:12px; color:var(--muted); margin:2px 0 10px }
   /* Leaflet's own scale bar, restyled to read against aerial imagery. */
-  .leaflet-control-scale{ margin-bottom:78px !important; margin-left:12px !important }
+  .leaflet-control-scale{ margin-bottom:calc(100px + env(safe-area-inset-bottom)) !important; margin-left:12px !important }
   .leaflet-control-scale-line{ background:rgba(10,20,14,.72) !important; color:#fff !important;
     border:1.5px solid rgba(255,255,255,.85) !important; border-top:none !important;
     font:600 11px/1.5 var(--mono) !important; padding:1px 6px !important; text-shadow:0 0 3px #000 }
@@ -589,7 +613,7 @@
   .preview{ background:linear-gradient(90deg,#16231b 0 50%,#b9c4b0 50% 100%); border:1px dashed var(--line2); border-radius:9px; padding:12px; min-height:46px;
     display:flex; align-items:center; justify-content:center }
 
-  .legend{ display:none; position:fixed; left:12px; bottom:calc(104px + env(safe-area-inset-bottom)); z-index:813;
+  .legend{ display:none; position:fixed; left:12px; bottom:calc(128px + env(safe-area-inset-bottom)); z-index:813;
     background:rgba(10,20,14,.92); border:1px solid var(--line); border-radius:10px; padding:9px 11px; max-width:62vw }
   .legend.show{ display:block }
   .legend h4{ margin:0 0 6px; font:700 10px/1 var(--sans); letter-spacing:.12em; text-transform:uppercase; color:#7aa888 }
@@ -636,6 +660,7 @@
   <button id="btnBase" onclick="cycleBase()" title="Base map">🛰</button>
   <button id="btnLabels" onclick="toggleLabels()" oncontextmenu="openLabels();return false;" title="Labels on/off — hold to configure">🏷</button>
   <button id="btnLayers" onclick="openLayers()" title="Layers">📚</button>
+  <button id="btnSymbol" onclick="cycleSymbol()" title="Colour trees by…">🎯</button>
   <button id="btnLegend" onclick="toggleLegend()" title="Legend">🎨</button>
   <button id="btnStats" onclick="openStats()" title="Statistics">📊</button>
   <button id="btnSelect" onclick="toggleSelect()" title="Select a group of trees">⬚</button>
@@ -646,7 +671,6 @@
   <button id="btnCrown" onclick="toggleCrown()" title="Crown diameter circles">🌳</button>
   <button id="btnMarks" onclick="toggleMarks()" title="Pruning (P) and removal (✕) marks">✂</button>
   <button id="btnChecked" onclick="toggleChecked()" title="Field-checked halo — the red ring on trees somebody has opened and saved">✔</button>
-  <button id="btnSymbol" onclick="cycleSymbol()" title="Colour trees by…">🎯</button>
   <button id="btnPdf" onclick="togglePDF()" title="Site plan" style="display:none">🗺</button>
 </div>
 
@@ -671,7 +695,7 @@
     </div>
 
     <div class="btnrow" id="confirmRow">
-      <button type="button" onclick="confirmAllPending()">✓ Accept defaults <span id="pendCount"></span></button>
+      <button type="button" onclick="confirmAllPending()"><span class="pdot"></span>✓ Accept defaults <span id="pendCount"></span></button>
     </div>
 
     <div class="btnrow" id="sameAsLastRow" style="display:none;margin-bottom:12px">
@@ -1043,6 +1067,30 @@
       <div class="mini">Shared with the whole crew once you save.</div>
     </div>
     <div class="fld">
+      <label>Photo quality</label>
+      <select id="setPhotoQ"></select>
+      <div class="mini" id="photoQNote">—</div>
+    </div>
+
+    <div class="fld">
+      <label>Saving without a photo</label>
+      <select id="setPhotoNag">
+        <option value="1">Ask me first — a missing photo is usually a forgotten one</option>
+        <option value="0">Just save it</option>
+      </select>
+    </div>
+
+    <div class="row2">
+      <div class="fld"><label>ID prefix</label><input id="setPrefix" type="text" placeholder="AUR" maxlength="6"></div>
+      <div class="fld"><label>Device letter</label><input id="setDevice" type="text" placeholder="A" maxlength="1"></div>
+    </div>
+    <div class="fld"><label>Next number</label><input id="setCounter" type="number" min="1" step="1"></div>
+    <div class="mini" id="idPreview">—</div>
+
+    <!-- v217: what the office sets once per job, folded away from the crew's first screen. -->
+    <details class="office" id="officeSettings">
+      <summary>Office settings <span>replacement cost, tree value, project type</span></summary>
+    <div class="fld">
       <label>York Region replacement cost</label>
       <div class="row2">
         <div><input id="setYrDec" type="text" inputmode="decimal" placeholder="1290"></div>
@@ -1084,20 +1132,6 @@
     </div>
 
     <div class="fld">
-      <label>Photo quality</label>
-      <select id="setPhotoQ"></select>
-      <div class="mini" id="photoQNote">—</div>
-    </div>
-
-    <div class="fld">
-      <label>Saving without a photo</label>
-      <select id="setPhotoNag">
-        <option value="1">Ask me first — a missing photo is usually a forgotten one</option>
-        <option value="0">Just save it</option>
-      </select>
-    </div>
-
-    <div class="fld">
       <label>Crown size method</label>
       <select id="setCrownMethod">
         <option value="species">By species — differentiates columnar, dwarf, weeping</option>
@@ -1105,13 +1139,7 @@
       </select>
       <div class="mini">Height always uses the Aurora equation, so it stays comparable either way.</div>
     </div>
-
-    <div class="row2">
-      <div class="fld"><label>ID prefix</label><input id="setPrefix" type="text" placeholder="AUR" maxlength="6"></div>
-      <div class="fld"><label>Device letter</label><input id="setDevice" type="text" placeholder="A" maxlength="1"></div>
-    </div>
-    <div class="fld"><label>Next number</label><input id="setCounter" type="number" min="1" step="1"></div>
-    <div class="mini" id="idPreview">—</div>
+    </details>
     <div class="btnrow"><button class="primary" onclick="saveSettings()">Save</button><button onclick="closeSettings()">Cancel</button></div>
   </div>
 </div>
@@ -2366,7 +2394,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-10-10 · v216";
+const APP_BUILD  = "2026-11-15 · v217";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3320,6 +3348,7 @@ async function initMap(){
   fmap = L.map("fmap",{zoomControl:false,attributionControl:false,preferCanvas:true}).setView([44.00,-79.46],16);
   setBase(0);
   L.control.zoom({position:"bottomright"}).addTo(fmap);
+  watchRail();
   // Metric only, and bottom-left where it does not sit under the zoom buttons.
   L.control.scale({position:"bottomleft", metric:true, imperial:false, maxWidth:170}).addTo(fmap);
   /* Explicit panes. A LayerGroup does NOT control stacking — every vector layer
@@ -3348,7 +3377,7 @@ async function initMap(){
   if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) loadPdfOverlay(f); e.target.value=""; });
   const tli=$("tppLogoInput");
   if(tli) tli.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) addTppLogo(f); e.target.value=""; });
-  setSheetSize(sheetSize);
+  setSheetSize(sheetSize, true);
   // If the chosen aerial is a dynamic service and we have not learned its image
   // sublayer yet, find it now and redraw — otherwise the first view shows the grid.
   { const src = imagerySource();
@@ -7477,6 +7506,17 @@ function setState(el, state){
   if(!el) return;
   el.classList.toggle("changed", state==="changed");
   el.classList.toggle("pending", state==="pending");
+  /* The dot lives on the field's label. A row can hold more than one tracked
+     element, so the label keeps its dot while any of them is still pending. */
+  const f = el.closest ? el.closest(".fld") : null;
+  const lab = f ? f.querySelector(":scope > label") : null;
+  if(lab) lab.classList.toggle("todo", !!f.querySelector(".pending"));
+}
+/* Touched but left as it was: dealt with, not changed — no yellow. */
+function seenState(el){
+  if(!el) return "";
+  const base = formSnapshot[el.id];
+  return (base !== undefined && "value" in el && String(el.value) !== String(base)) ? "changed" : "";
 }
 function markChanged(el){
   if(!el) return;
@@ -7490,7 +7530,7 @@ function markChanged(el){
 function confirmField(id){
   const el=$(id); if(!el) return;
   pendingFields[id]=false;
-  setState(el,"changed");
+  setState(el, seenState(el));
   updatePendCount();
 }
 function confirmAllPending(){
@@ -7502,8 +7542,8 @@ function confirmAllPending(){
   const et = trees[editIndex];
   applyNewTreeDefaults($("fLAT").value, $("fLON").value, !!et && isTPP(projectOf(et)));
   trackedIds().forEach(id=>{ if(pendingFields[id]){ confirmField(id); n++; } });
-  if(pendingFields._species){ pendingFields._species=false; setState($("spPicker"),"changed"); n++; }
-  if(pendingFields._health){ pendingFields._health=false; setState($("healthChips"),"changed"); n++; }
+  if(pendingFields._species){ pendingFields._species=false; setState($("spPicker"),""); n++; }
+  if(pendingFields._health){ pendingFields._health=false; setState($("healthChips"),""); n++; }
   updatePendCount();
   toast(n ? `${n} field(s) accepted as-is` : "Nothing left outstanding");
 }
@@ -17155,7 +17195,7 @@ function kitApply(project, kit, only){
     persistLegendCfg(); done.push("legend");
   }
   if(take("sheet") && kit.sheet){
-    if(kit.sheet.size) setSheetSize(kit.sheet.size);
+    if(kit.sheet.size) setSheetSize(kit.sheet.size, true);
     if($("mapScale") && kit.sheet.scale) $("mapScale").value = kit.sheet.scale;
     if(kit.sheet.prefix){ docMap.prefix = kit.sheet.prefix; if($("docPrefix")) $("docPrefix").value = kit.sheet.prefix; }
     if(typeof kit.sheet.title === "string"){ docMap.title = kit.sheet.title; if($("docTitle")) $("docTitle").value = kit.sheet.title; }
@@ -19358,7 +19398,22 @@ const SHEET_SIZES = {
 };
 let sheetSize = "tabloid";
 try{ sheetSize = (STORE&&STORE.getItem("st_sheet")) || "tabloid"; }catch(e){}
-function setSheetSize(k){
+/* v217: the paper size was toasted every time the app opened — setSheetSize runs at
+   start-up and again when the project kit arrives, so every crew member saw
+   "17 × 11 in (tabloid) — plan sets" pop up for no reason. Only a size somebody
+   actually picks is announced now; start-up and the kit pass quiet. */
+function railFade(){
+  const r = document.querySelector(".map-rail"); if(!r) return;
+  r.classList.toggle("more", r.scrollTop + r.clientHeight < r.scrollHeight - 2);
+}
+function watchRail(){
+  const r = document.querySelector(".map-rail"); if(!r) return;
+  r.addEventListener("scroll", railFade, { passive:true });
+  window.addEventListener("resize", railFade);
+  try{ new MutationObserver(railFade).observe(r, { subtree:true, attributes:true, attributeFilter:["style","class"] }); }catch(e){}
+  railFade();
+}
+function setSheetSize(k, quiet){
   if(!SHEET_SIZES[k]) return;
   sheetSize = k;
   if(STORE){ try{ STORE.setItem("st_sheet", k); }catch(e){} }
@@ -19369,7 +19424,7 @@ function setSheetSize(k){
      rendered at the DOCUMENT size instead, because one document must not mix page
      sizes. Both paths already take their dimensions separately, so nothing here
      needs to change them. */
-  toast(SHEET_SIZES[k].name);
+  if(!quiet) toast(SHEET_SIZES[k].name);
 }
 let PDF_W_IN = SHEET_SIZES[sheetSize].w, PDF_H_IN = SHEET_SIZES[sheetSize].h;
 // Kept for the key map inset, which is always the Esri street map.
@@ -23804,7 +23859,7 @@ function showHelp(){
     <p><b>Parcel and road layers — where accurate addresses come from</b><br>Load your parcel fabric and street centrelines the same way, as zipped shapefiles, under <b>Menu → Layers → Add reference layer</b>. When each one loads you are asked what it is for, and which column holds the value:</p>
     <p><b>Any other layer you find useful</b><br>Load as many as you like: aerial-derived boundaries, hydro corridors, sidewalks, ward boundaries, last year's plantings. Points, lines and polygons all draw. A layer left as <i>Backdrop only</i> is never edited and never exported — it is there to help you work. Each gets its own colour, an on/off switch, a zoom-to button, and its own label settings, so you can label parcels with their roll number while trees show species and DBH.</p>
     <div class="stath" style="margin:16px 0 8px">FILLING THE FORM</div>
-    <p><b>Red and yellow</b><br>On a new or imported tree every field starts pale red — nothing has been dealt with yet. Touching one turns it yellow, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. The count beside <i>Accept defaults</i> tells you how many are left, and that button clears them all in one tap when the baseline is correct. A new tree also starts with sensible values already in place — target occupancy, consequences, potential impact, recommended action and long-term impact, and on a tree protection job the location, proposed action and future prognosis as well. Location is worked out from where the tree actually stands: inside a parcel it takes that parcel's property, and a tree in no parcel is in the road allowance, which has no polygon of its own. The risk rating then resolves as soon as you set the likelihood of failure — that one is never assumed, because it is a structural judgement. All of them are still red until you touch them, so an untouched rating reads as untouched. On an existing tree only genuinely empty fields start red; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
+    <p><b>Amber dots and yellow</b><br>On a new or imported tree every field starts with an amber dot beside its name — nothing has been dealt with yet. Touching a field clears its dot, whether you change the value or keep the default, so the form reads as a checklist and you can see at a glance what is still outstanding. A value you actually change turns yellow, so you can see what you edited before saving. The count beside <i>Accept defaults</i> tells you how many dots are left, and that button clears them all in one tap when the baseline is correct. A new tree also starts with sensible values already in place — target occupancy, consequences, potential impact, recommended action and long-term impact, and on a tree protection job the location, proposed action and future prognosis as well. Location is worked out from where the tree actually stands: inside a parcel it takes that parcel's property, and a tree in no parcel is in the road allowance, which has no polygon of its own. The risk rating then resolves as soon as you set the likelihood of failure — that one is never assumed, because it is a structural judgement. All of them keep their dot until you touch them, so an untouched rating reads as untouched. On an existing tree only genuinely empty fields start with a dot; anything already holding recorded data sits plain, and turns yellow only if you actually change it.</p>
     <p><b>Saving without scrolling</b><br>There is a <b>💾 Save tree</b> button at the top of the form as well as at the bottom. It stays with you as you scroll, so a tree that only needs a species, a diameter and a photograph is three taps and a save rather than a scroll to the end. It is the same save: the tree still needs a position and a species, and it still asks once if there is no photograph.</p>
     <p><b>Defaults</b><br>A new tree starts at the healthy baseline — Good, Boulevard, No problem, Low, None observed, No Treatment — so you only change what actually differs. Setting health to Removed, Dead, Stump or Stump carving resets the defect ratings and clears the comments, since they no longer describe anything; DBH is kept because size still matters. <i>Same as last tree</i> copies species, size, condition and defects forward, leaving location, photo and comments blank.</p>
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
