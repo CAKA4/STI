@@ -35,6 +35,16 @@
   html{ -webkit-text-size-adjust:100%; touch-action:manipulation }
   .appbar, .map-rail, .bottombar, .statusline, .legend, .repobar, .undobar{ touch-action:manipulation }
   html,body{margin:0;padding:0;height:100%;overflow:hidden}
+  /* v219: iOS 26 bug (WebKit 301108). In a home-screen app with the translucent status
+     bar and viewport-fit=cover, the page comes up SHORTER than the screen by the status
+     bar's height (47-62 px), so the map and the bottom buttons stopped that far above the
+     bottom of the glass with an empty band beneath — Chris's screenshot, 2026-11-15.
+     Letting the page be as tall as the screen plus the top inset, capped at the large
+     viewport so nothing can scroll when the inset is 0, puts the fixed layers back on the
+     real bottom edge. CSS only; no reinstall from the home screen needed. */
+  @media (display-mode: standalone){
+    html{ min-height:min(100lvh, calc(100% + env(safe-area-inset-top))) }
+  }
   body{ font-family:var(--sans); color:var(--text); background:var(--bg); font-size:16px; line-height:1.4;
         -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent; }
 
@@ -54,7 +64,7 @@
      measured at runtime into --barh rather than assumed. A fixed 56px put the first
      rail button behind the bar on a notched phone. */
   :root{ --barh:76px }
-  #fmap{ position:fixed; inset:0; top:var(--barh); bottom:0; background:#0a140a }
+  #fmap{ position:fixed; inset:0; top:max(var(--barh), calc(env(safe-area-inset-top) + 40px)); bottom:0; background:#0a140a }
   .leaflet-container{ background:#0a140a }
 
   /* crosshair */
@@ -86,7 +96,7 @@
      sitting on top of Locate), scrolls when it is taller than the room, and fades at
      the bottom while there is more below, so nothing is hidden without a sign of it.
      It still sits 8 px off the edge — the rule from the earlier rail fix. */
-  .map-rail{ position:fixed; right:calc(8px + env(safe-area-inset-right)); top:calc(var(--barh) + 10px); z-index:810;
+  .map-rail{ position:fixed; right:calc(8px + env(safe-area-inset-right)); top:max(calc(var(--barh) + 10px), calc(env(safe-area-inset-top) + 58px)); z-index:810;
     display:flex; flex-flow:column nowrap; gap:6px; overflow-y:auto; overscroll-behavior:contain;
     -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:0 0 4px;
     max-height:calc(100% - var(--barh) - 10px - 168px - env(safe-area-inset-bottom)); pointer-events:auto }
@@ -2450,7 +2460,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-15 · v218";
+const APP_BUILD  = "2026-11-15 · v219";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3514,7 +3524,17 @@ function syncBarHeight(){
 function watchBarHeight(){
   const bar = document.querySelector(".appbar");
   if(!bar || typeof ResizeObserver !== "function") return;
-  try{ new ResizeObserver(()=> syncBarHeight()).observe(bar); }catch(e){}
+  /* v219: observe the BORDER box. The status-bar space is the bar's top PADDING, and a
+     plain ResizeObserver watches only the content box — so when the iPhone reported its
+     safe area after launch the bar grew, nothing fired, and the rail (placed from the
+     stale height) started under the header with Map half hidden. */
+  try{ new ResizeObserver(()=> syncBarHeight()).observe(bar, { box:"border-box" }); }catch(e){
+    try{ new ResizeObserver(()=> syncBarHeight()).observe(bar); }catch(e2){} }
+  /* And measure again whenever the app comes back to the front, and a few times as it
+     settles — iOS can hand over the safe area late without any resize at all. */
+  window.addEventListener("pageshow", syncBarHeight);
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) setTimeout(syncBarHeight, 60); });
+  [150, 600, 1500, 3500].forEach(ms => setTimeout(syncBarHeight, ms));
 }
 
 function startGPS(){
