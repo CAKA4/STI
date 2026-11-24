@@ -61,6 +61,12 @@
   .appbar .projchip .caret{ color:#86a08c; font-size:11px; flex:none }
   .appbar .projchip.none{ background:#3a2d12; border-color:#a77d1e; color:#ffd98a }
   .appbar .sub{ display:block; font-size:11px; color:#86a08c; font-weight:400; letter-spacing:.02em; text-transform:none }
+  /* v238: a filter that is on, with its own ✕ */
+  .appbar .sub .fchip{ display:inline-flex; align-items:center; gap:4px; margin:2px 0 0 2px; padding:3px 8px; min-height:24px;
+    border:1px solid #c9a227; border-radius:12px; background:#fff6d6; color:#5a4500; font-family:inherit; font-size:11px; font-weight:600; line-height:1.2;
+    white-space:nowrap; cursor:pointer; text-transform:none; letter-spacing:0; text-align:left }
+  .appbar .sub .fchip .fx{ font-weight:700; color:#8a6a00 }
+  .appbar .sub .fchip.fwarn{ border-color:#c0392b; background:#fdecea; color:#8e1b10; white-space:normal }
   .pillbtn{ background:#1d2c23; border:1px solid #2f4a39; color:#bfe6cb; font-size:12px; padding:5px 11px;
     border-radius:999px; font-family:var(--mono); cursor:pointer }
   .dot{ width:9px; height:9px; border-radius:50%; background:#4caf50; box-shadow:0 0 6px #4caf50 }
@@ -603,6 +609,20 @@
   .wotab th:first-child, .wotab td:first-child{ text-align:left }
   .wotab input{ width:100%; min-width:46px; box-sizing:border-box; min-height:36px; padding:4px; border:1px solid #9fb0a5; border-radius:6px; font:13px var(--sans); text-align:right }
   .wotab .over{ color:#b3261e; font-weight:700 }
+  /* v237: CAD drawings */
+  .cadopt, .cadlyr{ display:flex; gap:10px; align-items:flex-start; padding:8px 4px; border-bottom:1px solid #e3e9e4; cursor:pointer }
+  .cadopt input, .cadlyr input{ width:20px; height:20px; margin-top:2px; flex:0 0 auto }
+  .cadopt small, .cadlyr small{ display:block; font:12.5px var(--sans); color:#5a7062; margin-top:1px }
+  .cadlyr .sw{ flex:0 0 14px; height:14px; margin-top:4px; border:1px solid #9fb0a5; border-radius:3px }
+  .cadlyr b{ font:600 14px var(--sans); word-break:break-all }
+  .cadbest{ display:inline-block; background:#1d7a45; color:#fff; border-radius:9px; padding:0 7px; font:700 11px var(--sans); margin-left:4px }
+  #cadLayers{ max-height:42vh; overflow-y:auto; border:1px solid #e3e9e4; border-radius:8px; padding:0 6px }
+  .stath small{ font-weight:400; color:#5a7062; margin:0 6px }
+  #gfSnapBtn.on{ background:#00838f; color:#fff }
+  /* the two placing bars carry more buttons than fit beside their message: words on top */
+  #cadBar.show, #gfBar.show{ flex-wrap:wrap; row-gap:8px }
+  #cadBar .msg, #gfBar .msg{ flex:1 1 100% }
+  #cadBar button{ flex:1 1 auto; padding:0 10px }
   /* v235: the UI review, finished */
   .tsecbar{ position:sticky; top:0; z-index:3; display:flex; gap:6px; overflow-x:auto; padding:6px 0 8px; margin:0 0 4px;
             background:var(--panel, #fff); border-bottom:1px solid #e3e9e4; scrollbar-width:none }
@@ -1230,6 +1250,7 @@
         <button class="menuitem" onclick="document.getElementById('pointsInput').click()">Import tree points (.zip .shp .geojson .gpx)</button>
         <button class="menuitem" onclick="document.getElementById('updInput').click()">Update trees from an edited layer or table (.zip .xlsx)</button>
         <button class="menuitem" onclick="document.getElementById('sitePdfInput').click()">Site plan<small class="msub"><span class="msep"> — </span>a PDF or image (placed by hand if it has no georeference)</small></button>
+        <button class="menuitem" onclick="cadPick()">CAD drawing (DXF)<small class="msub"><span class="msep"> — </span>an engineer's site plan: pick its layers, place it</small></button>
         <button class="menuitem" onclick="openLayers()">Layers &amp; reference files</button>
         <button class="menuitem" onclick="openDriveLayers()">☁ Layers on Drive<small class="msub"><span class="msep"> — </span>shared with the crew</small></button>
         <button class="menuitem" onclick="openImagery()">Aerial imagery source</button>
@@ -1994,6 +2015,10 @@
         <option value="12">12 — four by three</option>
       </select>
       <div class="mini">Fewer to a page means a bigger photograph; the captions scale with them.</div>
+      <label style="margin-top:10px">Under each photograph</label>
+      <div class="mini">The tree number, then what you tick, in the order you tick it. The same choice as the Appendix A captions.</div>
+      <div class="chips" id="mapCapFields"></div>
+      <div class="mini">Reads: <b id="mapCapPreview">—</b></div>
     </div>
     <div class="btnrow">
       <button class="primary" onclick="runMapExport()">Create the PDF</button>
@@ -2771,6 +2796,7 @@
 <input id="updInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx,.xlsx" style="display:none">
 <input id="lineInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <input id="sitePdfInput" type="file" accept=".pdf,application/pdf,image/png,image/jpeg" style="display:none">
+<input id="cadInput" type="file" accept=".dxf,.dwg,image/vnd.dxf,application/dxf,image/vnd.dwg" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <div class="repobar" id="drawBar">
   <span class="msg" id="drawMsg">—</span>
@@ -2907,7 +2933,20 @@
 <div class="qbar" id="gfBar">
   <span class="msg" id="gfBarMsg">Pan the map so the cross sits on the same spot</span>
   <button type="button" onclick="gfSetHere()">Set here</button>
+  <button type="button" class="alt" id="gfSnapBtn" onclick="gfSnapToggle()" title="Jump to the nearest corner of one of your layers">Snap: off</button>
   <button type="button" class="alt" onclick="gfBack()">Back</button>
+</div>
+<div class="qbar" id="cadBar">
+  <span class="msg" id="cadBarMsg"></span>
+  <span id="cadBarBtns" style="display:contents"></span>
+</div>
+<div class="sheet" id="cadSheet">
+  <div class="sheet-inner">
+    <div class="grab"></div>
+    <h2 id="cadTitle">Bring in a CAD drawing</h2>
+    <div id="cadBody"></div>
+    <div class="btnrow" id="cadBtns"></div>
+  </div>
 </div>
 <div class="sheet" id="dbSheet">
   <div class="sheet-inner">
@@ -2978,7 +3017,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-15 · v236";
+const APP_BUILD  = "2026-11-23 · v239";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3904,6 +3943,7 @@ function persistRefLayers(){
   refLayers.forEach(l=>{
     const rec = layerStyleOf(l, { id:l.id, src:l.src || "", visible:l.visible,
                                   xfer:l.xfer||null, features:l.features });
+    if(l.cadId){ rec.cadId = l.cadId; if(l.textOnly) rec.textOnly = true; }     // v237
     idbPutLayer(rec)
       .catch(()=>toast("Could not save "+l.name+" to this device",true));
   });
@@ -3912,6 +3952,10 @@ function loadRefLayers(){
   if(!HAS_IDB) return Promise.resolve();
   return idbAllLayers().then(list=>{
     if(!list.length) return;
+    /* v237: a CAD drawing's own record (what was read, how it is placed) and the site
+       plan's image are kept in the same store; neither is a layer to list or draw. */
+    list.forEach(r => { if(r && r.isCad && r.cid) cadDocs[r.cid] = r; });
+    list = list.filter(r => r && !r.isCad && !r.isPdf);
     refLayers = list;
     drawRefLayers(); renderLayerList(); buildLegend();
     const n = list.reduce((a,l)=>a+l.features.length,0);
@@ -3986,6 +4030,8 @@ async function initMap(){
   if(dci) dci.addEventListener("change", e=>{ if(e.target.files.length) addDocPdfs(e.target.files); e.target.value=""; });
   const di=$("detailInput");
   if(di) di.addEventListener("change", e=>{ if(e.target.files.length) addDetailFiles(e.target.files); e.target.value=""; });
+  const cdi=$("cadInput");
+  if(cdi) cdi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) cadOpenFile(f); e.target.value=""; });
   const spi=$("sitePdfInput");
   if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f){ if(/^image\//.test(f.type)) gfFromImageFile(f); else loadPdfOverlay(f); } e.target.value=""; });
   const tli=$("tppLogoInput");
@@ -4073,9 +4119,53 @@ function updateSubLine(){
   /* v220: the project is in the pill above, so this line says the count and any OTHER
      filter that is on — a filter on but unsaid is how a report gets built on the wrong
      trees. */
-  const extra = scopeLabel().split(" · ").slice(1);
-  el.textContent = `${vis.length} trees · ${unsent} unsynced` + (extra.length ? " · " + extra.join(" · ") : "");
+  /* v238: each filter that is on is a chip with its own ✕, said in plain words —
+     "only trees from 2026-10-10 ✕" — because "· 2026-10-10" on its own reads like
+     today's date, and a filter left on from last month then hides today's trees. */
+  const chips = filterChips();
+  const total = vis.length ? vis.length : projectTreesIgnoringFilters().length;
+  let html = `<span class="sbc">${vis.length} trees · ${unsent} unsynced</span>`;
+  if(!vis.length && total && chips.length)
+    html += ` <button type="button" class="fchip fwarn" id="filterWarn" onclick="clearFilterPart('all')">` +
+            `All ${total} tree${total === 1 ? "" : "s"} in this project ${total === 1 ? "is" : "are"} hidden by a filter — Clear</button>`;
+  chips.forEach(c => { html += ` <button type="button" class="fchip" data-k="${c.k}" onclick="clearFilterPart('${c.k}')" ` +
+    `aria-label="${esc(c.t)} — tap to clear this filter">${esc(c.t)} <span class="fx">✕</span></button>`; });
+  el.innerHTML = html;
   updateProjChip();
+}
+/* The filters other than the project, as chips: what each one is doing, in words. */
+function filterChips(){
+  const out = [];
+  if(filterCruiser) out.push({ k:"rec", t:`only ${filterCruiser}'s trees` });
+  if(filterFrom && filterTo) out.push({ k:"date", t: filterFrom === filterTo ? `only trees from ${filterFrom}` : `only trees from ${filterFrom} to ${filterTo}` });
+  else if(filterFrom) out.push({ k:"date", t:`only trees since ${filterFrom}` });
+  else if(filterTo)   out.push({ k:"date", t:`only trees up to ${filterTo}` });
+  const live = liveHideRules();
+  if(live.length) out.push({ k:"hide", t:"no " + live.map(hideRuleShort).join(", ") });
+  return out;
+}
+/* The trees in the project being shown, with the recorder, date and hide filters
+   taken off — put through the SAME inCurrentProject, not a copy of its project test. */
+function projectTreesIgnoringFilters(){
+  const keep = [filterCruiser, filterFrom, filterTo, hideRules];
+  filterCruiser = ""; filterFrom = ""; filterTo = ""; hideRules = [];
+  try { return trees.filter(inCurrentProject); }
+  finally { [filterCruiser, filterFrom, filterTo, hideRules] = keep; }
+}
+/* One ✕: that filter off, saved, and everything redrawn. "all" takes off every filter
+   except the project you are in. */
+function clearFilterPart(kind){
+  const was = filterChips().find(c => c.k === kind);
+  if(kind === "rec"  || kind === "all") filterCruiser = "";
+  if(kind === "date" || kind === "all"){ filterFrom = ""; filterTo = ""; }
+  if(kind === "hide" || kind === "all") hideRules = [];
+  persistFilters();
+  renderPins(); renderOverlays(); updateProjBtn(); updateSubLine();
+  if(typeof refreshMenuMode === "function") refreshMenuMode();
+  if(typeof buildLegend === "function") buildLegend();
+  const n = visibleTrees().length;
+  toast(kind === "all" ? `Filters cleared · showing ${n} tree(s)` : `Cleared "${was ? was.t : "filter"}" · showing ${n} tree(s)`);
+  if(n) fitTrees();
 }
 
 // Measure the app bar and hand its height to the layout, so nothing hides beneath it.
@@ -4640,7 +4730,7 @@ function renderLabels(){
       if(!p || !bb.contains([p[0],p[1]])) continue;
       const html = labelHtml(c, k => f.props[k]);
       if(!html) continue;
-      L.marker(p,{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html:html,iconSize:null,iconAnchor:[-9,7]})}).addTo(labelLayer);
+      L.marker(p,{pane:"labelPane",interactive:false,icon:L.divIcon({className:"",html: L2.textOnly ? `<div style="transform:translate(-50%,-50%)">${html}</div>` : html,iconSize:null,iconAnchor: L2.textOnly ? [0,0] : [-9,7]})}).addTo(labelLayer);
       nl++;
     }
   });
@@ -4748,6 +4838,7 @@ function drawRefLayers(){
   let drawn = 0, skipped = 0;
   refLayers.forEach(L2=>{
     if(!L2.visible) return;
+    if(L2.textOnly) return;          // v237: CAD text is its labels, not dots
     L2.features.forEach((f,fi)=>{
       if(drawn >= REF_DRAW_MAX){ skipped++; return; }
       const bb = featureBBox(f);
@@ -5789,15 +5880,28 @@ const PLAN_CATS = [
 const RE_ROOTEXC = /root[-\s]*(?:sensitive)?[-\s]*(?:excavat\w*|prun\w*)|hand[-\s]?dig|hydro[-\s]?vac/ig;
 const RE_PRUNE   = /\bprun\w*|dead\s?wood|crown\s+redu\w*|raise\s+(?:the\s+)?canopy|canopy\s+clearance|obstructing\s+limb/i;
 const RE_PROTECT = /protect\w*|fenc\w*|hoarding/i;
+/* v239: THE STREET-TREE FORM'S OWN ANSWER COUNTS TOO.
+   Chris: "I attributed these trees with a treatment but the symbology is not showing
+   properly. They were either prune or remove." A street-tree project (not a tree
+   protection plan) has no Proposed action on its form — the crew picks Recommended
+   treatment (RECOTREA): "Pruning - Immediate", "Removal - High Priority" … and the
+   map read only the Proposed action, so every one of them stayed "Not yet assessed".
+   A "Removal…" is a removal (markedForRemoval and the compensation count already said
+   so), any pruning is pruning. "Remove stump, potential planting site" is a stump,
+   not a tree, and "No Treatment" — the new-tree default — decides nothing, so an
+   unassessed tree in a protection plan is still shown as unassessed. */
+const RE_REC_REMOVE = /^Removal\b/i, RE_REC_PRUNE = /prun/i;
 function planCats(t){
   const v = String((t && t.PROP_ACT) || "");
+  const rec = String((t && t.RECOTREA) || "").trim();
   const out = [];
-  if(tppRemoval(t) || treatOn(t && t.TREE_REM)) out.push("removal");
+  if(tppRemoval(t) || treatOn(t && t.TREE_REM) || RE_REC_REMOVE.test(rec)) out.push("removal");
   const rootHit = RE_ROOTEXC.test(v); RE_ROOTEXC.lastIndex = 0;
   if(rootHit || treatOn(t && t.ROOT_EXC)) out.push("rootexc");
   /* What is left once the root work is taken out — that is the canopy work. */
   const canopy = v.replace(RE_ROOTEXC, " ");
-  if(RE_PRUNE.test(canopy) || treatOn(t && t.CAN_PRUNE) || treatOn(t && t.ELV_RISK))
+  if(RE_PRUNE.test(canopy) || treatOn(t && t.CAN_PRUNE) || treatOn(t && t.ELV_RISK) ||
+     (RE_REC_PRUNE.test(rec) && !RE_REC_REMOVE.test(rec)))
     out.push("pruning");
   if(RE_PROTECT.test(v) || treatOn(t && t.TPZ_FENC)) out.push("protect");
   return out;
@@ -7662,13 +7766,22 @@ function legendRows(){
   return HEALTH.map(h=>[h[0],h[1]]);
 }
 
+/* v239 — ONLY WHAT IS ON THE MAP. Chris: "I only want the legend to show action that
+   is applicable, not of all the options." The screen key now lists the classes the
+   trees showing actually carry — the rule the printed key has followed since v1xx —
+   and the amber ring and red halo only when a tree showing has one. */
 function buildLegend(){
-  let h = `<h4>${esc(symbolMode==="plain" ? "Trees" : SYMBOL_LABEL[symbolMode])}</h4>` + legendRows().map(([n,c])=>
+  const vt = visibleTrees();
+  const rows = legendRows().filter(r => legendRowPresent(r, vt));
+  let h = `<h4>${esc(symbolMode==="plain" ? "Trees" : SYMBOL_LABEL[symbolMode])}</h4>` + rows.map(([n,c])=>
     `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
-  if(symbolMode==="health")
+  if(!vt.length) h += `<div class="lr" style="color:#5a7062">No trees showing</div>`;
+  if(symbolMode==="health" && vt.some(t => !HEALTH.some(x => x[0] === t.HEALTH)))
     h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
-  h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
-  h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 3px #FF1744"></span>red halo = field checked</div>`;
+  if(vt.some(t => !t._sent))
+    h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
+  if(checkedOn && vt.some(t => t._reviewed))
+    h += `<div class="lr"><span class="sw" style="background:#4caf50;box-shadow:0 0 0 3px #FF1744"></span>red halo = field checked</div>`;
   if(tpzOn) h += `<div class="lr"><span class="sw" style="background:rgba(255,213,79,.25);border-color:#FFD54F"></span>dashed circle = tree protection zone</div>`;
   if(crownOn && !canopyCover) h += `<div class="lr"><span class="sw" style="background:rgba(46,158,79,.14);border-color:${CROWN_COLOR}"></span>green circle = crown diameter</div>`;
   if(crownOn && canopyCover) h += `<div class="lr"><span class="sw" style="background:rgba(46,158,79,.45);border-color:rgba(46,158,79,.45)"></span>green = canopy</div><div class="lr" id="canopyStat" style="font-size:11px;color:#5a7062">${esc(canopyText(canopyInView()))}</div>`;
@@ -7679,7 +7792,6 @@ function buildLegend(){
   /* The marks are named only when a tree in view actually carries one — a key that
      lists a symbol the drawing does not use is a key that has to be read twice. */
   if(marksOn){
-    const vt = visibleTrees();
     if(vt.some(markRemove))
       h += `<div class="lr"><span class="sw lg big" style="color:${MARK_REMOVE}">✕</span>tree to be removed</div>`;
     if(vt.some(t=>!markRemove(t) && markPrune(t)))
@@ -7693,27 +7805,10 @@ function buildLegend(){
     h += `<div class="lr"><span class="sw" style="background:${featStyle.rootexc.color}"></span>${esc(fenceName("rootexc"))}</div>`;
   if(onMap.some(f=>f.kind==="planting"))
     h += `<div class="lr"><span class="sw" style="background:#66BB6A;border-color:#1B5E20"></span>proposed planting</div>`;
-  const vis = refLayers.filter(l=>l.visible && layerInLegend(l));
-  if(vis.length){
-    h += `<h4 style="margin-top:9px">Layers</h4>` + vis.map(l=>{
-      const k = layerLegendKind(l);
-      /* The same rule as the printed key: an outlined layer gets an outlined swatch.
-         The floor is here too, so the two keys say the same thing about a layer. */
-      const fa = layerFill(l);
-      /* CSS cannot draw dash-dot, so the screen shows the family: anything patterned
-         reads as dashed and anything dotted reads as dotted. The PLAN is where the
-         six are told apart; the screen only has to say which layer is which colour. */
-      const pat = layerDashPat(l);
-      const css = !pat.length ? "solid" : (pat[0] <= 1.2 ? "dotted" : "dashed");
-      const sw = k === "line"
-        ? `<span class="sw" style="background:transparent;border:none;border-top:3px ${css} ${l.color};height:0;border-radius:0"></span>`
-        : k === "square"
-          ? `<span class="sw sq" style="background:${fa > 0.01 ? hexA(l.color, Math.max(0.18, fa)) : "transparent"};` +
-            `border:2px ${layerDash(l)?"dashed":"solid"} ${l.color}"></span>`
-          : `<span class="sw" style="background:${l.color}"></span>`;
-      return `<div class="lr">${sw}${esc(l.name)}</div>`;
-    }).join("");
-  }
+  /* v239 — TREES ONLY ON SCREEN. Chris: "it shows spm-survey-trees. I don't want that
+     in the legend." The on-screen key explains the tree symbols; the reference layers
+     are named in the Layers panel beside their own switches. The PRINTED key still
+     lists them, by each layer's "Show this layer in the legend" switch. */
   $("legend").innerHTML = h;
 }
 function toggleLegend(){
@@ -18244,8 +18339,44 @@ const SCHEDB_FIELDS = [
   ["ADDRESS",   "Address"],
   ["LOCATION",  "Ownership"],
   ["PROP_ACT",  "Proposed action"],
+  ["RECOTREA",  "Recommended treatment"],   // v239: the street-tree form's action field
   ["TPZ_LBL",   "Protection zone"]
 ];
+/* The second line under a photograph on the photo pages: the chosen fields, in the
+   chosen order, written as they read on the map ("30 cm", "2.4 m"). */
+function photoCaptionLine(t){
+  const fs = schedB.fields || [];
+  const vals = fs.map(f => {
+    const v = String((f === "SPECIES" && !t.SPECIES) ? "no species" : (treeLabelValue(t, f, null, true) ?? "")).trim();
+    return v;
+  }).filter(Boolean);
+  return vals.join("  ·  ");
+}
+/* The same fields, picked from the map export's own screen. It changes ONLY the
+   field list — the Appendix A title and separator are left exactly as they are. */
+function renderMapCapFields(){
+  const box = $("mapCapFields"); if(!box) return;
+  box.innerHTML = SCHEDB_FIELDS.map(([f,label])=>{
+    const i = (schedB.fields || []).indexOf(f);
+    return `<button type="button" class="fieldchip${i>=0?" on":""}" data-f="${f}" onclick="toggleMapCapField('${f}')">` +
+           `${esc(label)}${i>=0?`<span class="ord">${i+1}</span>`:""}</button>`;
+  }).join("");
+  const pv = $("mapCapPreview");
+  if(pv){
+    const t = mapSheetTreesSafe().find(x => String(x.PHOTOS||"").trim()) ||
+              { TREE_NO:"1", SPECIES:"Silver Maple", HEALTH:"Good", DBH:"46", TAG_NO:"1042", TPZ_M:"2.4" };
+    const n = parseInt(t.TREE_NO, 10);
+    const line = photoCaptionLine(t);
+    pv.textContent = (n > 0 ? "T" + n : String(t.TREE_ID || "T1")) + (line ? "   " + line : "");
+  }
+}
+function mapSheetTreesSafe(){ try{ return mapSheetTrees(); }catch(e){ return []; } }
+function toggleMapCapField(f){
+  const l = schedB.fields || (schedB.fields = []);
+  const i = l.indexOf(f);
+  if(i >= 0) l.splice(i, 1); else l.push(f);
+  persistSchedB(); renderMapCapFields();
+}
 function schedBCaption(t, seq){
   const parts = ["T" + treeNoFor(t, seq)];
   (schedB.fields || []).forEach(f=>{
@@ -20005,6 +20136,7 @@ const TOOL_WORDS = [
   ["openFollow", "due overdue inspections maintenance cycle follow up"],
   ["openWorkReport", "maintenance completed work done report"],
   ["openWO", "work orders contractor crew budget cost price tender schedule rates estimate"],
+  ["cadPick", "cad dxf dwg autocad civil 3d engineering engineer drawing site plan layers grading servicing"],
   ["openRR", "risk traq hazard assessment register isa likelihood failure target consequences mitigation residual"],
   ["openPS", "planting sites vacant stump replacement replant new trees plant plan species suggestion"],
   ["exportShapefile", "gis arcgis shp export"], ["exportGeoJSON", "gis arcgis export"],
@@ -23288,6 +23420,881 @@ function basisToPoints_(x1,y1,x2,y2,x3,y3,x4,y4){
   return multmm3_(m,[v[0],0,0, 0,v[1],0, 0,0,v[2]]);
 }
 /* ==================================================================== *
+ *  CAD DRAWINGS — reading a DXF  (v237)
+ *
+ *  Chris: "I sometimes get a cad file of the site plan from the engineering firm. Can
+ *  we have a way to bring that into the map, picking layers to show. The issue would
+ *  be the plans are not always georeferenced or the reference doesn't match what I
+ *  use." He chose: DXF and DWG; drawings in UTM 17, MTM 10 or a local site grid;
+ *  placement by matching points, by shifting / rotating by hand, or by snapping to his
+ *  own layers; and text, hatches and block symbols as well as the linework.
+ *
+ *  THE READER. A DXF is pairs of lines — a group code and a value. Only model space is
+ *  read (paper-space viewports and title blocks are not ground features). Everything
+ *  is reduced to three kinds of thing per layer, in the drawing's own units:
+ *    lines  — flat arrays [x0,y0,x1,y1,…]: lines, polylines (bulges as arcs), arcs,
+ *             circles, ellipses, splines, leaders, the parts of block symbols and of
+ *             dimensions
+ *    polys  — rings of hatches and solids, as filled areas
+ *    texts  — TEXT, MTEXT and visible block attributes, with height and rotation
+ *  Curves are cut into short straight pieces (5° at most), which is finer than any
+ *  plan sheet prints. Blocks are exploded with their insertion point, scale and
+ *  rotation, nested, and a block's layer-0 parts take the layer of the insert — the
+ *  way AutoCAD draws them.
+ * ==================================================================== */
+function dxfPairs(text){
+  const L = String(text).replace(/\r\n?/g, "\n").split("\n"), out = [];
+  for(let i = 0; i + 1 < L.length; i += 2){
+    const c = parseInt(L[i], 10);
+    if(isNaN(c)) { i--; continue; }                 // a stray blank line: resynchronise
+    out.push([c, L[i + 1]]);
+  }
+  return out;
+}
+/* Entities as {type, layer, color, tc, paper, g:[[code,value]…]} — the raw groups kept,
+   because several types repeat a code (a polyline's vertices, a hatch's edges). */
+function dxfRead(text){
+  const P = dxfPairs(text), doc = { units:0, layers:{}, blocks:{}, entities:[], ext:null, codepage:"" };
+  let i = 0;
+  const readEnt = (stop) => {          // from P[i] (a 0 code) to the next 0; returns entity
+    const type = P[i][1]; const e = { type, layer:"0", color:256, tc:null, paper:0, g:[] };
+    i++;
+    while(i < P.length && P[i][0] !== 0){
+      const [c, v] = P[i];
+      if(c === 8) e.layer = v.trim();
+      else if(c === 62) e.color = parseInt(v, 10);
+      else if(c === 420) e.tc = parseInt(v, 10);
+      else if(c === 67) e.paper = parseInt(v, 10) || 0;
+      e.g.push([c, v]); i++;
+    }
+    return e;
+  };
+  const readEntities = (endWord) => {
+    const list = [];
+    while(i < P.length){
+      if(P[i][0] !== 0){ i++; continue; }
+      const w = P[i][1];
+      if(w === endWord || w === "ENDSEC" || w === "EOF") break;
+      const e = readEnt();
+      if(e.type === "POLYLINE"){                       // its VERTEX entities follow, to SEQEND
+        e.verts = [];
+        while(i < P.length && P[i][0] === 0 && P[i][1] === "VERTEX") e.verts.push(readEnt());
+        if(i < P.length && P[i][1] === "SEQEND") readEnt();
+      } else if(e.type === "INSERT" && dxfNum(e.g, 66) === 1){   // attributes follow, to SEQEND
+        e.attribs = [];
+        while(i < P.length && P[i][0] === 0 && P[i][1] === "ATTRIB") e.attribs.push(readEnt());
+        if(i < P.length && P[i][1] === "SEQEND") readEnt();
+      }
+      list.push(e);
+    }
+    return list;
+  };
+  while(i < P.length){
+    if(!(P[i][0] === 0 && P[i][1] === "SECTION")){ i++; continue; }
+    i++;
+    const name = (P[i] && P[i][0] === 2) ? P[i][1] : ""; i++;
+    if(name === "HEADER"){
+      while(i < P.length && !(P[i][0] === 0 && P[i][1] === "ENDSEC")){
+        if(P[i][0] === 9){
+          const v = P[i][1];
+          if(v === "$INSUNITS" && P[i+1] && P[i+1][0] === 70) doc.units = parseInt(P[i+1][1], 10) || 0;
+          if(v === "$DWGCODEPAGE" && P[i+1]) doc.codepage = P[i+1][1];
+          if(v === "$EXTMIN" || v === "$EXTMAX"){
+            const o = {}; let k = i + 1;
+            while(P[k] && P[k][0] !== 9 && P[k][0] !== 0){ if(P[k][0] === 10) o.x = +P[k][1]; if(P[k][0] === 20) o.y = +P[k][1]; k++; }
+            doc.ext = doc.ext || {}; doc.ext[v === "$EXTMIN" ? "min" : "max"] = o;
+          }
+        }
+        i++;
+      }
+    } else if(name === "TABLES"){
+      while(i < P.length && !(P[i][0] === 0 && P[i][1] === "ENDSEC")){
+        if(P[i][0] === 0 && P[i][1] === "LAYER"){
+          const e = readEnt(), nm = dxfStr(e.g, 2);
+          if(nm != null){ const col = dxfNum(e.g, 62), fl = dxfNum(e.g, 70) || 0;
+            doc.layers[nm.trim()] = { color: col == null ? 7 : Math.abs(col), off: col != null && col < 0, frozen: !!(fl & 1),
+                                      tc: dxfNum(e.g, 420) }; }
+        } else i++;
+      }
+    } else if(name === "BLOCKS"){
+      while(i < P.length && !(P[i][0] === 0 && P[i][1] === "ENDSEC")){
+        if(P[i][0] === 0 && P[i][1] === "BLOCK"){
+          const b = readEnt(); const nm = dxfStr(b.g, 2) || "";
+          const ents = readEntities("ENDBLK");
+          if(i < P.length && P[i][1] === "ENDBLK") readEnt();
+          doc.blocks[nm] = { name:nm, bx: dxfNum(b.g, 10) || 0, by: dxfNum(b.g, 20) || 0, flags: dxfNum(b.g, 70) || 0, ents };
+        } else i++;
+      }
+    } else if(name === "ENTITIES"){
+      doc.entities = readEntities("ENDSEC");
+    } else {
+      while(i < P.length && !(P[i][0] === 0 && P[i][1] === "ENDSEC")) i++;
+    }
+  }
+  return doc;
+}
+function dxfNum(g, code, nth){ let n = 0; for(const [c, v] of g) if(c === code){ if((nth || 0) === n) { const x = parseFloat(v); return isFinite(x) ? x : null; } n++; } return null; }
+function dxfStr(g, code){ for(const [c, v] of g) if(c === code) return v; return null; }
+function dxfAll(g, code){ const o = []; for(const [c, v] of g) if(c === code) o.push(parseFloat(v)); return o; }
+
+/* ---- colours: the AutoCAD Colour Index -------------------------------------------
+   1–9 fixed; 10–249 are 24 hues at 15° steps, each in five shades, full and pastel;
+   250–255 greys. Colour 7 is "white on a dark screen, black on paper"; over an aerial
+   it is drawn white. */
+function aciHex(n){
+  n = Math.abs(n | 0);
+  const fixed = { 1:"#ff0000", 2:"#ffff00", 3:"#00ff00", 4:"#00ffff", 5:"#0000ff", 6:"#ff00ff", 7:"#ffffff", 8:"#808080", 9:"#c0c0c0" };
+  if(fixed[n]) return fixed[n];
+  const hx = v => ("0" + Math.round(Math.max(0, Math.min(255, v))).toString(16)).slice(-2);
+  if(n >= 250 && n <= 255){ const g = [0x33, 0x50, 0x69, 0x82, 0xbe, 0xff][n - 250]; return "#" + hx(g) + hx(g) + hx(g); }
+  if(n < 10 || n > 249) return "#ffffff";
+  const h = Math.floor((n - 10) / 10) * 15, k = (n - 10) % 10, val = [1, 1, .65, .65, .5, .5, .3, .3, .15, .15][k], pastel = k % 2 === 1;
+  const f = (m) => { const kk = (m + h / 60) % 6; return 1 - Math.max(0, Math.min(kk, 4 - kk, 1)); };   // HSV, s = 1
+  let r = f(5), g2 = f(3), b = f(1);
+  if(pastel){ r = (r + 1) / 2; g2 = (g2 + 1) / 2; b = (b + 1) / 2; }
+  return "#" + hx(r * 255 * val) + hx(g2 * 255 * val) + hx(b * 255 * val);
+}
+function tcHex(tc){ return "#" + ("00000" + (tc & 0xffffff).toString(16)).slice(-6); }
+
+/* ---- MTEXT formatting out, the symbols in ---------------------------------------- */
+function dxfText(s){
+  s = String(s || "");
+  s = s.replace(/\\U\+([0-9A-Fa-f]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+  s = s.replace(/%%[cC]/g, "Ø").replace(/%%[dD]/g, "°").replace(/%%[pP]/g, "±").replace(/%%[uUoOkK]/g, "").replace(/%%%/g, "%");
+  s = s.replace(/\\P/g, "\n").replace(/\\~/g, " ");
+  s = s.replace(/\\S([^;^#\/]*)[\^#\/]([^;]*);/g, "$1/$2");
+  s = s.replace(/\\[fFcCHhQqWwTtAapX][^;\\]*;/g, "");
+  s = s.replace(/\\[LlOoKkNn]/g, "");
+  s = s.replace(/\\\\/g, "\u0000").replace(/\\[{}]/g, m => m[1]).replace(/[{}]/g, "").replace(/\u0000/g, "\\");
+  return s.replace(/[ \t]+/g, " ").trim();
+}
+
+/* ---- geometry helpers ------------------------------------------------------------ */
+const CAD_STEP = Math.PI / 36;                   // 5°
+function cadArcPts(cx, cy, r, a0, a1, out){      // radians, counter-clockwise from a0 to a1
+  let sw = a1 - a0; while(sw <= 0) sw += 2 * Math.PI;
+  const n = Math.max(2, Math.min(360, Math.ceil(sw / CAD_STEP)));
+  for(let k = 0; k <= n; k++){ const a = a0 + sw * k / n; out.push(cx + r * Math.cos(a), cy + r * Math.sin(a)); }
+  return out;
+}
+/* A polyline vertex's bulge: tan(¼ of the included angle), positive counter-clockwise. */
+function cadBulge(x1, y1, x2, y2, b, out){
+  if(!b){ out.push(x2, y2); return; }
+  const th = 4 * Math.atan(b), dx = x2 - x1, dy = y2 - y1, c = Math.hypot(dx, dy);
+  if(!c) return;
+  /* centre: from the chord's midpoint, to its left by (c/2)·(1−b²)/(2b) — negative
+     (to the right) for a clockwise bulge */
+  const d = (c / 2) * (1 - b * b) / (2 * b), ux = -dy / c, uy = dx / c;
+  const cx = (x1 + x2) / 2 + ux * d, cy = (y1 + y2) / 2 + uy * d, r = Math.hypot(x1 - cx, y1 - cy);
+  const a0 = Math.atan2(y1 - cy, x1 - cx), n = Math.max(2, Math.ceil(Math.abs(th) / CAD_STEP));
+  for(let k = 1; k < n; k++){ const a = a0 + th * k / n; out.push(cx + r * Math.cos(a), cy + r * Math.sin(a)); }
+  out.push(x2, y2);
+}
+/* Rational B-spline by de Boor; uniform knots made up if the file has none. */
+function cadSpline(deg, knots, ctrl, wts){
+  const n = ctrl.length / 2; if(n < 2) return ctrl.slice();
+  deg = Math.max(1, Math.min(deg || 3, n - 1));
+  if(!knots || knots.length !== n + deg + 1){ knots = []; for(let k = 0; k < n + deg + 1; k++) knots.push(k <= deg ? 0 : k >= n ? n - deg : k - deg); }
+  const w = (wts && wts.length === n) ? wts : null;
+  const lo = knots[deg], hi = knots[n], out = [], N = Math.max(16, n * 8);
+  for(let s = 0; s <= N; s++){
+    const t = s === N ? hi - 1e-9 * (hi - lo || 1) : lo + (hi - lo) * s / N;
+    let k = deg; while(k < n - 1 && t >= knots[k + 1]) k++;
+    const d = [];
+    for(let j = 0; j <= deg; j++){ const ix = k - deg + j, ww = w ? w[ix] : 1; d.push([ctrl[2 * ix] * ww, ctrl[2 * ix + 1] * ww, ww]); }
+    for(let r = 1; r <= deg; r++) for(let j = deg; j >= r; j--){
+      const ix = j + k - deg, den = knots[ix + deg - r + 1] - knots[ix], a = den ? (t - knots[ix]) / den : 0;
+      d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1], (1 - a) * d[j - 1][2] + a * d[j][2]];
+    }
+    out.push(d[deg][0] / d[deg][2], d[deg][1] / d[deg][2]);
+  }
+  return out;
+}
+/* Object coordinate system: an extrusion pointing down (0,0,−1) mirrors x — a common
+   result of mirroring in AutoCAD. Anything else tilted out of plan is drawn as is. */
+function cadOcs(g){ const z = dxfNum(g, 230); return z != null && z < 0 ? -1 : 1; }
+
+/* ---- the flattening -------------------------------------------------------------- */
+function cadFlatten(doc, opt){
+  opt = opt || {};
+  const L = {}, MAXV = opt.maxVerts || 600000; let nv = 0, cut = false;
+  const lay = (nm) => L[nm] || (L[nm] = { lines:[], blines:[], polys:[], bpolys:[], texts:[], blocks:0, n:0 });
+  const M0 = [1, 0, 0, 0, 1, 0];                         // [a b c; d e f]: x' = a x + b y + c
+  const mul = (A, B) => [A[0]*B[0] + A[1]*B[3], A[0]*B[1] + A[1]*B[4], A[0]*B[2] + A[1]*B[5] + A[2],
+                         A[3]*B[0] + A[4]*B[3], A[3]*B[1] + A[4]*B[4], A[3]*B[2] + A[4]*B[5] + A[5]];
+  const tf = (M, arr) => { const o = new Array(arr.length); for(let k = 0; k < arr.length; k += 2){ const x = arr[k], y = arr[k + 1];
+    o[k] = M[0]*x + M[1]*y + M[2]; o[k + 1] = M[3]*x + M[4]*y + M[5]; } return o; };
+  /* parts of block symbols are kept apart (blines, bpolys) so "Symbols" can be left out */
+  let blk = false;
+  const addLine = (ln, M, arr) => { if(arr.length < 4 || cut) return; if(nv + arr.length / 2 > MAXV){ cut = true; return; }
+    nv += arr.length / 2; const l = lay(ln); (blk ? l.blines : l.lines).push(tf(M, arr)); l.n++; };
+  const addPoly = (ln, M, rings) => { rings = rings.filter(r => r.length >= 6); if(!rings.length || cut) return;
+    const l = lay(ln); (blk ? l.bpolys : l.polys).push(rings.map(r => tf(M, r))); l.n++; rings.forEach(r => nv += r.length / 2); };
+  const addText = (ln, M, x, y, h, rot, s) => { s = dxfText(s); if(!s) return;
+    const p = tf(M, [x, y]), sc = Math.hypot(M[0], M[3]) || 1, ang = Math.atan2(M[3], M[0]) * 180 / Math.PI;
+    const l = lay(ln); l.texts.push({ x:p[0], y:p[1], h:(h || 0) * sc, r:((rot || 0) + ang) % 360, s }); l.n++; };
+  const colorOf = (e, inh) => (e.color === 0 && inh != null) ? inh : e.color;
+  const want = opt.what || { text:true, hatch:true, blocks:true };
+  const layerOf = (e, inh) => (e.layer === "0" && inh) ? inh : e.layer;
+  const ents = (list, M, inhLayer, inhColor, depth, seen) => {
+    for(const e of list){
+      if(cut) return;
+      if(e.paper) continue;
+      const ln = layerOf(e, inhLayer), g = e.g, oc = cadOcs(g);
+      const Mo = oc < 0 ? mul(M, [-1, 0, 0, 0, 1, 0]) : M;
+      switch(e.type){
+        case "LINE": addLine(ln, M, [dxfNum(g,10)||0, dxfNum(g,20)||0, dxfNum(g,11)||0, dxfNum(g,21)||0]); break;
+        case "LWPOLYLINE": {
+          const xs = dxfAll(g, 10), ys = dxfAll(g, 20), closed = (dxfNum(g, 70) || 0) & 1;
+          const bul = new Array(xs.length).fill(0); let vi = -1;
+          for(const [c, v] of g){ if(c === 10) vi++; else if(c === 42 && vi >= 0) bul[vi] = parseFloat(v) || 0; }
+          if(xs.length < 2) break;
+          const out = [xs[0], ys[0]], n = xs.length;
+          for(let k = 0; k < n - 1 + (closed ? 1 : 0); k++){ const a = k, b = (k + 1) % n; cadBulge(xs[a], ys[a], xs[b], ys[b], bul[a], out); }
+          addLine(ln, Mo, out); break;
+        }
+        case "POLYLINE": {
+          const fl = dxfNum(g, 70) || 0; if(fl & (16 | 64)) break;          // meshes and polyface meshes
+          const vs = (e.verts || []).filter(v => !((dxfNum(v.g, 70) || 0) & 16));
+          if(vs.length < 2) break;
+          const xs = vs.map(v => dxfNum(v.g, 10) || 0), ys = vs.map(v => dxfNum(v.g, 20) || 0), bul = vs.map(v => dxfNum(v.g, 42) || 0);
+          const out = [xs[0], ys[0]], n = xs.length, closed = fl & 1;
+          for(let k = 0; k < n - 1 + (closed ? 1 : 0); k++){ const a = k, b = (k + 1) % n; cadBulge(xs[a], ys[a], xs[b], ys[b], (fl & 8) ? 0 : bul[a], out); }
+          addLine(ln, (fl & 8) ? M : Mo, out); break;
+        }
+        case "CIRCLE": addLine(ln, Mo, cadArcPts(dxfNum(g,10)||0, dxfNum(g,20)||0, dxfNum(g,40)||0, 0, 2 * Math.PI, [])); break;
+        case "ARC": addLine(ln, Mo, cadArcPts(dxfNum(g,10)||0, dxfNum(g,20)||0, dxfNum(g,40)||0, (dxfNum(g,50)||0) * Math.PI / 180, (dxfNum(g,51)||0) * Math.PI / 180, [])); break;
+        case "ELLIPSE": {
+          const cx = dxfNum(g,10)||0, cy = dxfNum(g,20)||0, mx = dxfNum(g,11)||0, my = dxfNum(g,21)||0, ra = dxfNum(g,40)||1;
+          let t0 = dxfNum(g,41)||0, t1 = dxfNum(g,42); if(t1 == null) t1 = 2 * Math.PI;
+          let sw = t1 - t0; while(sw <= 0) sw += 2 * Math.PI;
+          const n = Math.max(8, Math.ceil(sw / CAD_STEP)), out = [];
+          for(let k = 0; k <= n; k++){ const t = t0 + sw * k / n, c = Math.cos(t), s = Math.sin(t);
+            out.push(cx + c * mx - s * my * ra, cy + c * my + s * mx * ra); }
+          addLine(ln, oc < 0 ? Mo : M, out); break;
+        }
+        case "SPLINE": {
+          const cx = dxfAll(g, 10), cy = dxfAll(g, 20), fx = dxfAll(g, 11), fy = dxfAll(g, 21);
+          let pts;
+          if(cx.length >= 2){ const ctrl = []; cx.forEach((x, k) => ctrl.push(x, cy[k] || 0)); pts = cadSpline(dxfNum(g, 71), dxfAll(g, 40), ctrl, dxfAll(g, 41)); }
+          else { pts = []; fx.forEach((x, k) => pts.push(x, fy[k] || 0)); }
+          if(((dxfNum(g, 70) || 0) & 1) && pts.length >= 4) pts.push(pts[0], pts[1]);
+          addLine(ln, M, pts); break;
+        }
+        case "LEADER": { const xs = dxfAll(g, 10), ys = dxfAll(g, 20), out = []; xs.forEach((x, k) => out.push(x, ys[k] || 0)); addLine(ln, M, out); break; }
+        case "SOLID": case "TRACE": case "3DFACE": {
+          if(!want.hatch) break;
+          const p = [10, 11, 12, 13].map(c => [dxfNum(g, c) || 0, dxfNum(g, c + 10) || 0]);
+          const ring = e.type === "3DFACE" ? [p[0], p[1], p[2], p[3]] : [p[0], p[1], p[3], p[2]];
+          addPoly(ln, e.type === "3DFACE" ? M : Mo, [[].concat(...ring, ring[0])]); break;
+        }
+        case "HATCH": if(want.hatch) addPoly(ln, Mo, cadHatchRings(g)); break;
+        case "TEXT": case "ATTRIB": {
+          if(!want.text) break;
+          if(e.type === "ATTRIB" && ((dxfNum(g, 70) || 0) & 1)) break;       // invisible attribute
+          const aligned = (dxfNum(g, 72) || 0) || (dxfNum(g, e.type === "TEXT" ? 73 : 74) || 0);
+          const x = aligned && dxfNum(g, 11) != null ? dxfNum(g, 11) : dxfNum(g, 10), y = aligned && dxfNum(g, 21) != null ? dxfNum(g, 21) : dxfNum(g, 20);
+          addText(ln, Mo, x || 0, y || 0, dxfNum(g, 40), dxfNum(g, 50), dxfStr(g, 1)); break;
+        }
+        case "MTEXT": {
+          if(!want.text) break;
+          let s = ""; for(const [c, v] of g) if(c === 3) s += v; s += dxfStr(g, 1) || "";
+          let rot = dxfNum(g, 50); const dx = dxfNum(g, 11), dy = dxfNum(g, 21);
+          if(rot == null && dx != null) rot = Math.atan2(dy || 0, dx) * 180 / Math.PI;
+          addText(ln, M, dxfNum(g, 10) || 0, dxfNum(g, 20) || 0, dxfNum(g, 40), rot, s); break;
+        }
+        case "INSERT": case "DIMENSION": {
+          const bn = dxfStr(g, 2), B = bn && doc.blocks[bn];
+          if(!B || depth > 8 || seen.indexOf(bn) >= 0) break;
+          if(e.type === "INSERT" && !want.blocks) break;
+          const col = colorOf(e, inhColor);
+          if(e.type === "DIMENSION"){ ents(B.ents, M, ln, col, depth + 1, seen.concat(bn)); break; }
+          const sx = dxfNum(g, 41) == null ? 1 : dxfNum(g, 41), sy = dxfNum(g, 42) == null ? sx : dxfNum(g, 42), r = (dxfNum(g, 50) || 0) * Math.PI / 180;
+          const nc = Math.max(1, dxfNum(g, 70) || 1), nr = Math.max(1, dxfNum(g, 71) || 1), csp = dxfNum(g, 44) || 0, rsp = dxfNum(g, 45) || 0;
+          const ix = dxfNum(g, 10) || 0, iy = dxfNum(g, 20) || 0;
+          for(let a = 0; a < Math.min(nr, 50); a++) for(let b = 0; b < Math.min(nc, 50); b++){
+            const ox = b * csp, oy = a * rsp;
+            const Mi = [Math.cos(r) * sx, -Math.sin(r) * sy, ix + Math.cos(r) * ox - Math.sin(r) * oy,
+                        Math.sin(r) * sx,  Math.cos(r) * sy, iy + Math.sin(r) * ox + Math.cos(r) * oy];
+            const Mb = mul(mul(Mo, Mi), [1, 0, -B.bx, 0, 1, -B.by]), was = blk;
+            blk = true; ents(B.ents, Mb, ln, col, depth + 1, seen.concat(bn)); blk = was;
+          }
+          if(depth === 0) lay(ln).blocks++;              // symbols placed on the drawing, not their nested parts
+          (e.attribs || []).forEach(a => ents([a], M, ln, col, depth + 1, seen));
+          break;
+        }
+        default: break;
+      }
+    }
+  };
+  ents(doc.entities, M0, null, null, 0, []);
+  /* extent of what was read, and colours */
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const grow = (a) => { for(let k = 0; k < a.length; k += 2){ const x = a[k], y = a[k + 1]; if(!isFinite(x) || !isFinite(y)) continue;
+    if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; } };
+  Object.keys(L).forEach(nm => { const l = L[nm]; l.lines.forEach(grow); l.blines.forEach(grow); l.polys.forEach(p => p.forEach(grow)); l.bpolys.forEach(p => p.forEach(grow)); l.texts.forEach(t => grow([t.x, t.y]));
+    const d = doc.layers[nm] || { color:7 }; l.color = d.tc != null ? tcHex(d.tc) : aciHex(d.color || 7);
+    l.off = !!d.off; l.frozen = !!d.frozen; });
+  return { layers:L, ext: isFinite(x0) ? { x0, y0, x1, y1 } : null, verts:nv, cut };
+}
+/* A hatch's boundary paths, each a ring. Polyline paths (with bulges) and edge paths —
+   lines, arcs, elliptic arcs and splines — are both read. */
+function cadHatchRings(g){
+  let i = g.findIndex(p => p[0] === 91); if(i < 0) return [];
+  const np = parseInt(g[i][1], 10) || 0; i++;
+  const num = (c) => { while(i < g.length && g[i][0] !== c) i++; return i < g.length ? parseFloat(g[i++][1]) : 0; };
+  const rings = [];
+  for(let p = 0; p < np && i < g.length; p++){
+    const fl = num(92) | 0, ring = [];
+    if(fl & 2){
+      const hasB = num(72), closed = num(73), nv = num(93) | 0; const xs = [], ys = [], bs = [];
+      for(let k = 0; k < nv; k++){ xs.push(num(10)); ys.push(num(20)); bs.push(hasB ? (g[i] && g[i][0] === 42 ? parseFloat(g[i++][1]) : 0) : 0); }
+      if(nv){ ring.push(xs[0], ys[0]); for(let k = 0; k < nv; k++){ const b = (k + 1) % nv; cadBulge(xs[k], ys[k], xs[b], ys[b], bs[k], ring); } }
+    } else {
+      const ne = num(93) | 0;
+      for(let k = 0; k < ne; k++){
+        const t = num(72) | 0, seg = [];
+        if(t === 1){ seg.push(num(10), num(20), num(11), num(21)); }
+        else if(t === 2){ const cx = num(10), cy = num(20), r = num(40), a0 = num(50), a1 = num(51), ccw = num(73);
+          if(ccw) cadArcPts(cx, cy, r, a0 * Math.PI / 180, a1 * Math.PI / 180, seg);
+          else { const tmp = cadArcPts(cx, cy, r, -a0 * Math.PI / 180, -a1 * Math.PI / 180, []); for(let q = 0; q < tmp.length; q += 2){ seg.push(tmp[q], tmp[q + 1]); } }
+        }
+        else if(t === 3){ const cx = num(10), cy = num(20), mx = num(11), my = num(21), ra = num(40), a0 = num(50) * Math.PI / 180, a1 = num(51) * Math.PI / 180, ccw = num(73);
+          let s0 = ccw ? a0 : -a0, s1 = ccw ? a1 : -a1, sw = s1 - s0; while(sw <= 0) sw += 2 * Math.PI;
+          const n = Math.max(8, Math.ceil(sw / CAD_STEP));
+          for(let q = 0; q <= n; q++){ const tt = s0 + sw * q / n, c = Math.cos(tt), s = Math.sin(tt); seg.push(cx + c * mx - s * my * ra, cy + c * my + s * mx * ra); } }
+        else if(t === 4){ const deg = num(94), nk = num(95) | 0, nc = num(96) | 0; const kn = [], ct = [];
+          for(let q = 0; q < nk; q++) kn.push(num(40));
+          for(let q = 0; q < nc; q++){ ct.push(num(10), num(20)); }
+          const w = []; while(g[i] && g[i][0] === 42){ w.push(parseFloat(g[i++][1])); }
+          seg.push(...cadSpline(deg, kn, ct, w));
+          if(g[i] && g[i][0] === 97){ const nf = parseInt(g[i++][1], 10) || 0; for(let q = 0; q < nf; q++){ num(11); num(21); } }
+        }
+        for(let q = 0; q < seg.length; q += 2){
+          const L2 = ring.length; if(L2 && Math.abs(ring[L2 - 2] - seg[q]) < 1e-9 && Math.abs(ring[L2 - 1] - seg[q + 1]) < 1e-9) continue;
+          ring.push(seg[q], seg[q + 1]);
+        }
+      }
+      if(ring.length >= 4) ring.push(ring[0], ring[1]);
+    }
+    if(g[i] && g[i][0] === 97){ const ns = parseInt(g[i++][1], 10) || 0; for(let q = 0; q < ns && g[i] && g[i][0] === 330; q++) i++; }
+    if(ring.length >= 6) rings.push(ring);
+  }
+  return rings;
+}
+/* $INSUNITS → metres per drawing unit. 0 (unitless) is taken as metres, which is what
+   Ontario civil drawings are in; the picker says so and offers the others. */
+const CAD_UNITS = { 0:1, 1:0.0254, 2:0.3048, 4:0.001, 5:0.01, 6:1, 21:1200 / 3937 };
+const CAD_UNIT_NAMES = [[6, "metres"], [4, "millimetres"], [2, "feet"], [21, "US survey feet"], [1, "inches"], [5, "centimetres"]];
+
+/* ==================================================================== *
+ *  WHERE THE DRAWING IS — the coordinate systems Ontario engineers draw in.
+ *  A drawing's numbers are matched to each candidate and the one that lands nearest
+ *  the project's trees (or the map, for a new project) is offered first. NAD27 is
+ *  moved to NAD83 by the Canadian NAD27 average shift — good to several metres, not
+ *  to survey grade, which is what "Shift / rotate" and "Match points" are for.
+ * ==================================================================== */
+const GRS80 = { a:6378137, invf:298.257222101 }, CLARKE66 = { a:6378206.4, invf:294.978698214 };
+const CAD_CRS = [
+  { k:"utm17",   n:"UTM zone 17N — NAD83",  P:Object.assign({ k0:0.9996, lon0:-81,   lat0:0, fe:500000, fn:0 }, GRS80) },
+  { k:"utm18",   n:"UTM zone 18N — NAD83",  P:Object.assign({ k0:0.9996, lon0:-75,   lat0:0, fe:500000, fn:0 }, GRS80) },
+  { k:"utm16",   n:"UTM zone 16N — NAD83",  P:Object.assign({ k0:0.9996, lon0:-87,   lat0:0, fe:500000, fn:0 }, GRS80) },
+  { k:"mtm10",   n:"MTM zone 10 — NAD83",   P:Object.assign({ k0:0.9999, lon0:-79.5, lat0:0, fe:304800, fn:0 }, GRS80) },
+  { k:"mtm9",    n:"MTM zone 9 — NAD83",    P:Object.assign({ k0:0.9999, lon0:-76.5, lat0:0, fe:304800, fn:0 }, GRS80) },
+  { k:"mtm11",   n:"MTM zone 11 — NAD83",   P:Object.assign({ k0:0.9999, lon0:-82.5, lat0:0, fe:304800, fn:0 }, GRS80) },
+  { k:"mtm8",    n:"MTM zone 8 — NAD83",    P:Object.assign({ k0:0.9999, lon0:-73.5, lat0:0, fe:304800, fn:0 }, GRS80) },
+  { k:"mtm10_27", n:"MTM zone 10 — NAD27",  P:Object.assign({ k0:0.9999, lon0:-79.5, lat0:0, fe:304800, fn:0 }, CLARKE66), nad27:true },
+  { k:"mtm9_27",  n:"MTM zone 9 — NAD27",   P:Object.assign({ k0:0.9999, lon0:-76.5, lat0:0, fe:304800, fn:0 }, CLARKE66), nad27:true },
+  { k:"mtm11_27", n:"MTM zone 11 — NAD27",  P:Object.assign({ k0:0.9999, lon0:-82.5, lat0:0, fe:304800, fn:0 }, CLARKE66), nad27:true },
+  { k:"utm17_27", n:"UTM zone 17N — NAD27", P:Object.assign({ k0:0.9996, lon0:-81,   lat0:0, fe:500000, fn:0 }, CLARKE66), nad27:true },
+  { k:"utm18_27", n:"UTM zone 18N — NAD27", P:Object.assign({ k0:0.9996, lon0:-75,   lat0:0, fe:500000, fn:0 }, CLARKE66), nad27:true },
+  { k:"local",   n:"Local site grid — place it by matching points" }
+];
+/* NAD27 → NAD83 (≈ WGS84): geodetic → earth-centred → the Canadian average shift →
+   geodetic on GRS80. */
+function cadXYZ(la, lo, E){
+  const r = Math.PI / 180, f = 1 / E.invf, e2 = f * (2 - f), s = Math.sin(la * r), N = E.a / Math.sqrt(1 - e2 * s * s);
+  return [N * Math.cos(la * r) * Math.cos(lo * r), N * Math.cos(la * r) * Math.sin(lo * r), N * (1 - e2) * s];
+}
+function nad27to83(lat, lon){
+  const r = Math.PI / 180;
+  const [X, Y, Z] = cadXYZ(lat, lon, CLARKE66), x = X - 10, y = Y + 158, z = Z + 187;
+  const f = 1 / GRS80.invf, e2 = f * (2 - f), p = Math.hypot(x, y); let la = Math.atan2(z, p * (1 - e2));
+  for(let k = 0; k < 6; k++){ const s = Math.sin(la), N = GRS80.a / Math.sqrt(1 - e2 * s * s); la = Math.atan2(z + e2 * N * s, p); }
+  return { lat: la / r, lon: Math.atan2(y, x) / r };
+}
+function cadCrsOf(k){ return CAD_CRS.find(c => c.k === k) || null; }
+function cadToLatLon(crs, x, y){
+  const q = tmInverse(x, y, crs.P);
+  return crs.nad27 ? nad27to83(q.lat, q.lon) : q;
+}
+/* Every candidate, with where the drawing's middle would land and how far that is from
+   the reference point; sorted nearest first. A drawing whose numbers cannot be a
+   northing in Ontario (under 4.4 million) is a local grid. */
+function cadGuessCrs(ext, unit, ref){
+  const out = [];
+  if(!ext) return [{ k:"local", d:null }];
+  const cx = (ext.x0 + ext.x1) / 2 * unit, cy = (ext.y0 + ext.y1) / 2 * unit;
+  const projected = cy > 4.4e6 && cy < 6.8e6 && cx > 1e5 && cx < 9e5;
+  if(projected) CAD_CRS.forEach(c => { if(!c.P) return;
+    const q = cadToLatLon(c, cx, cy);
+    if(!(q.lat > 41 && q.lat < 57 && q.lon > -96 && q.lon < -73)) return;
+    const d = ref ? Math.hypot((q.lat - ref[0]) * 110540, (q.lon - ref[1]) * 111320 * Math.cos(ref[0] * Math.PI / 180)) : null;
+    out.push({ k:c.k, d, lat:q.lat, lon:q.lon }); });
+  out.sort((a, b) => (a.d == null ? 1e12 : a.d) - (b.d == null ? 1e12 : b.d) || CAD_CRS.findIndex(c => c.k === a.k) - CAD_CRS.findIndex(c => c.k === b.k));
+  /* NAD83 over NAD27 unless NAD27 is clearly the better fit (the two differ by ~200 m
+     of northing in Ontario, so a project's trees tell them apart). */
+  if(out.length > 1 && CAD_CRS.find(c => c.k === out[0].k).nad27){
+    const alt = out.find(o => !cadCrsOf(o.k).nad27);
+    if(alt && out[0].d != null && alt.d != null && alt.d - out[0].d < 50){ out.splice(out.indexOf(alt), 1); out.unshift(alt); }
+  }
+  out.push({ k:"local", d:null });
+  return out;
+}
+
+/* ---- fitting a drawing to matched points ----------------------------------------
+   From drawing coordinates (metres) to local east/north metres. 1 point: a shift only.
+   2 or more: a rotation and a shift (the drawing's own scale kept — CAD is drawn true
+   to scale), by least squares; or with free scale when asked (a drawing not to scale).
+   Returns the affine [a b c d e f] and how far each point misses. */
+function cadFitRigid(src, dst, freeScale){
+  const n = Math.min(src.length, dst.length); if(!n) return null;
+  let sx = 0, sy = 0, dx = 0, dy = 0;
+  for(let k = 0; k < n; k++){ sx += src[k][0]; sy += src[k][1]; dx += dst[k][0]; dy += dst[k][1]; }
+  sx /= n; sy /= n; dx /= n; dy /= n;
+  let A;
+  if(n === 1) A = [1, 0, dx - sx, 0, 1, dy - sy];
+  else {
+    let Sxx = 0, Sxy = 0, ss = 0;
+    for(let k = 0; k < n; k++){ const ax = src[k][0] - sx, ay = src[k][1] - sy, bx = dst[k][0] - dx, by = dst[k][1] - dy;
+      Sxx += ax * bx + ay * by; Sxy += ax * by - ay * bx; ss += ax * ax + ay * ay; }
+    const th = Math.atan2(Sxy, Sxx), s = freeScale && ss ? Math.hypot(Sxx, Sxy) / ss : 1;
+    const c = Math.cos(th) * s, si = Math.sin(th) * s;
+    A = [c, -si, dx - (c * sx - si * sy), si, c, dy - (si * sx + c * sy)];
+  }
+  const resid = []; for(let k = 0; k < n; k++){ const x = src[k][0], y = src[k][1];
+    resid.push(Math.hypot(A[0] * x + A[1] * y + A[2] - dst[k][0], A[3] * x + A[4] * y + A[5] - dst[k][1])); }
+  return { A, resid, rms: Math.sqrt(resid.reduce((a, r) => a + r * r, 0) / n), rot: Math.atan2(A[3], A[0]) * 180 / Math.PI, scale: Math.hypot(A[0], A[3]) };
+}
+function cadAffMul(A, B){ return [A[0]*B[0] + A[1]*B[3], A[0]*B[1] + A[1]*B[4], A[0]*B[2] + A[1]*B[5] + A[2],
+                                  A[3]*B[0] + A[4]*B[3], A[3]*B[1] + A[4]*B[4], A[3]*B[2] + A[4]*B[5] + A[5]]; }
+
+/* ==================================================================== *
+ *  CAD DRAWINGS ON THE MAP  (v237)
+ *
+ *  A drawing becomes ordinary reference layers — one per CAD layer that is ticked, and
+ *  one "· text" layer beside it for its text — so everything a reference layer can do
+ *  works on it: name, colour, weight and transparency, the legend (off to begin with:
+ *  "C-TOPO-CURB" does not belong on a client's key until it is renamed), printing on
+ *  every plan sheet, the TPZ conflict check (hatches are areas, lines are strips),
+ *  "near a layer" in Find trees, and travelling to the crew's other phones.
+ *
+ *  WHAT IS KEPT. The drawing as read (its own coordinates and units), the coordinate
+ *  system it is in, and the placement on top of that: an affine from the drawing in
+ *  metres to east/north metres about a fixed origin. Every way of placing it only
+ *  changes that affine, so it can be done, undone and redone without reading the file
+ *  again, and a change of units or coordinate system later re-projects from the
+ *  original numbers rather than from a projection of a projection.
+ * ==================================================================== */
+var cadDocs = {};            // cid → the stored record (isCad), filled by loadRefLayers
+var cadW = null;             // the drawing being brought in or managed
+var cadNudge = null;         // shift / rotate in progress
+/* East/north metres about the drawing's origin. The true metres in a degree at that
+   latitude on GRS80 — not the 111,320 / 110,540 shorthand used for screen work, which
+   is 0.2–0.5% short in southern Ontario and would stretch a true-scale drawing by
+   30 cm over 60 m once it is turned. */
+const CAD_KX = la => { const r = Math.PI / 180, s = Math.sin(la * r), e2 = 0.00669438002290; return r * 6378137 * Math.cos(la * r) / Math.sqrt(1 - e2 * s * s); };
+const CAD_KY = la => { const r = Math.PI / 180, s = Math.sin(la * r), e2 = 0.00669438002290; return r * 6378137 * (1 - e2) / Math.pow(1 - e2 * s * s, 1.5); };
+const cadEnu = (O, lat, lon) => [(lon - O[1]) * CAD_KX(O[0]), (lat - O[0]) * CAD_KY(O[0])];
+const cadGeo = (O, e, n) => [O[0] + n / CAD_KY(O[0]), O[1] + e / CAD_KX(O[0])];
+
+function cadPick(){ try{ closeMenu(); }catch(e){} const i = $("cadInput"); if(i) i.click(); }
+async function cadOpenFile(file){
+  toast("Reading the drawing…");
+  let buf;
+  try{ buf = await file.arrayBuffer(); }catch(e){ toast("Couldn't read that file", true); return; }
+  const head = new TextDecoder("latin1").decode(new Uint8Array(buf.slice(0, 24)));
+  if(/^AC10\d\d/.test(head) || /\.dwg$/i.test(file.name)){ cadDwgHelp(file.name); return; }
+  if(/^AutoCAD Binary DXF/.test(head)){ toast("That is a binary DXF — save it as an ASCII DXF and try again", true); return; }
+  let text = new TextDecoder("utf-8").decode(buf);
+  if(text.indexOf("�") >= 0) text = new TextDecoder("windows-1252").decode(buf);    // older DXFs are ANSI
+  let doc, flat;
+  try{ doc = dxfRead(text); flat = cadFlatten(doc, { what:{ text:true, hatch:true, blocks:true } }); }
+  catch(e){ toast("That doesn't read as a DXF drawing", true); return; }
+  if(!flat.ext){ toast("Nothing to draw in that file — is everything in paper space?", true); return; }
+  clearTimeout(toastT); $("toast").className = "toast";          // read: the "Reading…" note would sit over the sheet
+  const cid = "c" + Date.now().toString(36);
+  const units = CAD_UNITS[doc.units] != null ? (doc.units || 6) : 6;
+  const picks = {};
+  Object.keys(flat.layers).forEach(nm => { const l = flat.layers[nm];
+    picks[nm] = !l.off && !l.frozen && !/^defpoints$/i.test(nm) && l.n > 0; });
+  cadW = { cid, name: file.name.replace(/\.[^.]+$/, ""), file: file.name, isNew: true, unitsCode: units, noUnits: !doc.units,
+           layers: flat.layers, ext: flat.ext, verts: flat.verts, cut: flat.cut, picks,
+           what: { text:true, hatch:true, blocks:true }, crs: null, O: null, T: null, placed: "" };
+  cadW.guess = cadGuessCrs(flat.ext, CAD_UNITS[units], cadRefPoint());
+  const g0 = cadW.guess[0];
+  cadW.crs = g0 && g0.k !== "local" && (g0.d == null || g0.d < 25000) ? g0.k : "local";
+  cadPaint(); $("cadSheet").classList.add("show");
+}
+/* Where the drawing ought to be: the middle of this project's trees, else the map. */
+function cadRefPoint(){
+  const ts = (typeof visibleTrees === "function" ? visibleTrees() : []).filter(t => num(t.LAT) != null && num(t.LON) != null);
+  if(ts.length){ let a = 0, b = 0; ts.forEach(t => { a += num(t.LAT); b += num(t.LON); }); return [a / ts.length, b / ts.length]; }
+  if(typeof fmap !== "undefined" && fmap){ const c = fmap.getCenter(); return [c.lat, c.lng]; }
+  return null;
+}
+function cadDwgHelp(name){
+  cadW = null;
+  $("cadTitle").textContent = "A DWG drawing";
+  $("cadBody").innerHTML = `<div class="hint"><b>${esc(name)}</b> is AutoCAD's own DWG format, which this app can't read yet. Save it as a <b>DXF</b> and bring that in — the layers, linework, text, blocks and hatches all come across:</div>
+    <ul class="mini" style="font-size:13.5px;line-height:1.5;padding-left:18px">
+      <li><b>AutoCAD / Civil 3D:</b> Save As → <i>AutoCAD 2018 DXF</i> (any version works).</li>
+      <li><b>ArcGIS Pro:</b> open the DWG, then <i>Export CAD</i> with output type DXF.</li>
+      <li><b>No CAD program:</b> the free <i>ODA File Converter</i> turns a folder of DWGs into DXFs.</li>
+      <li>Or ask the engineer to send the DXF — it is one click for them.</li></ul>`;
+  $("cadBtns").innerHTML = `<button type="button" class="primary" onclick="closeCad();cadPick()">Choose a DXF</button><button type="button" onclick="closeCad()">Close</button>`;
+  $("cadSheet").classList.add("show");
+}
+function closeCad(){ $("cadSheet").classList.remove("show"); }
+function cadLayerNames(w){ return Object.keys(w.layers).sort((a, b) => a.localeCompare(b, undefined, { numeric:true, sensitivity:"base" })); }
+function cadPaint(){
+  const w = cadW; if(!w) return;
+  const unit = CAD_UNITS[w.unitsCode] || 1, wM = (w.ext.x1 - w.ext.x0) * unit, hM = (w.ext.y1 - w.ext.y0) * unit;
+  $("cadTitle").textContent = w.isNew ? "Bring in a CAD drawing" : "CAD drawing";
+  const names = cadLayerNames(w), nOn = names.filter(n => w.picks[n]).length;
+  const dist = d => d == null ? "" : d < 1000 ? ` · lands ${Math.round(d)} m from your trees` : ` · lands ${(d / 1000).toFixed(d < 10000 ? 1 : 0)} km from your trees`;
+  const opts = w.guess.filter(g => g.k !== "local").slice(0, 4);
+  const best = w.guess[0] && w.guess[0].k !== "local" && w.guess[0].d != null && w.guess[0].d < 25000 ? w.guess[0].k : null;
+  let h = `<div class="idline">${esc(w.file)} · ${names.length} layer(s) · ${Math.round(wM)} × ${Math.round(hM)} m${w.cut ? " · very large: the first 600,000 points were read" : ""}</div>`;
+  h += `<div class="stath" style="margin-top:10px">Where it is</div>`;
+  h += opts.map(g => { const c = cadCrsOf(g.k);
+      return `<label class="cadopt"><input type="radio" name="cadCrs" ${w.crs === g.k ? "checked" : ""} onchange="cadSet('crs','${g.k}')"><span><b>${esc(c.n)}</b>${g.k === best ? ' <span class="cadbest">best fit</span>' : ""}<small>${esc(dist(g.d).replace(/^ · /, ""))}</small></span></label>`; }).join("");
+  h += `<label class="cadopt"><input type="radio" name="cadCrs" ${w.crs === "local" ? "checked" : ""} onchange="cadSet('crs','local')"><span><b>Local site grid, or none of these</b><small>Placed by matching points on the drawing to the aerial or your layers</small></span></label>`;
+  if(!opts.length) h += `<div class="mini">The coordinates aren't a UTM or MTM position in Ontario, so it is drawn on a local grid — you place it by matching points.</div>`;
+  h += `<div class="row2" style="margin-top:6px"><div class="fld"><label>Drawing units</label><select onchange="cadSet('units', this.value)">${CAD_UNIT_NAMES.map(([k, n]) => `<option value="${k}"${+w.unitsCode === k ? " selected" : ""}>${n}${k === 6 && w.noUnits ? " (not stated in the file)" : ""}</option>`).join("")}</select></div>
+    <div class="fld"><label>Bring in</label><div class="pschips" style="margin:0">${[["text", "Text"], ["hatch", "Fills"], ["blocks", "Symbols"]].map(([k, l]) => `<button type="button" class="${w.what[k] ? "on" : ""}" onclick="cadSet('what','${k}')">${l}</button>`).join("")}</div></div></div>`;
+  h += `<div class="stath" style="margin-top:10px">Layers <small id="cadNOn">${nOn} of ${names.length} ticked</small> <button type="button" class="wchip" onclick="cadAll(1)">All</button> <button type="button" class="wchip" onclick="cadAll(0)">None</button></div><div id="cadLayers">`;
+  h += names.map((nm, k) => { const l = w.layers[nm], why = [l.off ? "off in the drawing" : "", l.frozen ? "frozen" : "", /^defpoints$/i.test(nm) ? "construction points" : ""].filter(Boolean).join(", ");
+    const parts = [l.lines.length ? l.lines.length + " line" + (l.lines.length === 1 ? "" : "s") : "", l.polys.length ? l.polys.length + " fill" + (l.polys.length === 1 ? "" : "s") : "",
+                   l.texts.length ? l.texts.length + " text" : "", l.blocks ? l.blocks + " symbol" + (l.blocks === 1 ? "" : "s") : ""].filter(Boolean).join(" · ") || "empty";
+    return `<label class="cadlyr"><input type="checkbox" ${w.picks[nm] ? "checked" : ""} onchange="cadTick(${k}, this.checked)"><span class="sw" style="background:${l.color}"></span><span><b>${esc(nm)}</b><small>${parts}${why ? " · " + why : ""}</small></span></label>`; }).join("");
+  h += `</div>`;
+  if(!w.isNew){
+    h += `<div class="stath" style="margin-top:12px">Placement</div><div class="mini" style="margin-bottom:6px">${esc(cadPlacedText(w))}</div>
+      <div class="btnrow"><button type="button" class="alt" onclick="cadMatchStart()">⌖ Match points…</button><button type="button" class="alt" onclick="cadNudgeStart()">⤧ Shift / rotate…</button></div>`;
+  }
+  $("cadBody").innerHTML = h;
+  $("cadBtns").innerHTML = w.isNew
+    ? `<button type="button" class="primary" onclick="cadBringIn()">${w.crs === "local" ? "Next: place it" : "Bring it in"}</button><button type="button" onclick="cadW=null;closeCad()">Cancel</button>`
+    : `<button type="button" class="primary" onclick="cadApply()">Apply</button><button type="button" onclick="closeCad()">Close</button><button type="button" class="alt" onclick="cadRemove('${w.cid}')">Remove this drawing</button>`;
+}
+function cadPlacedText(w){
+  const c = cadCrsOf(w.crs);
+  const how = w.placed === "points" ? `placed by ${w.nPts || 2} matched point(s)${w.rms != null && w.nPts >= 2 ? ` (within ${w.rms < 0.05 ? "a few cm" : w.rms.toFixed(2) + " m"})` : ""}`
+            : w.placed === "shift" ? "then shifted / rotated by hand" : "as drawn";
+  return w.crs === "local" ? `Local grid, ${how}.` : `${c ? c.n : w.crs}, ${how}.`;
+}
+function cadSet(k, v){
+  const w = cadW; if(!w) return;
+  if(k === "crs"){ w.crs = v; if(!w.isNew){ w.T = null; w.placed = ""; } }
+  if(k === "units"){ w.unitsCode = +v; w.guess = cadGuessCrs(w.ext, CAD_UNITS[w.unitsCode], cadRefPoint()); if(!w.isNew){ w.T = null; w.placed = ""; } }
+  if(k === "what") w.what[v] = !w.what[v];
+  cadPaint();
+}
+function cadTick(k, on){ const nm = cadLayerNames(cadW)[k]; cadW.picks[nm] = on; const names = cadLayerNames(cadW);
+  $("cadNOn").textContent = `${names.filter(n => cadW.picks[n]).length} of ${names.length} ticked`; }
+function cadAll(on){ cadLayerNames(cadW).forEach(n => cadW.picks[n] = !!on && cadW.layers[n].n > 0); cadPaint(); }
+
+/* ---- from the drawing's numbers to "base" metres ---------------------------------
+   For a projected drawing: every point through the coordinate system to latitude and
+   longitude, then to east/north metres about the drawing's own middle (the origin O).
+   For a local grid: the drawing in metres, centred on its middle. The placement T then
+   takes base metres to east/north about O; for a projected drawing it starts as "no
+   change". */
+function cadBase(w){
+  const unit = CAD_UNITS[w.unitsCode] || 1, crs = cadCrsOf(w.crs), cx = (w.ext.x0 + w.ext.x1) / 2, cy = (w.ext.y0 + w.ext.y1) / 2;
+  let O, fn;
+  if(crs && crs.P){
+    const q = cadToLatLon(crs, cx * unit, cy * unit); O = [q.lat, q.lon];
+    fn = (x, y) => { const r = cadToLatLon(crs, x * unit, y * unit); return cadEnu(O, r.lat, r.lon); };
+  } else {
+    O = w.O || cadRefPoint() || [44, -79.5];
+    fn = (x, y) => [(x - cx) * unit, (y - cy) * unit];
+  }
+  const pts = a => { const o = new Array(a.length); for(let k = 0; k < a.length; k += 2){ const p = fn(a[k], a[k + 1]); o[k] = p[0]; o[k + 1] = p[1]; } return o; };
+  const base = {};
+  Object.keys(w.layers).forEach(nm => { const l = w.layers[nm];
+    base[nm] = { lines: l.lines.map(pts), blines: (l.blines || []).map(pts), polys: l.polys.map(p => p.map(pts)), bpolys: (l.bpolys || []).map(p => p.map(pts)),
+                 texts: l.texts.map(t => { const p = fn(t.x, t.y); return { x:p[0], y:p[1], s:t.s, h:t.h * unit, r:t.r }; }) }; });
+  return { O, base };
+}
+function cadPrepare(w){ if(!w.base || w._baseKey !== w.crs + "|" + w.unitsCode){ const b = cadBase(w); w.O = b.O; w.base = b.base; w._baseKey = w.crs + "|" + w.unitsCode; } }
+const CAD_I = [1, 0, 0, 0, 1, 0];
+
+/* ---- base metres → reference layers ---------------------------------------------- */
+function cadMakeLayers(w){
+  cadPrepare(w);
+  const A = w.T || CAD_I, O = w.O;
+  const ll = (x, y) => { const g = cadGeo(O, A[0] * x + A[1] * y + A[2], A[3] * x + A[4] * y + A[5]); return [+g[1].toFixed(8), +g[0].toFixed(8)]; };
+  const ring = a => { const o = []; for(let k = 0; k < a.length; k += 2) o.push(ll(a[k], a[k + 1])); return o; };
+  /* Lines and fills are grouped into tiles, so a layer of 5,000 curb segments is drawn
+     as a few dozen features — only the ones on screen are painted. */
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  Object.values(w.base).forEach(b => b.lines.forEach(a => { for(let k = 0; k < a.length; k += 2){ x0 = Math.min(x0, a[k]); x1 = Math.max(x1, a[k]); y0 = Math.min(y0, a[k + 1]); y1 = Math.max(y1, a[k + 1]); } }));
+  const tile = Math.max(25, (isFinite(x1) ? Math.max(x1 - x0, y1 - y0) : 200) / 8);
+  const key = a => Math.floor(a[0] / tile) + "," + Math.floor(a[1] / tile);
+  const old = refLayers.filter(L2 => L2.cadId === w.cid), oldBy = {};
+  old.forEach(L2 => oldBy[L2.src] = L2);                         // keep a layer's styling and name across a re-placement
+  refLayers = refLayers.filter(L2 => L2.cadId !== w.cid);
+  const made = [];
+  cadLayerNames(w).forEach((nm, k) => {
+    if(!w.picks[nm]) return;
+    const b = w.base[nm], l = w.layers[nm]; if(!b) return;
+    const lines = b.lines.concat(w.what.blocks ? b.blines : []), polys = w.what.hatch ? b.polys.concat(w.what.blocks ? b.bpolys : []) : [];
+    const tl = {}, tp = {};
+    lines.forEach(a => { if(a.length < 4) return; (tl[key(a)] = tl[key(a)] || []).push(ring(a)); });
+    polys.forEach(p => { if(!p.length) return; (tp[key(p[0])] = tp[key(p[0])] || []).push(p.map(ring)); });
+    const feats = [];
+    Object.values(tl).forEach(rs => feats.push({ geom:{ t:"ln", c:rs }, props:{ CAD_LAYER:nm } }));
+    Object.values(tp).forEach(ps => feats.push({ geom:{ t:"pg", c:ps }, props:{ CAD_LAYER:nm } }));
+    const src = "cad:" + w.cid + ":" + nm.toLowerCase();
+    if(feats.length){
+      const was = oldBy[src];
+      const L2 = Object.assign({ name:nm.slice(0, 40), color:l.color === "#ffffff" ? "#f4f4f4" : l.color, visible:true, legend:false,
+                                 weight:2, opacity:95, fill: polys.length ? 35 : 10 }, was ? layerStyleOf(was, {}) : {},
+                               { id: was ? was.id : "cad" + w.cid + "_" + k, src, cadId:w.cid, features:feats });
+      if(was) L2.visible = was.visible;
+      refLayers.push(L2); made.push(L2.id);
+    }
+    if(w.what.text && b.texts.length){
+      const srcT = src + ":text", was = oldBy[srcT];
+      const L3 = Object.assign({ name:(nm + " · text").slice(0, 40), color:l.color === "#ffffff" ? "#f4f4f4" : l.color, visible:true, legend:false,
+                                 weight:2, opacity:95, fill:10 }, was ? layerStyleOf(was, {}) : {},
+                               { id: was ? was.id : "cad" + w.cid + "_" + k + "t", src:srcT, cadId:w.cid, textOnly:true,
+                                 features: b.texts.map(t => ({ geom:{ t:"pt", c:ll(t.x, t.y) }, props:{ TEXT:t.s, CAD_LAYER:nm } })) });
+      if(was) L3.visible = was.visible;
+      if(!labelCfg[L3.id]) labelCfg[L3.id] = Object.assign({}, LBL_DEFAULT, { fields:["TEXT"], size:"s", minZoom:18, ink:"white" });
+      refLayers.push(L3); made.push(L3.id);
+    }
+  });
+  old.forEach(L2 => { if(made.indexOf(L2.id) < 0) idbDelLayer(L2.id); });     // a layer no longer ticked
+  persistLabelCfg(); persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+  return made;
+}
+/* The drawing's own record: what was read and how it is placed. */
+function cadSave(w){
+  const rec = { id:"__cad_" + w.cid, isCad:true, features:[], cid:w.cid, name:w.name, file:w.file, unitsCode:w.unitsCode, noUnits:w.noUnits,
+                layers:w.layers, ext:w.ext, verts:w.verts, cut:w.cut, picks:w.picks, what:w.what, crs:w.crs, O:w.O, T:w.T, placed:w.placed,
+                nPts:w.nPts || 0, rms:w.rms == null ? null : w.rms, gfPts:w.gfPts || [], when:isoDay() };
+  cadDocs[w.cid] = rec;
+  return idbPutLayer(rec).catch(() => toast("Drawing shown, but too large to keep on this device", true));
+}
+function cadFromRec(rec){ return Object.assign({}, rec, { isNew:false, base:null }); }
+function cadBringIn(){
+  const w = cadW; if(!w) return;
+  if(!cadLayerNames(w).some(n => w.picks[n])){ toast("Tick at least one layer", true); return; }
+  closeCad();
+  cadPrepare(w);
+  if(w.crs === "local"){ w.isNew = false; w.T = null; cadSave(w); cadMatchStart(); return; }
+  w.T = CAD_I.slice(); w.placed = "crs"; w.isNew = false;
+  cadMakeLayers(w); cadSave(w); cadZoom(w);
+  cadCheckBar(w);
+}
+function cadApply(){
+  const w = cadW; if(!w) return;
+  closeCad(); cadPrepare(w);
+  if(!w.T){ if(w.crs === "local"){ cadSave(w); cadMatchStart(); return; } w.T = CAD_I.slice(); w.placed = "crs"; }
+  cadMakeLayers(w); cadSave(w); toast("Drawing updated");
+}
+function cadZoom(w){
+  const fs = refLayers.filter(L2 => L2.cadId === w.cid).flatMap(L2 => L2.features);
+  let n = -90, s = 90, e = -180, wv = 180;
+  fs.forEach(f => { const bb = featureBBox(f); if(!bb) return; n = Math.max(n, bb.n); s = Math.min(s, bb.s); e = Math.max(e, bb.e); wv = Math.min(wv, bb.w); });
+  if(n > s) fmap.fitBounds([[s, wv], [n, e]], { padding:[30, 30] });
+}
+/* After it lands: does it line up? Three ways to put it right, or done. */
+function cadCheckBar(w){
+  $("cadBarMsg").textContent = `${w.name} — does it line up with the aerial?`;
+  $("cadBarBtns").innerHTML = `<button type="button" onclick="cadBarClose()">✓ Looks right</button><button type="button" class="alt" onclick="cadBarClose();cadNudgeStart('${w.cid}')">⤧ Shift / rotate</button><button type="button" class="alt" onclick="cadBarClose();cadMatchStart('${w.cid}')">⌖ Match points</button>`;
+  $("cadBar").classList.add("show");
+}
+function cadBarClose(){ $("cadBar").classList.remove("show"); }
+function openCadManage(cid){
+  const rec = cadDocs[cid]; if(!rec){ toast("That drawing isn't on this phone", true); return; }
+  cadW = cadFromRec(rec); cadW.guess = cadGuessCrs(cadW.ext, CAD_UNITS[cadW.unitsCode], cadRefPoint());
+  cadPaint(); $("cadSheet").classList.add("show");
+}
+function cadRemove(cid){
+  const rec = cadDocs[cid]; if(!rec) return;
+  if(!confirm(`Remove ${rec.name} and its ${refLayers.filter(L2 => L2.cadId === cid).length} layer(s) from the map?`)) return;
+  refLayers.filter(L2 => L2.cadId === cid).forEach(L2 => idbDelLayer(L2.id));
+  refLayers = refLayers.filter(L2 => L2.cadId !== cid);
+  idbDelLayer("__cad_" + cid); delete cadDocs[cid];
+  closeCad(); cadW = null; drawRefLayers(); renderLayerList(); buildLegend();
+  toast("Drawing removed");
+}
+function cadHide(cid, hide){
+  refLayers.forEach(L2 => { if(L2.cadId !== cid) return;
+    if(hide){ L2._wasVis = L2.visible; L2.visible = false; } else if(L2._wasVis !== undefined){ L2.visible = L2._wasVis; delete L2._wasVis; } });
+  drawRefLayers();
+}
+
+/* ---- pictures of the drawing: one to tap points on, one to lay over the aerial ---- */
+function cadRender(w, forViewer){
+  cadPrepare(w);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const each = fn => cadLayerNames(w).forEach(nm => { if(!w.picks[nm]) return; const b = w.base[nm], l = w.layers[nm];
+    b.lines.concat(w.what.blocks ? b.blines : []).forEach(a => fn(a, l.color, 0));
+    if(w.what.hatch) b.polys.forEach(p => p.forEach(a => fn(a, l.color, 1))); });
+  each(a => { for(let k = 0; k < a.length; k += 2){ x0 = Math.min(x0, a[k]); x1 = Math.max(x1, a[k]); y0 = Math.min(y0, a[k + 1]); y1 = Math.max(y1, a[k + 1]); } });
+  if(!isFinite(x0)){ x0 = -50; x1 = 50; y0 = -50; y1 = 50; }
+  const pad = Math.max(x1 - x0, y1 - y0) * 0.03 + 1; x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const MAXP = 2200, s = Math.max(x1 - x0, y1 - y0) / MAXP, W = Math.max(2, Math.ceil((x1 - x0) / s)), H = Math.max(2, Math.ceil((y1 - y0) / s));
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const g = cv.getContext("2d");
+  if(forViewer){ g.fillStyle = "#fff"; g.fillRect(0, 0, W, H); }
+  g.lineJoin = "round"; g.lineCap = "round"; g.lineWidth = forViewer ? 1.6 : 2.4;
+  const ink = c => { if(!forViewer) return c; const n = parseInt(c.slice(1), 16), lum = (0.3 * (n >> 16) + 0.59 * ((n >> 8) & 255) + 0.11 * (n & 255)) / 255;
+    return lum > 0.72 ? "#3a3a3a" : c; };
+  each((a, c, fill) => { g.beginPath(); for(let k = 0; k < a.length; k += 2){ const u = (a[k] - x0) / s, v = (y1 - a[k + 1]) / s; k ? g.lineTo(u, v) : g.moveTo(u, v); }
+    if(fill){ g.fillStyle = ink(c) + "40"; g.fill(); } g.strokeStyle = ink(c); g.stroke(); });
+  return { url: cv.toDataURL("image/png"), W, H, x0, y1, s, box:[[x0, y1], [x1, y1], [x1, y0], [x0, y0]] };
+}
+function cadCornersOf(w, r, A){ A = A || w.T || CAD_I; return r.box.map(([x, y]) => cadGeo(w.O, A[0] * x + A[1] * y + A[2], A[3] * x + A[4] * y + A[5])); }
+
+/* ---- MATCH POINTS: the site-plan placer, pointed at the drawing --------------------
+   The viewer shows the drawing; a tap gives a point in base metres; the map gives the
+   same point on the ground. One point shifts it (keeping its rotation — north-up for a
+   local grid); two or more fit a rotation and a shift, the drawing's own scale kept,
+   unless "the drawing is not to scale" is ticked. */
+function cadMatchStart(cid){
+  const w = cid ? cadFromRec(cadDocs[cid]) : cadW; if(!w) return;
+  cadW = w; closeCad(); cadPrepare(w);
+  const rv = cadRender(w, true), rp = cadRender(w, false);
+  cadHide(w.cid, true);
+  gfStart(rv.url, w.name, (w.gfPts || []).slice(), { cad:{ cid:w.cid, x0:rv.x0, y1:rv.y1, s:rv.s, prevUrl:rp.url, free:!!w.free } });
+}
+function cadGfBase(q){ const c = gf.cad; return [c.x0 + q.u * c.s, c.y1 - q.v * c.s]; }
+function cadGfFit(pts){
+  const w = cadW; if(!w || !pts || !pts.length) return null;
+  const src = pts.map(cadGfBase), dst = pts.map(q => cadEnu(w.O, q.lat, q.lon));
+  let F;
+  if(pts.length === 1){                       // keep the rotation it has; move it onto the point
+    const A0 = (w.T || CAD_I).slice(), x = src[0][0], y = src[0][1];
+    A0[2] += dst[0][0] - (A0[0] * x + A0[1] * y + A0[2]); A0[5] += dst[0][1] - (A0[3] * x + A0[4] * y + A0[5]);
+    F = { A:A0, resid:[0], rms:0, scale:Math.hypot(A0[0], A0[3]) };
+  } else F = cadFitRigid(src, dst, gf.cad.free);
+  if(!F) return null;
+  const A = F.A;
+  const toGeo = (u, v) => { const b = cadGfBase({ u, v }); return cadGeo(w.O, A[0] * b[0] + A[1] * b[1] + A[2], A[3] * b[0] + A[4] * b[1] + A[5]); };
+  return { toGeo, resid:F.resid, rms:F.rms, scale:F.scale * gf.cad.s, A, rot: Math.atan2(A[3], A[0]) * 180 / Math.PI, cadScale:F.scale };
+}
+function cadGfDone(T){
+  const w = cadW; if(!w) return;
+  w.T = T.A; w.placed = "points"; w.nPts = gf.pts.length; w.rms = T.rms; w.gfPts = gf.pts.slice(); w.free = gf.cad.free;
+  if(gfPrev){ try{ fmap.removeLayer(gfPrev); }catch(e){} gfPrev = null; }
+  gfClose(); gfEndMap(); gf = null;
+  cadHide(w.cid, false); cadMakeLayers(w); cadSave(w); cadZoom(w);
+  toast(`${w.name} placed from ${w.nPts} point${w.nPts === 1 ? "" : "s"}${w.nPts >= 3 ? " · fit within " + (w.rms < 0.05 ? "a few cm" : w.rms.toFixed(2) + " m") : ""}`);
+}
+function cadGfCancel(){ const w = cadW; if(w) cadHide(w.cid, false); }
+
+/* SNAP TO MY LAYERS. While finding the spot on the map, the cross can jump to the
+   nearest corner of a reference layer — a parcel corner, a building corner from the
+   municipal layer — within a finger's width. The drawing being placed is left out. */
+var gfSnap = false, gfSnapAt = null, gfSnapMk = null, gfSnapRaf = 0;
+function gfSnapToggle(){
+  gfSnap = !gfSnap; $("gfSnapBtn").textContent = gfSnap ? "Snap: on" : "Snap: off"; $("gfSnapBtn").classList.toggle("on", gfSnap);
+  gfSnapUpdate();
+}
+function gfSnapFind(){
+  if(!fmap) return null;
+  const c = fmap.latLngToContainerPoint(fmap.getCenter()), b = fmap.getBounds().pad(0.05), skip = gf && gf.cad ? gf.cad.cid : null;
+  let best = null, bd = 28 * 28;
+  const look = (lo, la, L2) => { if(!b.contains([la, lo])) return; const p = fmap.latLngToContainerPoint([la, lo]), d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+    if(d < bd){ bd = d; best = { lat:la, lon:lo, layer:L2.name }; } };
+  let n = 0;
+  for(const L2 of refLayers){
+    if(!L2.visible || L2.textOnly || (skip && L2.cadId === skip)) continue;
+    for(const f of L2.features){
+      const bb = featureBBox(f); if(bb && (bb.s > b.getNorth() || bb.n < b.getSouth() || bb.w > b.getEast() || bb.e < b.getWest())) continue;
+      (function walk(a){ if(typeof a[0] === "number"){ if(n++ < 300000) look(a[0], a[1], L2); return; } a.forEach(walk); })(f.geom.c);
+    }
+  }
+  return best;
+}
+function gfSnapUpdate(){
+  if(gfSnapRaf) return;
+  gfSnapRaf = requestAnimationFrame(() => { gfSnapRaf = 0;
+    gfSnapAt = (gfSnap && $("gfBar").classList.contains("show")) ? gfSnapFind() : null;
+    if(gfSnapMk){ try{ fmap.removeLayer(gfSnapMk); }catch(e){} gfSnapMk = null; }
+    if(gfSnapAt) gfSnapMk = L.circleMarker([gfSnapAt.lat, gfSnapAt.lon], { radius:9, color:"#00e5ff", weight:3, fill:false, interactive:false, pane:"labelPane" }).addTo(fmap);
+  });
+}
+
+/* ---- SHIFT / ROTATE BY HAND ----------------------------------------------------
+   The drawing is held still on the screen while the map is dragged underneath it, and
+   turned with the buttons, about the middle of the screen. Done works out the move and
+   the turn on the ground and adds them to the placement. */
+function cadNudgeStart(cid){
+  const w = cid ? cadFromRec(cadDocs[cid]) : cadW; if(!w){ return; }
+  cadW = w; closeCad(); cadPrepare(w);
+  if(!w.T){ toast("Place it first — by its coordinates or by matching points", true); return; }
+  const rp = cadRender(w, false), c0 = fmap.getCenter(), corners = cadCornersOf(w, rp);
+  const ov = cornerImageOverlay_(rp.url, corners.map(c => c.slice())).addTo(fmap); ov.setOpacity(0.9);
+  cadNudge = { w, ov, c0:[c0.lat, c0.lng], rot:0, base:corners };
+  cadHide(w.cid, true);
+  fmap.on("move zoom zoomend viewreset", cadNudgeMove);
+  $("cadBarMsg").innerHTML = `Drag the map — the drawing stays put. Turn it with the arrows. <span id="cadNudgeRead"></span>`;
+  $("cadBarBtns").innerHTML = `<button type="button" class="alt" onclick="cadNudgeTurn(1)" aria-label="Turn left 1 degree">⟲ 1°</button><button type="button" class="alt" onclick="cadNudgeTurn(0.1)">⟲ 0.1°</button>
+    <button type="button" class="alt" onclick="cadNudgeTurn(-0.1)">⟳ 0.1°</button><button type="button" class="alt" onclick="cadNudgeTurn(-1)" aria-label="Turn right 1 degree">⟳ 1°</button>
+    <button type="button" onclick="cadNudgeDone()">Done</button><button type="button" class="alt" onclick="cadNudgeCancel()">Cancel</button>`;
+  $("cadBar").classList.add("show"); cadNudgeMove();
+}
+/* the move and the turn so far, as an affine on east/north about the drawing's origin */
+function cadNudgeAff(){
+  const n = cadNudge, O = n.w.O, c = fmap.getCenter(), P0 = cadEnu(O, n.c0[0], n.c0[1]), P1 = cadEnu(O, c.lat, c.lng);
+  const ph = n.rot * Math.PI / 180, co = Math.cos(ph), si = Math.sin(ph);
+  const Tm = [1, 0, P1[0] - P0[0], 0, 1, P1[1] - P0[1]];
+  const R = [co, -si, P1[0] - (co * P1[0] - si * P1[1]), si, co, P1[1] - (si * P1[0] + co * P1[1])];
+  return { M: cadAffMul(R, Tm), d: Math.hypot(P1[0] - P0[0], P1[1] - P0[1]) };
+}
+function cadNudgeMove(){
+  const n = cadNudge; if(!n) return;
+  const { M, d } = cadNudgeAff(), O = n.w.O;
+  n.base.forEach((q, i) => { const e = cadEnu(O, q[0], q[1]), x = M[0] * e[0] + M[1] * e[1] + M[2], y = M[3] * e[0] + M[4] * e[1] + M[5], g = cadGeo(O, x, y);
+    n.ov._corners[i][0] = g[0]; n.ov._corners[i][1] = g[1]; });
+  if(n.ov._redraw) n.ov._redraw();
+  const r = $("cadNudgeRead"); if(r) r.textContent = `· moved ${d < 10 ? d.toFixed(2) : d.toFixed(1)} m, turned ${(+n.rot.toFixed(2))}°`;
+}
+function cadNudgeTurn(deg){ if(!cadNudge) return; cadNudge.rot = +(cadNudge.rot + deg).toFixed(4); cadNudgeMove(); }
+function cadNudgeEnd(){ const n = cadNudge; if(!n) return; fmap.off("move zoom zoomend viewreset", cadNudgeMove); try{ fmap.removeLayer(n.ov); }catch(e){} cadNudge = null; $("cadBar").classList.remove("show"); return n; }
+function cadNudgeDone(){
+  const { M, d } = cadNudgeAff(), n = cadNudgeEnd(); if(!n) return;
+  const w = n.w; w.T = cadAffMul(M, w.T); w.placed = "shift";
+  cadHide(w.cid, false); cadMakeLayers(w); cadSave(w);
+  toast(`${w.name} moved ${d < 10 ? d.toFixed(2) : d.toFixed(1)} m${n.rot ? `, turned ${+n.rot.toFixed(2)}°` : ""}`);
+}
+function cadNudgeCancel(){ const n = cadNudgeEnd(); if(n) cadHide(n.w.cid, false); }
+
+/* The placer's words and buttons, for a drawing. */
+function cadGfPaint(){
+  const T = gfFitT(), n = gf.pts.length, w = cadW, local = w && w.crs === "local", free = !!gf.cad.free;
+  const showRes = n >= (free ? 3 : 2);
+  $("gfMsg").innerHTML = n === 0
+    ? "Zoom in on the drawing and <b>tap a spot you can also find on the map</b> — a building corner, a curb return, a manhole, a property corner. Then you find the same spot on the aerial, or snap to it on one of your layers."
+    : n === 1
+    ? `One point: the drawing is moved onto it${local ? " and kept north-up" : ", keeping its rotation"}. <b>Tap a second spot</b>, well away from the first, to turn it as well.`
+    : `Placed from ${n} points · turned ${T ? (+T.rot.toFixed(2)) : 0}°${free && T ? ` · drawn at ${(T.cadScale * 100).toFixed(1)}% of true size` : " · its own scale kept"}${T && showRes ? ` · fit within ${T.rms < 0.05 ? "a few cm" : T.rms.toFixed(2) + " m"} on average` : ""}. ` +
+      "A point that misses by much more than the others was probably tapped in the wrong place.";
+  $("gfPts").innerHTML = gf.pts.map((q, i) => `<div><span><b>${i + 1}</b> · ${q.lat.toFixed(6)}, ${q.lon.toFixed(6)}${T && showRes ? ` · misses by ${T.resid[i] < 0.05 ? "< 5 cm" : T.resid[i].toFixed(2) + " m"}` : ""}</span>
+      <button type="button" onclick="gfDrop(${i})" aria-label="Remove point ${i + 1}">Remove</button></div>`).join("") +
+    `<label style="display:flex;gap:8px;align-items:center;margin-top:8px;font:13.5px var(--sans)"><input type="checkbox" style="width:20px;height:20px" ${free ? "checked" : ""} onchange="gf.cad.free=this.checked;gfPreview();gfPaint()"> The drawing is not to scale — let the fit change its size</label>`;
+  $("gfBtns").innerHTML = `<button type="button" onclick="gfCancel()">Cancel</button>` +
+    (n >= 1 ? `<button type="button" onclick="gfClose()">See it on the map</button><button type="button" class="primary" onclick="gfDone()">Use this placement</button>` : "");
+  gfApply();
+}
+
+/* ==================================================================== *
  *  PLACING A PLAN BY HAND  (v229)
  *
  *  Chris: "is it possible to add a tool to manually georeference a pdf? That would be
@@ -23308,8 +24315,9 @@ function gfFromImageFile(f){
   r.onerror = () => toast("Couldn't read that image", true);
   r.readAsDataURL(f);
 }
-function gfStart(url, name, keepPts){
-  gf = { url, name, W:0, H:0, pts:keepPts || [], pend:null, view:{ s:1, tx:0, ty:0 } };
+function gfStart(url, name, keepPts, extra){
+  gf = Object.assign({ url, name, W:0, H:0, pts:keepPts || [], pend:null, view:{ s:1, tx:0, ty:0 } }, extra || {});
+  { const h = document.querySelector("#gfSheet h2"); if(h) h.textContent = gf.cad ? "Place the drawing on the map" : "Place the plan on the map"; }
   $("gfName").textContent = name;
   const img = $("gfImg");
   img.onload = () => { gf.W = img.naturalWidth; gf.H = img.naturalHeight; gfFit(); gfPaint(); gfPreview(); };
@@ -23328,6 +24336,7 @@ function gfAdjust(){
 }
 function gfClose(){ $("gfSheet").classList.remove("show"); }
 function gfCancel(){
+  if(gf && gf.cad){ gfClose(); gfEndMap(); if(gfPrev){ try{ fmap.removeLayer(gfPrev); }catch(e){} gfPrev = null; } cadGfCancel(); gf = null; return; }   // v237
   gfClose(); gfEndMap();
   if(gfPrev){ try{ fmap.removeLayer(gfPrev); }catch(e){} gfPrev = null; }
   if(pdfOverlay && pdfVisible) pdfOverlay.setOpacity(($("pdfOpacity").value || 85) / 100);
@@ -23394,6 +24403,7 @@ function gfTapAt(x, y){
 /* A spot on the plan (image pixels). Then the map, to find the same spot. */
 function gfMarkPlan(u, v){
   gfEnsureCross();
+  if(!gfMarkPlan._snap && fmap){ fmap.on("move", gfSnapUpdate); gfMarkPlan._snap = true; }   // v237
   gf.pend = { u, v }; gfApply();
   gfClose();
   if(fmap && gfFitT() && gfPrev){ const q = gfFitT().toGeo(u, v); fmap.setView([q[0], q[1]], Math.max(fmap.getZoom(), 19)); }
@@ -23401,10 +24411,13 @@ function gfMarkPlan(u, v){
   $("gfBarMsg").textContent = `Point ${gf.pts.length + 1}: pan the map so the cross sits on the same spot, then Set here`;
   $("gfBar").classList.add("show");
 }
-function gfEndMap(){ $("gfBar").classList.remove("show"); const c = $("gfCross"); if(c) c.style.display = "none"; }
+function gfEndMap(){ $("gfBar").classList.remove("show"); const c = $("gfCross"); if(c) c.style.display = "none";
+  if(gfSnapMk){ try{ fmap.removeLayer(gfSnapMk); }catch(e){} gfSnapMk = null; } gfSnapAt = null; }
 function gfSetHere(){
   if(!gf || !gf.pend) return;
-  const c = fmap.getCenter();
+  let c = fmap.getCenter();
+  /* v237: snapped to a corner of one of your layers */
+  if(gfSnap){ const sn = gfSnapFind(); if(sn){ c = { lat:sn.lat, lng:sn.lon }; toast("Snapped to a corner of " + sn.layer); } }
   gf.pts.push({ u:gf.pend.u, v:gf.pend.v, lat:c.lat, lon:c.lng }); gf.pend = null;
   gfEndMap(); gfPreview();
   $("gfSheet").classList.add("show"); gfPaint();
@@ -23416,6 +24429,7 @@ function gfDrop(i){ gf.pts.splice(i, 1); gfPreview(); gfPaint(); }
 /* Local metres about the first map point; image v runs DOWN, so it is negated. */
 function gfFitT(pts){
   pts = pts || (gf && gf.pts) || [];
+  if(gf && gf.cad) return cadGfFit(pts);       // v237: a CAD drawing keeps its own scale
   if(pts.length < 2) return null;
   const la0 = pts[0].lat, lo0 = pts[0].lon, kx = 111320 * Math.cos(la0 * Math.PI / 180), ky = 110540;
   const X = q => (q.lon - lo0) * kx, Y = q => (q.lat - la0) * ky;
@@ -23451,12 +24465,13 @@ function gfPreview(){
   if(gfPrev){ try{ fmap.removeLayer(gfPrev); }catch(e){} gfPrev = null; }
   const T = gf && gf.W ? gfFitT() : null;
   if(!T) return;
-  gfPrev = cornerImageOverlay_(gf.url, gfCorners(T)).addTo(fmap);
-  gfPrev.setOpacity(0.6);
-  if(pdfOverlay) pdfOverlay.setOpacity(0);              // the old placement out of the way while placing
+  gfPrev = cornerImageOverlay_(gf.cad ? gf.cad.prevUrl : gf.url, gfCorners(T)).addTo(fmap);
+  gfPrev.setOpacity(gf.cad ? 0.9 : 0.6);
+  if(pdfOverlay && !gf.cad) pdfOverlay.setOpacity(0);   // the old placement out of the way while placing
 }
 function gfPaint(){
   if(!gf) return;
+  if(gf.cad) return cadGfPaint();              // v237
   const T = gfFitT(), n = gf.pts.length;
   $("gfMsg").innerHTML = n === 0 ? "Zoom in on the plan and <b>tap a spot you can also find on the aerial</b> — a building corner, a curb return, a property bar. Then you pan the map to the same spot."
     : n === 1 ? "One point set. <b>Tap a second spot</b>, well away from the first — two points fix the position, scale and rotation."
@@ -23471,6 +24486,7 @@ function gfPaint(){
   gfApply();
 }
 function gfDone(){
+  if(gf && gf.cad){ const T = gfFitT(); if(!T){ toast("Set a point first", true); return; } return cadGfDone(T); }   // v237
   const T = gfFitT(); if(!T || !gf.W){ toast("Set at least two points first", true); return; }
   const corners = gfCorners(T);
   if(gfPrev){ try{ fmap.removeLayer(gfPrev); }catch(e){} gfPrev = null; }
@@ -23670,6 +24686,10 @@ function railMapHtml(){
     ? rpSwitch("Site plan", legOn("btnPdf"), "togglePDF()", "The georeferenced PDF you loaded")
     : rpItem("📄", "Load a site plan…", "closeRail();document.getElementById('sitePdfInput').click()", "A PDF or image — georeferenced, or placed by hand from matching points");
   if(sitePlanLoaded()) h += rpItem("📍", "Adjust the site plan's placement…", "closeRail();gfAdjust()", "Match points on the plan to points on the aerial");
+  /* v237: CAD drawings — bring one in, or manage one already here */
+  Object.values(cadDocs).forEach(r => { const n = refLayers.filter(L2 => L2.cadId === r.cid).length;
+    h += rpItem("📐", r.name + "…", `closeRail();openCadManage('${r.cid}')`, `CAD drawing · ${n} layer${n === 1 ? "" : "s"} on the map · layers, placement, remove`); });
+  h += rpItem("📐", "Bring in a CAD drawing (DXF)…", "closeRail();cadPick()", "An engineer's site plan — pick its layers, then place it");
   h += `<div class="rp-sec">Working without signal</div>`;
   h += rpItem("💾", "Save this area for offline use…", "closeRail();openOffline()", "Keeps the aerial photo on this phone");
   return h;
@@ -24003,6 +25023,7 @@ let mapPhotoCount = 0;
 function mapPhotosChanged(){
   const on = $("mapPhotos") && $("mapPhotos").value === "1";
   const row = $("mapPhotoNRow"); if(row) row.style.display = on ? "" : "none";
+  if(on) renderMapCapFields();
   const per = photosPerPage();
   if(STORE){ try{ STORE.setItem("st_photoper", String(per)); }catch(e){} }
   const note = $("mapPhotoNote");
@@ -25728,10 +26749,14 @@ async function buildPhotoPages(shown, W, H, M, title, perPage){
       g.fillText(who + (item.of>1 ? "  ("+item.seq+" of "+item.of+")" : ""), cx+pad, ty);
       ty += Math.round(PDF_DPI*0.13*capS);
       g.fillStyle="#3f5147"; g.font=`${Math.round(PDF_DPI*0.095*capS)}px sans-serif`;
-      const sp = String(item.t.SPECIES||"— no species —");
-      const hl = item.t.HEALTH ? "  ·  "+item.t.HEALTH : "";
-      let line = sp+hl;
-      while(g.measureText(line).width > boxW && line.length>4) line = line.slice(0,-2);
+      /* v239: the line under the number is the fields Chris picks — the same list,
+         the same order and the same setting as the Appendix A captions — rather than
+         species and condition, always. The default is still species · condition. */
+      let line = photoCaptionLine(item.t);
+      if(g.measureText(line).width > boxW){
+        while(g.measureText(line + "…").width > boxW && line.length > 4) line = line.slice(0, -1);
+        line = line.trimEnd() + "…";
+      }
       g.fillText(line, cx+pad, ty);
     }
     pages.push({ data: cv.toDataURL("image/jpeg", 0.90), w:W, h:H });
@@ -26997,8 +28022,9 @@ function legGroupColour(i){
   openGroupStyle(gp.id);
 }
 
-function sheetLegendRaw(shown){
-  const present = legendRows().filter(r=>{
+/* Is this key row drawn on any of these trees? One answer for the sheet and the
+   screen, so the two keys cannot disagree about what is on the map. */
+function legendRowPresent(r, shown){
     if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
     if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
                                       (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
@@ -27011,7 +28037,10 @@ function sheetLegendRaw(shown){
     if(symbolMode==="change")   return shown.some(t=>changeLabel(t)===r[0]);
     if(symbolMode==="risk")     return shown.some(t=>(String(t.RISK||"")||"Not rated")===r[0]);
     return true;
-  }).map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot"}));
+}
+function sheetLegendRaw(shown){
+  const present = legendRows().filter(r=>legendRowPresent(r, shown))
+    .map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot"}));
   /* THE COLOUR THE PLAN ACTUALLY DRAWS. The sheet strokes the protection zone in
      #B8860B over a pale yellow wash; the key was drawing a pale yellow RING on white,
      which is why Chris read it as smaller and fainter than the crown beside it —
@@ -28516,7 +29545,7 @@ function showHelp(){
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number, species and health — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number and then the fields you tick under <i>Under each photograph</i> — species and condition unless you change them, the same choice as the Appendix A captions — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p><b>Showing the zone distance with the number</b><br>A dashed circle tells a contractor where the fence goes; the figure beside it is what they measure to. The label list on the export offers <i>Tree number and protection zone</i> — <b>T1 / 2.4 m</b> — and <i>Number, species and protection zone</i>, and the same thing is available on screen as a field called <b>Protection zone, with units</b> in <i>Menu → Label settings</i>. Where no zone has been stored for a tree, the figure is worked out from its DBH, because the circle is drawn for those trees too and a circle with no dimension beside it is not a specification. A tree with neither gets no dimension rather than a nought.</p>
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
@@ -28574,6 +29603,7 @@ function showHelp(){
     <p><b>Fading the aerial</b><br>Map → Aerial photo → <b>Fade the aerial</b> washes the photo toward white (up to 80 %) so a site plan, fences, zones and trees stand out. It applies on screen and to every printed map; the tree summary starts from the same setting and can be changed for that page alone.</p>
     <p><b>Who sees which project</b><br>Once login is on, each person sees the projects they started or recorded trees in. The owner sees everything and, from <b>Projects → People &amp; projects</b>, can <b>Allow</b> or <b>Block</b> any project for anyone (Block wins), rename any project, archive one (it leaves every phone; trees and photos go to the Sheet's Archive) and restore it. Anyone can rename a project they started (<b>Projects → Rename a project</b>). If your access to a project is taken away, its trees that are already on the Sheet leave this phone; any you had not sent stay, marked "can't send".</p>
     <p><b>Tree summary for a client</b><br>Tap a tree, then <b>📄 Summary</b>. Choose the photo (the latest is picked for you), what to show on the map — protection zone, crown, protection fencing and plantings, pruning and removal marks, the trees nearby, tree numbers, roads, the loaded site plan and any reference layers — and how far out the map goes. Add who it is for and a note if you like, then <b>Create PDF</b>. <b>Share…</b> opens the phone's share sheet (Mail, Messages, Drive); <b>Download</b> saves the file. The page carries the tree's size, condition, risk, recommendations, when it was last inspected and worked on, when the next inspection is due and the recent visits; the appraised value only if you tick it.</p>
+    <p><b>CAD drawings from the engineer</b><br><b>Map → Bring in a CAD drawing</b> (or <i>Menu → Bring data in → CAD drawing</i>) reads a <b>DXF</b>. A DWG has to be saved as DXF first — AutoCAD's Save As, ArcGIS Pro's Export CAD, or the free ODA File Converter. The app works out where the drawing is — UTM 17 or 18, MTM 8 to 11, NAD83 or NAD27 — by checking which lands nearest your trees, and offers that first; a drawing on a local site grid is placed by matching points. Tick the layers to show (layers turned off or frozen in the drawing, and Defpoints, start unticked), and whether to bring in text, fills (hatches) and block symbols. Each CAD layer becomes one of your reference layers, so it can be renamed, recoloured, put in the legend (they start out of it), printed, and used by the TPZ conflict check and Find trees near a layer. If it does not line up: <b>⤧ Shift / rotate</b> holds the drawing still while you drag the map under it and turn it with the arrows; <b>⌖ Match points</b> fits it to spots you tap on the drawing and then find on the map — one point moves it, two or more also turn it, keeping its true scale — and <b>Snap</b> jumps the map cross to the nearest corner of one of your own layers, such as the parcel fabric. The drawing stays on this phone with its placement, so it can be adjusted, have its layers changed, or be removed later from the Map panel.</p>
     <p><b>Tree risk assessment (ISA TRAQ)</b><br>Tap a tree, then <b>⚠ Risk</b>, for a full basic assessment laid out like the ISA form: the <b>targets</b> (up to four, with the target zone, occupancy and whether they can be moved or access restricted); the <b>condition checklist</b> — site and load factors, crown and branches, trunk, roots and root collar — tap to tick, with a note for each; the <b>tree parts</b> of concern, each with its size, fall distance, the target it would hit, likelihood of failure and of impact, and consequences, rated with ISA's two matrices; then <b>mitigation</b> options with their residual risk and the one recommended, the time frame, and the inspection interval. The tree's risk rating is the highest of its parts, and its likelihood, target, impact and consequence fields are set from that part. Every assessment is kept — a re-assessment starts from the last one — and goes to the Sheet's <b>Risk assessments</b> tab. A High or Extreme rating can add a work order for the recommended mitigation. The Follow-up list uses the recommended interval. <b>PDF of this assessment</b> prints the form with the photo and a map; <b>Tools → Risk register</b> ranks every assessed tree, with PDF and CSV. <b>Layers → Colour trees by → Risk</b> colours the map by rating.</p>
     <p><b>Planting sites</b><br><b>Tools → Visits &amp; work → Planting sites</b> keeps the places a tree could go. <b>＋ Add sites on the map</b> and tap each one; record the site type and the width of the growing space, overhead wires and anything nearby (hydrant, driveway, light standard…). The app works out the mature size that fits — under 1.2 m too narrow, 1.2 m small, 1.8 m medium, 2.4 m and over large, small only under wires — and suggests species that fit and keep this inventory under 10% of one species, 20% of a genus and 30% of a family. Set a priority and a planting season. The <b>Stumps</b> list shows stumps and removed trees with no site yet; <b>＋ Make a site</b> puts one at the same spot. Marking a site <b>Planted</b> adds the new tree to the inventory with a Planted visit. Sites show on the map as numbered squares (Layers → Planting sites), print on the plan sheets, and go to the Sheet's <b>Planting sites</b> tab. <b>Planting plan — PDF</b> gives the map and the list with the cost from the project's planting rate. These are separate from the <b>proposed plantings</b> of a tree protection plan, which are compensation trees on the plan.</p>
     <p><b>Map visuals</b><br><b>Layers → Colour trees by</b> also offers <b>Species</b> — the nine most common each in their own colour, the rest grey as “Other species” — and <b>Health change</b>: each tree's health today against its first record (or against 1, 3 or 5 years ago), green where it improved, red where it declined, grey where it is the same, brown where it has been removed since. Under <b>Map visuals</b>: <b>Size by trunk diameter</b> draws bigger trees with bigger symbols; <b>Heat map</b> shades where trees gather, or — weighted — where the poor-condition, high-risk or work-outstanding trees gather, with the spread of each tree set at 10, 20 or 40 m; <b>Canopy as one cover</b> fills the crowns as one green canopy and the legend gives the share of the view it covers. All of them print on the plan sheets the way they look on screen, and the key names only what the sheet carries.</p>
