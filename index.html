@@ -66,6 +66,10 @@
     border:1px solid #c9a227; border-radius:12px; background:#fff6d6; color:#5a4500; font-family:inherit; font-size:11px; font-weight:600; line-height:1.2;
     white-space:nowrap; cursor:pointer; text-transform:none; letter-spacing:0; text-align:left }
   .appbar .sub .fchip .fx{ font-weight:700; color:#8a6a00 }
+  /* v243: saved set-ups */
+  .mpreset{ border:1px solid var(--line2); border-radius:10px; padding:10px }
+  .mpreset .mpbtns{ display:flex; gap:8px; margin-top:6px } .mpreset .mpbtns button{ flex:1; padding:9px; border-radius:8px }
+  .mpreset .mpbtns button:disabled{ opacity:.45 }
   /* v241: ✨ on the comment */
   .clr.aibtn, .sheet-inner .clr.aibtn{ background:#efe6fb; color:#5b2a91; border-color:#c9b1ea; margin-left:auto; margin-right:0 }
   .aibox{ margin-top:8px; border:1px solid #c9b1ea; border-radius:10px; padding:10px; background:rgba(142,68,173,.08) }
@@ -1957,6 +1961,13 @@
     <div class="grab"></div>
     <h2>Export map</h2>
     <div class="idline" id="mapOptScope">—</div>
+    <div class="fld mpreset">
+      <label>Saved set-ups for this project</label>
+      <select id="mapPreset" onchange="mapPresetPick(this.value)"></select>
+      <div class="mpbtns"><button type="button" onclick="mapPresetSave()">💾 Save these settings…</button>
+        <button type="button" id="mapPresetDel" onclick="mapPresetDelete()">Delete</button></div>
+      <div class="mini" id="mapPresetNote">Everything on this screen, the map view and the tree colours. Kept with the project, so your other devices have it after a sync.</div>
+    </div>
     <div class="fld">
       <label>Title</label>
       <input id="mapTitle" type="text" placeholder="Centre Street | Sheet 2 of 4">
@@ -2067,6 +2078,17 @@
         <input type="checkbox" id="mapRoadBig" onchange="mapRoadsChanged()" style="width:17px;height:17px;padding:0;flex:0 0 auto">
         <span>Print the names larger, so they can be read on paper</span>
       </label>
+    </div>
+    <div class="fld">
+      <label>Key map scale</label>
+      <select id="mapKeyScale" onchange="mapKeyScaleChanged()">
+        <option value="0">Fit — sized to the area printed</option>
+        <option value="5000">1:5,000</option>
+        <option value="10000">1:10,000</option>
+        <option value="20000">1:20,000</option>
+        <option value="50000">1:50,000</option>
+      </select>
+      <div class="mini">The small map in the corner. A fixed scale shows more of the surroundings; the red box is the area printed.</div>
     </div>
     <div class="btnrow">
       <button class="primary" onclick="runMapExport()">Create the PDF</button>
@@ -3069,7 +3091,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-24 · v242";
+const APP_BUILD  = "2026-11-24 · v243";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -21302,7 +21324,8 @@ const KIT_PARTS = [
   ["legend",    "Legend names & groups"],
   ["follow",    "Inspection cycle"],
   ["rates",     "Rates & budget"],
-  ["orders",    "Work orders"]
+  ["orders",    "Work orders"],
+  ["exports",   "Saved map set-ups"]
 ];
 function kitSnapshot(project){
   const p = String(project || "").trim();
@@ -21322,7 +21345,8 @@ function kitSnapshot(project){
     legend:    legendCfg,
     follow:    followCfg,
     rates:     ratesFor(p),
-    orders:    (woAll[lcName(p) || "*"] || [])
+    orders:    (woAll[lcName(p) || "*"] || []),
+    exports:   presetsFor(p)
   };
 }
 /* Applied part by part, because the conflict screen lets you take one and keep
@@ -21340,6 +21364,8 @@ function kitApply(project, kit, only){
   if(take("rates") && kit.rates && typeof kit.rates === "object"){ setRates(kit.rates, project); done.push("rates"); }
   if(take("orders") && Array.isArray(kit.orders)){ woAll[lcName(project) || "*"] = kit.orders; persistWO(); done.push("orders");
                                                    if($("woSheet").classList.contains("show")) paintWO(); }
+  if(take("exports") && Array.isArray(kit.exports)){ setPresetsFor(project, kit.exports); done.push("exports");
+                                                     if($("mapOptSheet") && $("mapOptSheet").classList.contains("show")) mapPresetList(); }
   if(take("follow") && kit.follow && typeof kit.follow === "object"){
     followCfg = Object.assign({}, FOLLOW_DEF, kit.follow); persistFollow(); refreshFollow(); done.push("follow");
   }
@@ -22651,6 +22677,7 @@ function houseSnapshot(){
        column THIS report prints. A standard that forced it would be wrong as often
        as right, so it is left out of the house row entirely. */
     delete k.value;
+    delete k.exports;          // v243: a project's own map set-ups (its views), never a standard for the next one
     delete k.orders;           // v231: a project's own work, never a standard for the next one; its rates can be
     k.logo = (logo === "") ? "" : (logo || null);
     return { kit:k, logoTooBig: logo === "" };
@@ -22764,7 +22791,7 @@ function renderHouse(){
     : "Nothing saved yet";
   const p = $("houseParts");
   if(p) p.innerHTML = "<b>What it carries:</b> " +
-    KIT_PARTS.filter(([k])=> k !== "value" && k !== "orders").map(([,l])=> esc(l)).join(" · ") + " · Logo";
+    KIT_PARTS.filter(([k])=> k !== "value" && k !== "orders" && k !== "exports").map(([,l])=> esc(l)).join(" · ") + " · Logo";
   const a = $("houseAuto"); if(a) a.checked = !!houseState.auto;
 }
 
@@ -25206,6 +25233,9 @@ function exportMapPDF(){
   { const t = $("mapTable"); if(t) t.value = mapTblPref.on ? "1" : "0"; } mapTableChanged();
   { const r = $("mapRoadNames"); if(r) r.value = mapRoadPref.which || (mapRoads ? "both" : "none");
     const bg = $("mapRoadBig"); if(bg) bg.checked = mapRoadPref.big !== false; }
+  { const k = $("mapKeyScale"); if(k) k.value = String(mapKeyScalePref || 0); }
+  mapPresetList();
+  { const n = $("mapPresetNote"); if(n) n.textContent = "Everything on this screen, the map view and the tree colours. Kept with the project, so your other devices have it after a sync."; }
   $("mapSheetSize").value = sheetSize;
   mapSheetsChanged();
   $("mapOptSheet").classList.add("show");
@@ -25248,6 +25278,7 @@ async function runMapExport(){
   exportRoadOpt = { main: rw === "both" || rw === "main", key: rw === "both" || rw === "key",
                     big: !$("mapRoadBig") || $("mapRoadBig").checked };
   exportTableOn = !!($("mapTable") && $("mapTable").value === "1");
+  exportKeyScale = Number($("mapKeyScale") && $("mapKeyScale").value) || 0;
   try{
     if(mode==="series") await runSeriesExport();
     else if(mode==="all"){
@@ -25259,7 +25290,7 @@ async function runMapExport(){
   }catch(err){
     setStatus(`${visibleTrees().length} trees on device`);
     toast("Map export failed: " + String(err && err.message || err).slice(0,120), true);
-  }finally{ exportRoadOpt = null; exportTableOn = false; }
+  }finally{ exportRoadOpt = null; exportTableOn = false; exportKeyScale = 0; }
 }
 let exportTableOn = false;
 
@@ -26273,21 +26304,35 @@ async function drawKeyMap(g, x, y, w, h, opt){
     const ph = Math.abs(latToPx(show.getSouth(),kz) - latToPx(show.getNorth(),kz));
     if(pw <= w*0.86 && ph <= h*0.86) break;
   }
+  /* v243 — A FIXED SCALE, when chosen. Chris: "Can I change the scale of the inset
+     map?" The ground a printed pixel covers is scale × 0.0254 m / PDF_DPI; the zoom
+     that gives it is rarely a whole number, so the tiles are drawn at the nearest
+     whole zoom below and stretched by ks (1 to 2) to land on the scale exactly. Not
+     on the series index, whose numbered boxes need it to fit every sheet. */
+  let ks = 1, keyScaleUsed = 0;
+  { const want = Number(opt.keyScale != null ? opt.keyScale : (exportKeyScale || 0));
+    if(want > 0 && !context && !(Array.isArray(opt.cells) && opt.cells.length)){
+      const mpp = want * 0.0254 / PDF_DPI;
+      const zf = Math.log2(156543.03392 * Math.cos(c.lat * Math.PI / 180) / mpp);
+      kz = Math.max(3, Math.min(19, Math.floor(zf)));
+      ks = Math.pow(2, zf - kz);
+      keyScaleUsed = want;
+    } }
   const cx = lonToPx(c.lng,kz), cy = latToPx(c.lat,kz);
-  const X = px => x + w/2 + (px - cx);
-  const Y = py => y + h/2 + (py - cy);
+  const X = px => x + w/2 + (px - cx) * ks;
+  const Y = py => y + h/2 + (py - cy) * ks;
 
   g.save();
   g.fillStyle="#eef2ee"; g.fillRect(x,y,w,h);
   g.beginPath(); g.rect(x,y,w,h); g.clip();
   const url = context ? KEY_BASES[1][2] : keyBaseUrl();
-  const t0=Math.floor((cx-w/2)/256), t1=Math.floor((cx+w/2)/256);
-  const u0=Math.floor((cy-h/2)/256), u1=Math.floor((cy+h/2)/256);
+  const t0=Math.floor((cx-w/2/ks)/256), t1=Math.floor((cx+w/2/ks)/256);
+  const u0=Math.floor((cy-h/2/ks)/256), u1=Math.floor((cy+h/2/ks)/256);
   const jobs=[];
   for(let tx=t0;tx<=t1;tx++) for(let ty=u0;ty<=u1;ty++)
     jobs.push(loadTile(url.replace("{z}",kz).replace("{x}",tx).replace("{y}",ty)).then(im=>({im,tx,ty})));
   (await Promise.all(jobs)).forEach(({im,tx,ty})=>{
-    if(im) g.drawImage(im, X(tx*256), Y(ty*256), 256, 256);
+    if(im) g.drawImage(im, X(tx*256), Y(ty*256), 256*ks, 256*ks);
   });
   /* v240: ROAD NAMES ON THE KEY MAP, when asked for — over the aerial only; the
      street, topographic and OpenStreetMap bases carry their own. "Larger" draws the
@@ -26295,12 +26340,12 @@ async function drawKeyMap(g, x, y, w, h, opt){
   const KRO = opt.roadOpt || exportRoadOpt;
   if(KRO && KRO.key && url === KEY_BASES[0][2] && kz > 1){
     const kf = KRO.big ? 2 : 1, kzr = kz - (kf === 2 ? 1 : 0), side = 256 * kf;
-    const r0 = Math.floor((cx-w/2)/side), r1 = Math.floor((cx+w/2)/side), v0 = Math.floor((cy-h/2)/side), v1 = Math.floor((cy+h/2)/side);
+    const r0 = Math.floor((cx-w/2/ks)/side), r1 = Math.floor((cx+w/2/ks)/side), v0 = Math.floor((cy-h/2/ks)/side), v1 = Math.floor((cy+h/2/ks)/side);
     const rj = [];
     for(const [u2, set] of [[ROADS_URL, "road"], [PLACES_URL, "place"]])
       for(let tx=r0;tx<=r1;tx++) for(let ty=v0;ty<=v1;ty++)
         rj.push(loadTile(u2.replace("{z}",kzr).replace("{x}",tx).replace("{y}",ty), set, kzr, tx, ty).then(im=>({im,tx,ty})));
-    (await Promise.all(rj)).forEach(({im,tx,ty})=>{ if(im) g.drawImage(im, X(tx*side), Y(ty*side), side, side); });
+    (await Promise.all(rj)).forEach(({im,tx,ty})=>{ if(im) g.drawImage(im, X(tx*side), Y(ty*side), side*ks, side*ks); });
   }
 
   /* every sheet of the series, numbered */
@@ -26359,7 +26404,7 @@ async function drawKeyMap(g, x, y, w, h, opt){
     g.fillStyle="rgba(18,32,26,.85)"; g.fillRect(x,y,w,bh);
     g.fillStyle="#fff"; g.font=`bold ${Math.round(bh*0.62)}px ${TPP_FONT}`;
     g.textAlign="left"; g.textBaseline="middle";
-    g.fillText("KEY MAP", x + Math.round(bh*0.35), y + bh/2);
+    g.fillText("KEY MAP" + (keyScaleUsed ? "  1:" + keyScaleUsed.toLocaleString("en-CA") : ""), x + Math.round(bh*0.35), y + bh/2);
   }
   g.textAlign="left"; g.textBaseline="alphabetic";
 }
@@ -26431,6 +26476,108 @@ function mapRoadsChanged(){
   mapRoadPref.which = $("mapRoadNames").value; mapRoadPref.big = !!$("mapRoadBig").checked;
   if(STORE){ try{ STORE.setItem(MAPROADS_KEY, JSON.stringify(mapRoadPref)); }catch(e){} }
 }
+/* v243 — THE KEY MAP AT A SCALE OF YOUR CHOOSING, remembered on the device and saved
+   in a preset. 0 = fit (the old behaviour). */
+let mapKeyScalePref = 0;
+try{ mapKeyScalePref = Number(STORE && STORE.getItem("st_keyscale")) || 0; }catch(e){}
+function mapKeyScaleChanged(){
+  mapKeyScalePref = Number($("mapKeyScale").value) || 0;
+  try{ STORE && STORE.setItem("st_keyscale", String(mapKeyScalePref)); }catch(e){}
+}
+let exportKeyScale = 0;
+
+/* v243 — SAVED EXPORT SET-UPS, PER PROJECT. Chris: "when I create the export map can I
+   save it as a settings file to open again later to recreate?" — and, asked where it
+   should live, "Named, kept per project". So each project carries a list of named
+   set-ups inside its project setup (the kit), which already travels through the Sheet
+   between devices. A set-up holds every choice on the export screen, the map view it
+   was made from and the tree colours, so loading it and pressing Create makes the
+   same sheet again. */
+const MAPPRESET_KEY = "st_mappresets";
+let mapPresets = {};
+try{ const v = JSON.parse(STORE && STORE.getItem(MAPPRESET_KEY)); if(v && typeof v === "object") mapPresets = v; }catch(e){}
+function persistMapPresets(){ try{ STORE && STORE.setItem(MAPPRESET_KEY, JSON.stringify(mapPresets)); }catch(e){} }
+function presetsFor(project){ return (mapPresets[lcName(project) || "*"] || []).slice(); }
+function setPresetsFor(project, list){ mapPresets[lcName(project) || "*"] = Array.isArray(list) ? list : []; persistMapPresets(); }
+function mapPresetCollect(){
+  const v = id => $(id) ? $(id).value : "";
+  const c = fmap ? fmap.getCenter() : null;
+  return {
+    title: v("mapTitle"), labels: v("mapLabels"), cover: v("mapSheets"), scale: v("mapScale"), size: v("mapSheetSize"),
+    details: v("mapDetails"), photos: v("mapPhotos"), photoN: v("mapPhotoN"), cap: (schedB.fields || []).slice(),
+    table: v("mapTable"), tbl: (mapTblPref.fields || []).slice(), roads: v("mapRoadNames"),
+    roadBig: !!($("mapRoadBig") && $("mapRoadBig").checked), keyScale: Number(v("mapKeyScale")) || 0,
+    view: c ? { lat: +c.lat.toFixed(7), lng: +c.lng.toFixed(7), z: fmap.getZoom() } : null,
+    symbol: symbolMode, layers: refLayers.filter(L2 => L2.visible).map(layerKitKey)
+  };
+}
+function mapPresetApply(st){
+  if(!st || typeof st !== "object") return;
+  const set = (id, val) => { const e = $(id); if(e && val != null && val !== "") e.value = String(val); };
+  if(st.symbol && st.symbol !== symbolMode) setSymbol(st.symbol, true);
+  if(Array.isArray(st.layers)){
+    let ch = false;
+    refLayers.forEach(L2 => { const on = st.layers.indexOf(layerKitKey(L2)) >= 0; if(L2.visible !== on){ L2.visible = on; ch = true; } });
+    if(ch){ persistRefLayers(); drawRefLayers(); try{ renderLayerList(); }catch(e){} buildLegend(); }
+  }
+  if(st.view && fmap && isFinite(st.view.lat) && isFinite(st.view.lng)) fmap.setView([st.view.lat, st.view.lng], st.view.z || fmap.getZoom(), { animate:false });
+  set("mapTitle", st.title); set("mapLabels", st.labels); set("mapSheets", st.cover); set("mapScale", st.scale);
+  if(st.size && $("mapSheetSize")){ $("mapSheetSize").value = st.size; try{ setSheetSize(st.size, true); }catch(e){} }
+  set("mapDetails", st.details); set("mapPhotos", st.photos); set("mapPhotoN", st.photoN);
+  if(Array.isArray(st.cap)){ schedB.fields = st.cap.slice(); persistSchedB(); }
+  if(Array.isArray(st.tbl)){ mapTblPref.fields = st.tbl.slice(); }
+  set("mapTable", st.table);
+  set("mapRoadNames", st.roads); if($("mapRoadBig") && typeof st.roadBig === "boolean") $("mapRoadBig").checked = st.roadBig;
+  set("mapKeyScale", st.keyScale || 0);
+  mapRoadsChanged(); mapKeyScaleChanged(); mapTableChanged(); mapSheetsChanged();
+}
+function mapPresetList(){
+  const sel = $("mapPreset"); if(!sel) return;
+  const list = presetsFor(currentProject());
+  sel.innerHTML = `<option value="">${list.length ? "— choose one to load —" : "None saved yet for this project"}</option>` +
+    list.map((p, i) => `<option value="${i}">${esc(p.name)}${p.at ? "  · " + esc(String(p.at).slice(0, 10)) : ""}</option>`).join("");
+  sel.disabled = !list.length;
+  const del = $("mapPresetDel"); if(del) del.disabled = true;
+}
+function mapPresetPick(i){
+  const del = $("mapPresetDel");
+  if(i === "" || i == null){ if(del) del.disabled = true; return; }
+  const p = presetsFor(currentProject())[Number(i)]; if(!p) return;
+  mapPresetApply(p.s);
+  if(del) del.disabled = false;
+  $("mapPresetNote").textContent = `Loaded “${p.name}”. Check the view behind this screen, then Create the PDF.`;
+  toast(`Loaded “${p.name}”`);
+}
+function mapPresetSave(){
+  const proj = currentProject();
+  if(!proj){ toast("Choose a project first — set-ups are kept with a project", true); return; }
+  const list = presetsFor(proj);
+  const sel = $("mapPreset"), cur = sel && sel.value !== "" ? list[Number(sel.value)] : null;
+  const def = cur ? cur.name : (normText($("mapTitle").value).replace(/\|/g, " ").replace(/\s+/g, " ").trim() || "Map set-up");
+  const name = normText(prompt("Name this set-up (an existing name is replaced):", def) || "").slice(0, 60);
+  if(!name) return;
+  const rec = { name: name, at: nowStr(), by: settings.cruiser || "", s: mapPresetCollect() };
+  const i = list.findIndex(p => lcName(p.name) === lcName(name));
+  if(i >= 0) list[i] = rec; else list.push(rec);
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  setPresetsFor(proj, list);
+  mapPresetList();
+  const j = presetsFor(proj).findIndex(p => lcName(p.name) === lcName(name));
+  if(sel && j >= 0){ sel.value = String(j); const del = $("mapPresetDel"); if(del) del.disabled = false; }
+  $("mapPresetNote").textContent = `Saved “${name}” with ${proj}. It goes to the Sheet with the project setup.`;
+  toast(`Saved “${name}”`);
+  try{ kitSync({ loud:false }); }catch(e){}
+}
+function mapPresetDelete(){
+  const proj = currentProject(), sel = $("mapPreset");
+  if(!sel || sel.value === "") return;
+  const list = presetsFor(proj), p = list[Number(sel.value)]; if(!p) return;
+  if(!confirm(`Delete the set-up “${p.name}” from ${proj}?`)) return;
+  list.splice(Number(sel.value), 1); setPresetsFor(proj, list); mapPresetList();
+  $("mapPresetNote").textContent = `Deleted “${p.name}”.`;
+  try{ kitSync({ loud:false }); }catch(e){}
+}
+
 /* What the export screen chose, for the export it starts — null for every other
    map (the assembled document keeps its own rule: the screen's roads, no key names). */
 let exportRoadOpt = null;
@@ -29840,7 +29987,7 @@ function showHelp(){
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is this view on one sheet, <i>all trees in the project on one sheet</i> (fitted to every tree the project shows, whatever is on screen), or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. <b>Tree inventory table</b> adds a table of the trees on the map after it — the tree number, then the columns you tick from every attribute the record carries (the everyday ten first, the rest under <i>More attributes</i>), in the order you tick them; long notes wrap. <b>Road names</b> can go on the map, the key map, both or neither, and <i>Print the names larger</i> draws them at about eight point so they read on paper. On screen the <b>legend</b> lists only the classes on the map, each with its count of trees; coloured by recommended action the classes are Remove tree, Pruning, Root-sensitive excavation, Pruning and root excavation (a tree needing both), Protection measures and No action required. Photo pages come after the map, six to a page, each captioned with the tree number and then the fields you tick under <i>Under each photograph</i> — species and condition unless you change them, the same choice as the Appendix A captions — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is this view on one sheet, <i>all trees in the project on one sheet</i> (fitted to every tree the project shows, whatever is on screen), or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. <b>Saved set-ups</b>: at the top of the screen, <i>💾 Save these settings…</i> keeps everything on it — with the map view it was made from and the tree colours — under a name, with the project. It goes to the Sheet with the project setup, so the desktop and the phone both have it; pick it from the list to load it, check the view behind the screen and press Create. Saving under an existing name replaces it. <b>Key map scale</b> sets the small corner map to 1:5,000, 1:10,000, 1:20,000 or 1:50,000 (the scale is printed beside KEY MAP), or <i>Fit</i> to size it to the area printed. <b>Tree inventory table</b> adds a table of the trees on the map after it — the tree number, then the columns you tick from every attribute the record carries (the everyday ten first, the rest under <i>More attributes</i>), in the order you tick them; long notes wrap. <b>Road names</b> can go on the map, the key map, both or neither, and <i>Print the names larger</i> draws them at about eight point so they read on paper. On screen the <b>legend</b> lists only the classes on the map, each with its count of trees; coloured by recommended action the classes are Remove tree, Pruning, Root-sensitive excavation, Pruning and root excavation (a tree needing both), Protection measures and No action required. Photo pages come after the map, six to a page, each captioned with the tree number and then the fields you tick under <i>Under each photograph</i> — species and condition unless you change them, the same choice as the Appendix A captions — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p><b>Showing the zone distance with the number</b><br>A dashed circle tells a contractor where the fence goes; the figure beside it is what they measure to. The label list on the export offers <i>Tree number and protection zone</i> — <b>T1 / 2.4 m</b> — and <i>Number, species and protection zone</i>, and the same thing is available on screen as a field called <b>Protection zone, with units</b> in <i>Menu → Label settings</i>. Where no zone has been stored for a tree, the figure is worked out from its DBH, because the circle is drawn for those trees too and a circle with no dimension beside it is not a specification. A tree with neither gets no dimension rather than a nought.</p>
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
