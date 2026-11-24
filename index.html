@@ -66,6 +66,21 @@
     border:1px solid #c9a227; border-radius:12px; background:#fff6d6; color:#5a4500; font-family:inherit; font-size:11px; font-weight:600; line-height:1.2;
     white-space:nowrap; cursor:pointer; text-transform:none; letter-spacing:0; text-align:left }
   .appbar .sub .fchip .fx{ font-weight:700; color:#8a6a00 }
+  /* v241: ✨ on the comment */
+  .clr.aibtn, .sheet-inner .clr.aibtn{ background:#efe6fb; color:#5b2a91; border-color:#c9b1ea; margin-left:auto; margin-right:0 }
+  .aibox{ margin-top:8px; border:1px solid #c9b1ea; border-radius:10px; padding:10px; background:rgba(142,68,173,.08) }
+  .aibox .aihd{ display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase }
+  .aibox .aistyle button{ font-size:12px; padding:5px 10px; border:1px solid #c9b1ea; background:transparent; color:inherit; cursor:pointer; text-transform:none; letter-spacing:0 }
+  .aibox .aistyle button:first-child{ border-radius:8px 0 0 8px } .aibox .aistyle button:last-child{ border-radius:0 8px 8px 0; border-left:none }
+  .aibox .aistyle button.on{ background:#8E44AD; color:#fff; border-color:#8E44AD }
+  .aibox .aitext{ margin:8px 0; padding:8px; border-radius:8px; background:rgba(255,255,255,.65); color:#1b1b1b; font-size:14px; line-height:1.4; white-space:pre-wrap }
+  .aibox .aitext.err{ background:#fdecea; color:#8c2318 }
+  .aibox .aibtns{ display:flex; gap:8px } .aibox .aibtns button{ flex:1; padding:9px; border-radius:8px; font-weight:600 }
+  .aibox .aibtns button.primary{ background:#1d7a45; color:#fff; border-color:#155e34 } .aibox .aibtns button:disabled{ opacity:.45 }
+  /* v240 */
+  .legend .lcn{ color:#9fb5a6; font-weight:400 }
+  details.attrmore{ margin-top:6px; width:100% }
+  details.attrmore > summary{ cursor:pointer; font-size:13px; font-weight:600; color:#1d7a45; padding:6px 0 }
   .appbar .sub .fchip.fwarn{ border-color:#c0392b; background:#fdecea; color:#8e1b10; white-space:normal }
   .pillbtn{ background:#1d2c23; border:1px solid #2f4a39; color:#bfe6cb; font-size:12px; padding:5px 11px;
     border-radius:999px; font-family:var(--mono); cursor:pointer }
@@ -1176,8 +1191,16 @@
 
     <div class="tsec" id="tsec_notes" data-name="Notes"></div><div class="tsechd">Notes</div>
     <div class="fld">
-      <label>Comments <button type="button" class="clr" onclick="clearField('fCOMMENTS')">Clear</button></label>
+      <label>Comments <button type="button" class="clr" onclick="clearField('fCOMMENTS')">Clear</button>
+        <button type="button" class="clr aibtn" id="aiBtn" onclick="improveComment()">✨ Improve</button></label>
       <textarea id="fCOMMENTS" placeholder="Defects, wires, clearance, work required… (tap the mic on the keyboard to dictate)"></textarea>
+      <div id="aiBox" class="aibox" style="display:none">
+        <div class="aihd"><span>Suggested wording</span>
+          <span class="aistyle"><button type="button" data-s="report" onclick="improveComment('report')">Report style</button><button type="button" data-s="tidy" onclick="improveComment('tidy')">Tidy only</button></span></div>
+        <div id="aiText" class="aitext">—</div>
+        <div class="aibtns"><button type="button" class="primary" id="aiUseBtn" onclick="aiUse()">Use this</button><button type="button" onclick="aiClose()">Keep mine</button></div>
+        <div class="mini">Nothing should be added or removed — read it before you use it. Your first wording is kept and can be put back from the Sheet.</div>
+      </div>
       <div class="dictate">Dictation works in this field, the address and the species search.</div>
     </div>
 
@@ -1955,6 +1978,7 @@
       <label>Coverage</label>
       <select id="mapSheets" onchange="mapSheetsChanged()">
         <option value="view">This view — one sheet</option>
+        <option value="all">All trees in the project — one sheet</option>
         <option value="series">All trees — a series of sheets</option>
       </select>
     </div>
@@ -2019,6 +2043,30 @@
       <div class="mini">The tree number, then what you tick, in the order you tick it. The same choice as the Appendix A captions.</div>
       <div class="chips" id="mapCapFields"></div>
       <div class="mini">Reads: <b id="mapCapPreview">—</b></div>
+    </div>
+    <div class="fld">
+      <label>Tree inventory table</label>
+      <select id="mapTable" onchange="mapTableChanged()">
+        <option value="0">No table</option>
+        <option value="1">Add a table of the trees on this map</option>
+      </select>
+      <div id="mapTableRow" style="display:none">
+        <div class="mini">The tree number first, then the columns you tick, in the order you tick them.</div>
+        <div class="chips" id="mapTblFields"></div>
+      </div>
+    </div>
+    <div class="fld">
+      <label>Road names</label>
+      <select id="mapRoadNames" onchange="mapRoadsChanged()">
+        <option value="both">On the map and the key map</option>
+        <option value="main">On the map only</option>
+        <option value="key">On the key map only</option>
+        <option value="none">None</option>
+      </select>
+      <label class="menuitem" style="display:flex;align-items:center;gap:10px;text-align:left;margin-top:6px">
+        <input type="checkbox" id="mapRoadBig" onchange="mapRoadsChanged()" style="width:17px;height:17px;padding:0;flex:0 0 auto">
+        <span>Print the names larger, so they can be read on paper</span>
+      </label>
     </div>
     <div class="btnrow">
       <button class="primary" onclick="runMapExport()">Create the PDF</button>
@@ -2531,6 +2579,10 @@
       <div class="mini" id="tidyLine">—</div>
     </div>
     <div class="fld">
+      <button class="menuitem" onclick="runReport()" id="btnReport">📝 Rewrite comments in report style</button>
+      <div class="mini" id="reportLine">Complete sentences, third person — nothing added or removed. The first wording is kept.</div>
+    </div>
+    <div class="fld">
       <button class="menuitem" onclick="runFixAddr()" id="btnFixAddr">📍 Fill in missing addresses</button>
       <div class="mini" id="addrLine">—</div>
     </div>
@@ -3017,7 +3069,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-23 · v239";
+const APP_BUILD  = "2026-11-24 · v241";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -3025,7 +3077,7 @@ const APP_BUILD  = "2026-11-23 · v239";
    often than the backend does, so every app-only release would have told him the
    deployment was behind when it was perfectly current. Nagging somebody to redeploy
    for nothing is how a real "you need to deploy this" gets ignored. */
-const GS_EXPECTED = "2026-11-15 · v166";  // bump alongside the service-worker cache version
+const GS_EXPECTED = "2026-11-24 · v167";  // bump alongside the service-worker cache version
 
 const $ = id => document.getElementById(id);
 let STORE = null; try { STORE = window.localStorage; localStorage.setItem("_t","1"); localStorage.removeItem("_t"); } catch(e){ STORE=null; }
@@ -5945,13 +5997,21 @@ function actionClass(t){
   const v = String((t && t.PROP_ACT) || "").trim();
   const c = planCats(t);
   if(c.indexOf("removal") >= 0) return "remove";
-  if(c.indexOf("pruning") >= 0 || c.indexOf("rootexc") >= 0) return "work";
+  /* v240 — TWO JOBS, TOLD APART. Chris: "pruning, or excavation — that's a little
+     confusing … I think these need to be separate. However, some trees may require
+     both." Pruning is the crown; root-sensitive excavation is the ground. A tree
+     needing both gets a class — and a colour, and a count — of its own. */
+  const pr = c.indexOf("pruning") >= 0, rx = c.indexOf("rootexc") >= 0;
+  if(pr && rx) return "both";
+  if(pr) return "prune";
+  if(rx) return "rootexc";
   if(c.indexOf("protect") >= 0) return "protect";
   if(/no action/i.test(v)) return "none";
   return v ? "protect" : "";
 }
-const ACTION_COLOR = { remove:"#D0402B", work:"#E8862B", protect:"#3FA45B", none:"#7f8c8d" };
-const ACTION_LABEL = { remove:"Remove tree", work:"Pruning or excavation", protect:"Protection measures", none:"No action required" };
+const ACTION_COLOR = { remove:"#D0402B", prune:"#E8862B", rootexc:"#1E88E5", both:"#8E44AD", protect:"#3FA45B", none:"#7f8c8d" };
+const ACTION_LABEL = { remove:"Remove tree", prune:"Pruning", rootexc:"Root-sensitive excavation",
+                       both:"Pruning and root excavation", protect:"Protection measures", none:"No action required" };
 const IMPACT_LABEL = { none:"No impact anticipated", some:"Some impact", fatal:"Tree mortality",
                        "":"Not yet assessed" };
 function impactClass(t){
@@ -7773,11 +7833,16 @@ function legendRows(){
 function buildLegend(){
   const vt = visibleTrees();
   const rows = legendRows().filter(r => legendRowPresent(r, vt));
-  let h = `<h4>${esc(symbolMode==="plain" ? "Trees" : SYMBOL_LABEL[symbolMode])}</h4>` + rows.map(([n,c])=>
-    `<div class="lr"><span class="sw" style="background:${c}"></span>${esc(n)}</div>`).join("");
+  /* v240: how many trees each row stands for, as the printed key has it — and by
+     the same switch (Legend setup → show the figure), on by default. */
+  let nOn = true; try{ nOn = legendCfg.counts !== false; }catch(e){}
+  let h = `<h4>${esc(symbolMode==="plain" ? "Trees" : SYMBOL_LABEL[symbolMode])}</h4>` + rows.map(r=>
+    `<div class="lr"><span class="sw" style="background:${r[1]}"></span><span>${esc(r[0])}` +
+    (nOn ? ` <span class="lcn">(${legendRowCount(r, vt)})</span>` : "") + `</span></div>`).join("");
   if(!vt.length) h += `<div class="lr" style="color:#5a7062">No trees showing</div>`;
-  if(symbolMode==="health" && vt.some(t => !HEALTH.some(x => x[0] === t.HEALTH)))
-    h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed</div>`;
+  { const na = vt.filter(t => !HEALTH.some(x => x[0] === t.HEALTH)).length;
+    if(symbolMode==="health" && na)
+      h += `<div class="lr" style="margin-top:5px"><span class="sw" style="background:#90a4ae"></span>not assessed${nOn ? ` <span class="lcn">(${na})</span>` : ""}</div>`; }
   if(vt.some(t => !t._sent))
     h += `<div class="lr"><span class="sw" style="background:#4caf50;border-color:#ffd54f"></span>amber ring = not synced</div>`;
   if(checkedOn && vt.some(t => t._reviewed))
@@ -10019,6 +10084,7 @@ function openTree(i){
 
   $("fADDRESS").value = t.ADDRESS || "";
   $("fCOMMENTS").value = t.COMMENTS || "";
+  aiReset();
   $("fSTREET").value = t.STREET || "";
   $("fCROWN_RAD").value = t.CROWN_RAD || "";
   $("fHEIGHT").value = t.HEIGHT || "";
@@ -10227,6 +10293,10 @@ function saveTree(){
   if(typedAddr !== String(t.ADDRESS||"").trim()) t._addrAuto = false;   // edited by hand
   t.ADDRESS = typedAddr;
   t.COMMENTS = normText($("fCOMMENTS").value);
+  /* v241: a comment improved with ✨ keeps the words it started from, once — the same
+     CMNT_RAW the Sheet's tidy uses, so "Put the original wording back" covers both. */
+  if(aiRawKeep != null && !String(t.CMNT_RAW || "").trim() && aiRawKeep !== t.COMMENTS) t.CMNT_RAW = aiRawKeep;
+  aiRawKeep = null;
   t.STREET = normText($("fSTREET").value);
   /* HGT_BAS records how the height was arrived at, exactly as CROWN_BAS does for the
      crown, and for the same reason: so nothing in the export is mistaken for a field
@@ -18342,6 +18412,45 @@ const SCHEDB_FIELDS = [
   ["RECOTREA",  "Recommended treatment"],   // v239: the street-tree form's action field
   ["TPZ_LBL",   "Protection zone"]
 ];
+/* v240 — EVERY ATTRIBUTE. Chris: "For attributes listed under each photograph, please
+   include in the list all the available attributes that I can select from." The ten
+   everyday ones stay at the top; the rest of the record's fields follow under "More",
+   by their own names. Housekeeping (coordinates, the photo list, who emailed) is left
+   out — none of it means anything under a photograph or in a table. */
+const ATTR_SKIP = { TREE_ID:1, TREE_NO:1, LAT:1, LON:1, PHOTOS:1, PHOTO_LINK:1, EMAIL:1, ACCURACY:1, SOURCE:1, PROJECT:1, CMNT_RAW:1 };
+const ATTR_EXTRA = { IMPACT_POT:"Potential construction impact", PROGNOSIS:"Prognosis", REC_ACT:"Recommended action",
+  TPZ_FENC:"Protection fencing", ROOT_EXC:"Root-sensitive excavation", TREE_REM:"Tree removal", CAN_PRUNE:"Canopy pruning",
+  ELV_RISK:"Elevation / clearance pruning", SHEET_NO:"TPP page", COND_PCT:"Condition %", COMP_INCL:"Counted for compensation",
+  YR_EXEMPT:"Region exemption", YR_REPL:"Region replacements", YR_REPL_R:"Region replacement reason", YR_VALUE:"Region value",
+  HLTH_CODE:"Health # (code)" };
+function attrLabel(f){ const c = SCHEDB_FIELDS.find(x => x[0] === f); return c ? c[1] : (ATTR_EXTRA[f] || prettyField(f)); }
+function allAttrFields(){
+  const seen = {}, out = [];
+  const add = f => { if(!f || seen[f] || ATTR_SKIP[f]) return; seen[f] = 1; out.push([f, attrLabel(f)]); };
+  SCHEDB_FIELDS.forEach(x => add(x[0]));
+  const more = [];
+  FIELDS.forEach(x => { if(!seen[x.k] && !ATTR_SKIP[x.k]) more.push(x.k); });
+  ["HLTH_CODE"].forEach(f => { if(!seen[f]) more.push(f); });
+  more.map(f => [f, attrLabel(f)]).sort((a, b) => a[1].localeCompare(b[1])).forEach(x => add(x[0]));
+  return out;
+}
+/* The picker: the everyday ten as chips, then every other attribute under "More".
+   "More" starts open when something in it is already ticked, so a choice is never
+   hidden. sel is the ordered list; fn names the toggle to call with the field. */
+function pickerWasOpen(box){ try{ return !!(box && box.querySelector && box.querySelector("details.attrmore[open]")); }catch(e){ return false; } }
+function fieldPickerHtml(sel, fn, keepOpen){
+  sel = sel || [];
+  const chip = ([f, label]) => { const i = sel.indexOf(f);
+    return `<button type="button" class="fieldchip${i>=0?" on":""}" data-f="${f}" onclick="${fn}('${f}')">` +
+           `${esc(label)}${i>=0?`<span class="ord">${i+1}</span>`:""}</button>`; };
+  const all = allAttrFields(), top = all.slice(0, SCHEDB_FIELDS.length), rest = all.slice(SCHEDB_FIELDS.length);
+  /* Open if it was open: ticking a chip redraws the picker, and folding "More" shut
+     under the finger every time would make the long list unusable. */
+  const open = keepOpen || rest.some(x => sel.indexOf(x[0]) >= 0);
+  return top.map(chip).join("") +
+    `<details class="attrmore"${open ? " open" : ""}><summary>More attributes (${rest.length})</summary>` +
+    `<div class="chips">${rest.map(chip).join("")}</div></details>`;
+}
 /* The second line under a photograph on the photo pages: the chosen fields, in the
    chosen order, written as they read on the map ("30 cm", "2.4 m"). */
 function photoCaptionLine(t){
@@ -18356,14 +18465,10 @@ function photoCaptionLine(t){
    field list — the Appendix A title and separator are left exactly as they are. */
 function renderMapCapFields(){
   const box = $("mapCapFields"); if(!box) return;
-  box.innerHTML = SCHEDB_FIELDS.map(([f,label])=>{
-    const i = (schedB.fields || []).indexOf(f);
-    return `<button type="button" class="fieldchip${i>=0?" on":""}" data-f="${f}" onclick="toggleMapCapField('${f}')">` +
-           `${esc(label)}${i>=0?`<span class="ord">${i+1}</span>`:""}</button>`;
-  }).join("");
+  box.innerHTML = fieldPickerHtml(schedB.fields, "toggleMapCapField", pickerWasOpen(box));
   const pv = $("mapCapPreview");
   if(pv){
-    const t = mapSheetTreesSafe().find(x => String(x.PHOTOS||"").trim()) ||
+    const t = mapOptTreesSafe().find(x => String(x.PHOTOS||"").trim()) ||
               { TREE_NO:"1", SPECIES:"Silver Maple", HEALTH:"Good", DBH:"46", TAG_NO:"1042", TPZ_M:"2.4" };
     const n = parseInt(t.TREE_NO, 10);
     const line = photoCaptionLine(t);
@@ -18371,6 +18476,7 @@ function renderMapCapFields(){
   }
 }
 function mapSheetTreesSafe(){ try{ return mapSheetTrees(); }catch(e){ return []; } }
+function mapOptTreesSafe(){ try{ return mapOptTrees(); }catch(e){ return []; } }
 function toggleMapCapField(f){
   const l = schedB.fields || (schedB.fields = []);
   const i = l.indexOf(f);
@@ -18404,11 +18510,7 @@ function openSchedB(){
 }
 function closeSchedB(){ $("schedBSheet").classList.remove("show"); backToMenu(); }
 function renderSchedBFields(){
-  $("sbFields").innerHTML = SCHEDB_FIELDS.map(([f,label])=>{
-    const i = (schedB.fields || []).indexOf(f);
-    return `<button type="button" class="fieldchip${i>=0?" on":""}" onclick="toggleSchedBField('${f}')">` +
-           `${esc(label)}${i>=0?`<span class="ord">${i+1}</span>`:""}</button>`;
-  }).join("");
+  $("sbFields").innerHTML = fieldPickerHtml(schedB.fields, "toggleSchedBField", pickerWasOpen($("sbFields")));
 }
 function toggleSchedBField(f){
   const l = schedB.fields || (schedB.fields = []);
@@ -22951,6 +23053,7 @@ function openTools(){
   $("toolsWarn").style.display = toolScope().project ? "none" : "block";
   $("bundleLinks").innerHTML = "";
   ["tidyLine","addrLine","recalcLine"].forEach(id=>$(id).textContent="—");
+  { const rl = $("reportLine"); if(rl && !toolBusy) rl.textContent = "Complete sentences, third person — nothing added or removed. The first wording is kept."; }
   $("toolsSheet").classList.add("show");
   jsonpGet("tidystatus", toolScope(), r=>{
     if(!r || !r.ok) return;
@@ -23048,6 +23151,96 @@ function runTidy(){
     step();
   });
 }
+
+/* v241 — REPORT STYLE FOR THE WHOLE JOB. Chris: "Do both" — this, and ✨ on the form.
+   The tidy only takes comments never tidied; this goes through every comment in scope,
+   so it walks a CURSOR the Sheet hands back (the last row done) instead. */
+function runReport(){
+  if(toolBusy){ toolStop = true; toast("Stopping after this batch"); return; }
+  const line = $("reportLine");
+  jsonpGet("reportstatus", toolScope(), st=>{
+    if(!st || !st.ok){ line.textContent = "Could not reach the Sheet."; return; }
+    if(st.count === undefined){ line.textContent = "The Sheet script needs updating (v167) for this — ask the owner to deploy the latest Code.gs."; return; }
+    if(!st.hasKey){ line.textContent = "No AI key set on the Sheet — ask the owner to add one."; return; }
+    if(!st.count){ line.textContent = "No comments to rewrite."; return; }
+    if(!confirm(`Rewrite ${st.count} comment(s) in report style?\n\n` +
+      `About ${Math.ceil(st.count/40)} request(s), roughly ${Math.ceil(st.count/40*11.5/60)} minute(s).\n\n` +
+      `Complete sentences, third person; nothing should be added or removed. The first wording is kept and can be put back from the Sheet.`)) return;
+    let done = 0, edited = 0, left = st.count, fails = 0, after = -1;
+    toolRunning("btnReport", true);
+    $("btnReport").textContent = "📝 Rewriting… tap to stop";
+    const finish = msg=>{
+      toolRunning("btnReport", false);
+      $("btnReport").textContent = "📝 Rewrite comments in report style";
+      line.textContent = msg; toast(msg);
+      setTimeout(()=>pullFromSheet(true), 800);
+    };
+    const step = ()=>{
+      if(toolStop){ finish(`Stopped. ${done} checked, ${edited} rewritten, ${left} left.`); return; }
+      line.textContent = `Checked ${done} · ${edited} rewritten · ${left} to go…`;
+      jsonpGet("reportbatch", Object.assign({ after: after }, toolScope()), r=>{
+        if(!r){ if(++fails >= 3){ finish("Lost contact with the Sheet after " + done + "."); return; } setTimeout(step, 6500); return; }
+        if(!r.ok){
+          if(r.daily){ finish("The AI's daily free allowance is used up. " + done + " done; it resets at midnight Pacific."); return; }
+          if(++fails >= 3){ finish("Stopped after " + done + " — " + (r.error || "the Sheet refused")); return; }
+          setTimeout(step, 6500); return;
+        }
+        fails = 0; done += r.done || 0; edited += r.edited || 0; left = r.remaining || 0;
+        if(r.next !== undefined) after = r.next;
+        if(r.finished || !left){ finish(`${done} comment(s) checked · ${edited} rewritten · ${done - edited} already read well.`); return; }
+        setTimeout(step, 6500);
+      });
+    };
+    step();
+  });
+}
+
+/* v241 — ✨ ONE COMMENT, ON THE FORM. The Sheet asks the AI and sends back a suggestion;
+   nothing is written until "Use this", and nothing is kept until the tree is saved.
+   Report style by default (remembered); "Tidy only" for spelling and punctuation. */
+let aiRawKeep = null, aiReq = 0;
+let aiStyle = "report";
+try{ aiStyle = (STORE && STORE.getItem("st_aistyle")) || "report"; }catch(e){}
+function aiReset(){ aiRawKeep = null; aiReq++; const b = $("aiBox"); if(b){ b.style.display = "none"; } }
+function aiPaintStyle(){ document.querySelectorAll("#aiBox .aistyle button").forEach(b => b.classList.toggle("on", b.dataset.s === aiStyle)); }
+function improveComment(style){
+  const ta = $("fCOMMENTS"); const box = $("aiBox"), out = $("aiText"), use = $("aiUseBtn");
+  /* Asking again from the panel works on the words in the box now — not on the last
+     suggestion — so switching style compares like with like. */
+  const txt = normText(ta.value);
+  if(!txt){ toast("Write or dictate a comment first", true); return; }
+  if(isOffline()){ toast("Improving a comment needs a connection", true); return; }
+  if(style){ aiStyle = style === "tidy" ? "tidy" : "report"; try{ STORE && STORE.setItem("st_aistyle", aiStyle); }catch(e){} }
+  aiPaintStyle();
+  box.style.display = ""; box.dataset.src = txt;
+  out.textContent = "Asking the AI…"; out.dataset.sug = ""; out.classList.remove("err");
+  use.disabled = true;
+  const my = ++aiReq;
+  jsonpGet("improvecomment", { text: txt, style: aiStyle }, r=>{
+    if(my !== aiReq) return;                           // closed, reopened or asked again
+    const bad = m => { out.textContent = m; out.classList.add("err"); use.disabled = true; };
+    if(!r) return bad("Could not reach the Sheet.");
+    if(r.ok && typeof r.text === "string"){
+      out.textContent = r.text; out.dataset.sug = r.text; use.disabled = false;
+      if(r.text.trim() === txt.trim()) out.insertAdjacentHTML("beforeend", ` <span class="mini">(no change needed)</span>`);
+      return;
+    }
+    if(r.ok) return bad("The Sheet script needs updating (v167) for this — ask the owner to deploy the latest Code.gs.");
+    if(r.error === "nokey") return bad("No AI key on the Sheet — the owner adds one under Tree Tools → Dictated comments → Set the AI key.");
+    if(r.daily) return bad("The AI's free daily allowance is used up. It resets at midnight Pacific.");
+    bad("The AI did not answer: " + String(r.error || "unknown").slice(0, 120));
+  }, 45000);
+}
+function aiUse(){
+  const box = $("aiBox"), sug = $("aiText").dataset.sug;
+  if(!sug) return;
+  if(aiRawKeep == null) aiRawKeep = box.dataset.src;     // the first wording, once per edit
+  const ta = $("fCOMMENTS"); ta.value = sug;
+  try{ ta.dispatchEvent(new Event("input", { bubbles:true })); }catch(e){}
+  box.style.display = ""; aiClose();
+  toast("Comment replaced — Save to keep it");
+}
+function aiClose(){ aiReq++; $("aiBox").style.display = "none"; }
 
 function runFixAddr(){
   if(toolBusy){ toolStop = true; return; }
@@ -25003,16 +25196,16 @@ try{ lastMapTitle = (STORE&&STORE.getItem("st_maptitle")) || ""; }catch(e){}
 function exportMapPDF(){
   closeMenu();
   if(!fmap){ toast("Map is still loading",true); return; }
-  const shown = mapSheetTrees();
-  const withPhotos = shown.reduce((a,t)=>a+String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length,0);
-  $("mapOptScope").textContent = `${shown.length} tree(s) in view · ${scopeLabel()}`;
+  $("mapSheets").value = "view";
+  mapOptCount();
   $("mapTitle").value = lastMapTitle || settings.project || "Street Tree Inventory";
   $("mapPhotos").value = "0";
   { const el = $("mapPhotoN");
     if(el){ el.value = String(photosPerPage()); } }
-  mapPhotoCount = withPhotos;
   mapPhotosChanged();
-  $("mapSheets").value = "view";
+  { const t = $("mapTable"); if(t) t.value = mapTblPref.on ? "1" : "0"; } mapTableChanged();
+  { const r = $("mapRoadNames"); if(r) r.value = mapRoadPref.which || (mapRoads ? "both" : "none");
+    const bg = $("mapRoadBig"); if(bg) bg.checked = mapRoadPref.big !== false; }
   $("mapSheetSize").value = sheetSize;
   mapSheetsChanged();
   $("mapOptSheet").classList.add("show");
@@ -25051,14 +25244,24 @@ function mapSheetTrees(){
 async function runMapExport(){
   closeMapOpt();
   const mode = $("mapSheets").value;
+  const rw = ($("mapRoadNames") && $("mapRoadNames").value) || (mapRoads ? "both" : "none");
+  exportRoadOpt = { main: rw === "both" || rw === "main", key: rw === "both" || rw === "key",
+                    big: !$("mapRoadBig") || $("mapRoadBig").checked };
+  exportTableOn = !!($("mapTable") && $("mapTable").value === "1");
   try{
     if(mode==="series") await runSeriesExport();
+    else if(mode==="all"){
+      const b = allTreesBounds();
+      if(!b){ toast("No trees with a location in this project", true); return; }
+      await runSingleExport({ bounds: b, allTrees: true });
+    }
     else await runSingleExport({});
   }catch(err){
     setStatus(`${visibleTrees().length} trees on device`);
     toast("Map export failed: " + String(err && err.message || err).slice(0,120), true);
-  }
+  }finally{ exportRoadOpt = null; exportTableOn = false; }
 }
+let exportTableOn = false;
 
 async function runSingleExport(opt){
   // With imagery saved for this area the export works with no signal at all.
@@ -25138,25 +25341,25 @@ async function runSingleExport(opt){
   }
 
   // Road and place-name overlays, fetched only if wanted.
+  /* v240: the export screen decides (exportRoadOpt); any other map follows the screen.
+     With "larger", the names come from LF zoom levels out (f = 2^LF) and are drawn f
+     times the size, so on paper they print near eight point instead of four. */
+  const RO = opt.roadOpt || exportRoadOpt || { main: mapRoads, key: false, big: false };
   let roadTiles=[], placeTiles=[];
-  if(mapRoads){
+  if(RO.main){
     toast("Fetching roads and place names…");
+    const LF = RO.big ? Math.max(0, Math.min(2, Math.round(Math.log2(1.8 / sc)))) : 0, f = 1 << LF, zr = z - LF;
+    const rw = [];
+    { const X0 = (x0-(offX-fx)/sc) / f, X1 = (x1+(offX-fx)/sc) / f, Y0 = (y0-(offY-fy)/sc) / f, Y1 = (y1+(offY-fy)/sc) / f;
+      for(let tx=Math.floor(X0/256); tx<=Math.floor(X1/256); tx++) for(let ty=Math.floor(Y0/256); ty<=Math.floor(Y1/256); ty++) rw.push({tx,ty}); }
     for(const [url,into] of [[ROADS_URL,"r"],[PLACES_URL,"p"]]){
-      for(let i=0;i<want.length;i+=8){
-        /* THE OVERLAY IS ALWAYS THE OVERLAY'S OWN TEMPLATE. This read a bare `set`,
-           which is not in scope here — it is a PARAMETER of tileSetUrl/tileKey, and
-           the fragment was lifted from the offline-save loop at tileSetUrl(j.set),
-           where j.set is a real property. So every map export threw a ReferenceError
-           the moment it reached this line, and roads and place names are ON BY
-           DEFAULT: the single sheet, the series, the index sheet and therefore the
-           Tree Protection Site Plan in the assembled document all failed, reporting
-           an error instead of producing a PDF.
-           The aerial branch was meaningless anyway — roads and place names are never
-           the aerial, which is why there is nothing to replace it with. */
-        const got = await Promise.all(want.slice(i,i+8).map(t=>
-          loadTile(url.replace("{z}",z).replace("{x}",t.tx).replace("{y}",t.ty),
-                   into==="r"?"road":"place", z, t.tx, t.ty)
-            .then(im=>({im,tx:t.tx,ty:t.ty}))));
+      for(let i=0;i<rw.length;i+=8){
+        /* THE OVERLAY IS ALWAYS THE OVERLAY'S OWN TEMPLATE (an earlier build read a
+           bare `set` here and every map export threw). */
+        const got = await Promise.all(rw.slice(i,i+8).map(t=>
+          loadTile(url.replace("{z}",zr).replace("{x}",t.tx).replace("{y}",t.ty),
+                   into==="r"?"road":"place", zr, t.tx, t.ty)
+            .then(im=>({im,tx:t.tx,ty:t.ty,f}))));
         got.forEach(x=> into==="r" ? roadTiles.push(x) : placeTiles.push(x));
       }
     }
@@ -25173,8 +25376,9 @@ async function runSingleExport(opt){
      photo only — road names, the site plan and everything after stay full strength. */
   const fadeA = Math.max(0, Math.min(0.8, opt.aerialFade != null ? Number(opt.aerialFade) || 0 : aerialFade / 100));
   if(fadeA > 0){ g.fillStyle = `rgba(255,255,255,${fadeA})`; g.fillRect(fx, fy, fw, fh); }
-  roadTiles.concat(placeTiles).forEach(({im,tx,ty})=>{
-    if(im) g.drawImage(im,(tx*256-x0)*sc+offX,(ty*256-y0)*sc+offY,256*sc,256*sc);
+  roadTiles.concat(placeTiles).forEach(({im,tx,ty,f})=>{
+    f = f || 1;
+    if(im) g.drawImage(im,(tx*256*f-x0)*sc+offX,(ty*256*f-y0)*sc+offY,256*f*sc,256*f*sc);
   });
 
   /* v225: THE SITE PLAN GOES ON THE PAPER. Chris: "On the one page maps … does this
@@ -25946,6 +26150,10 @@ async function runSingleExport(opt){
 
   toast("Building the PDF…");
   const pages = [{ data: cv.toDataURL("image/jpeg", 0.92), w:W, h:H }];
+  if(opt.table !== undefined ? opt.table : exportTableOn){
+    toast("Laying out the tree table…");
+    tablePages(mapTableRows(shown), title.replace(/\|/g, " ").replace(/\s+/g, " ").trim() + " — Tree inventory", W, H, M).forEach(p=>pages.push(p));
+  }
   if($("mapDetails") && $("mapDetails").value==="1")
     (await detailPagesReady(W,H,M)).forEach(p=>pages.push(p));
   if(wantPhotoPages){
@@ -26081,6 +26289,19 @@ async function drawKeyMap(g, x, y, w, h, opt){
   (await Promise.all(jobs)).forEach(({im,tx,ty})=>{
     if(im) g.drawImage(im, X(tx*256), Y(ty*256), 256, 256);
   });
+  /* v240: ROAD NAMES ON THE KEY MAP, when asked for — over the aerial only; the
+     street, topographic and OpenStreetMap bases carry their own. "Larger" draws the
+     names from one level out at twice the size. */
+  const KRO = opt.roadOpt || exportRoadOpt;
+  if(KRO && KRO.key && url === KEY_BASES[0][2] && kz > 1){
+    const kf = KRO.big ? 2 : 1, kzr = kz - (kf === 2 ? 1 : 0), side = 256 * kf;
+    const r0 = Math.floor((cx-w/2)/side), r1 = Math.floor((cx+w/2)/side), v0 = Math.floor((cy-h/2)/side), v1 = Math.floor((cy+h/2)/side);
+    const rj = [];
+    for(const [u2, set] of [[ROADS_URL, "road"], [PLACES_URL, "place"]])
+      for(let tx=r0;tx<=r1;tx++) for(let ty=v0;ty<=v1;ty++)
+        rj.push(loadTile(u2.replace("{z}",kzr).replace("{x}",tx).replace("{y}",ty), set, kzr, tx, ty).then(im=>({im,tx,ty})));
+    (await Promise.all(rj)).forEach(({im,tx,ty})=>{ if(im) g.drawImage(im, X(tx*side), Y(ty*side), side, side); });
+  }
 
   /* every sheet of the series, numbered */
   const cells = context ? [] : (Array.isArray(opt.cells) ? opt.cells : []);
@@ -26146,7 +26367,76 @@ async function drawKeyMap(g, x, y, w, h, opt){
 /* ---------- a series of sheets at a fixed scale ---------- */
 const SHEET_MAX = 40;
 
+/* The trees the options screen is talking about: this view, or every tree in the
+   project when the coverage is the whole project. */
+function mapOptTrees(){
+  const m = $("mapSheets") ? $("mapSheets").value : "view";
+  return m === "view" ? mapSheetTrees() : seriesTrees();
+}
+function mapOptCount(){
+  const shown = mapOptTrees(), m = $("mapSheets").value;
+  mapPhotoCount = shown.reduce((a,t)=>a+String(t.PHOTOS||"").split(";").filter(x=>x.trim()).length,0);
+  $("mapOptScope").textContent = `${shown.length} tree(s) ${m === "view" ? "in view" : "in the project"} · ${scopeLabel()}`;
+}
+/* v240 — THE WHOLE PROJECT ON ONE SHEET. Chris: "an additional option to have a map
+   that shows all the trees for the project. On one sheet." The extent of every tree
+   the project shows, with a margin, and never so tight that five trees in one yard
+   come out at a scale finer than the imagery has. */
+function allTreesBounds(){
+  const pts = seriesTrees().map(t => [num(t.LAT), num(t.LON)]);
+  if(!pts.length) return null;
+  let b = L.latLngBounds(pts);
+  const c = b.getCenter(), dLat = Math.max((b.getNorth() - b.getSouth()) * 0.10, 0.00025),
+        dLon = Math.max((b.getEast() - b.getWest()) * 0.10, 0.00035);
+  return L.latLngBounds([b.getSouth() - dLat, b.getWest() - dLon], [b.getNorth() + dLat, b.getEast() + dLon]);
+}
+/* v240 — THE TABLE. Chris: "an option to include a sheet that has the tree inventory
+   table with fields that I can select." Its own choice of columns, remembered. */
+const MAPTBL_KEY = "st_maptbl";
+let mapTblPref = { on:false, fields:["SPECIES","DBH","HEALTH","RECOTREA","COMMENTS"] };
+try{ const v = JSON.parse(STORE && STORE.getItem(MAPTBL_KEY)); if(v && Array.isArray(v.fields)) mapTblPref = Object.assign(mapTblPref, v); }catch(e){}
+function persistMapTbl(){ if(STORE){ try{ STORE.setItem(MAPTBL_KEY, JSON.stringify(mapTblPref)); }catch(e){} } }
+function mapTableChanged(){
+  const on = $("mapTable") && $("mapTable").value === "1";
+  mapTblPref.on = !!on; persistMapTbl();
+  const row = $("mapTableRow"); if(row) row.style.display = on ? "" : "none";
+  if(on){ const box = $("mapTblFields"); if(box) box.innerHTML = fieldPickerHtml(mapTblPref.fields, "toggleMapTblField", pickerWasOpen(box)); }
+}
+function toggleMapTblField(f){
+  const l = mapTblPref.fields; const i = l.indexOf(f);
+  if(i >= 0) l.splice(i, 1); else l.push(f);
+  persistMapTbl(); mapTableChanged();
+}
+/* The rows: tree number first, in tree-number order, every value as it reads on the
+   map ("30 cm"), long text whole — tablePages wraps it. */
+function mapTableRows(shown){
+  const fs = mapTblPref.fields || [];
+  const list = shown.slice().sort((a, b) => (parseInt(a.TREE_NO,10) || 1e9) - (parseInt(b.TREE_NO,10) || 1e9) ||
+                                            String(a.TREE_ID).localeCompare(String(b.TREE_ID)));
+  const rows = [["Tree #"].concat(fs.map(attrLabel))];
+  list.forEach((t, i) => rows.push([treeLabelValue(t, "TREE_NO", i + 1)].concat(fs.map(f => {
+    const v = treeLabelValue(t, f, i + 1, true); return v == null ? "" : String(v); }))));
+  return rows;
+}
+/* v240 — ROAD NAMES ON THE PAPER, by choice. Chris: "the PDF map does not show the
+   road names on the main map or the key map. Perhaps we should have an option."
+   The key map never drew them at all over an aerial. On the main map they were drawn
+   at the tiles' own size — about four-point type on an 11x17 at 200 dpi, which reads
+   as nothing. "Larger" fetches the names one zoom level out and draws them twice the
+   size, so they print at about eight point. */
+const MAPROADS_KEY = "st_exproads";
+let mapRoadPref = { which:"", big:true };
+try{ const v = JSON.parse(STORE && STORE.getItem(MAPROADS_KEY)); if(v && typeof v === "object") mapRoadPref = Object.assign(mapRoadPref, v); }catch(e){}
+function mapRoadsChanged(){
+  mapRoadPref.which = $("mapRoadNames").value; mapRoadPref.big = !!$("mapRoadBig").checked;
+  if(STORE){ try{ STORE.setItem(MAPROADS_KEY, JSON.stringify(mapRoadPref)); }catch(e){} }
+}
+/* What the export screen chose, for the export it starts — null for every other
+   map (the assembled document keeps its own rule: the screen's roads, no key names). */
+let exportRoadOpt = null;
 function mapSheetsChanged(){
+  mapOptCount(); mapPhotosChanged();
+  if($("mapPhotos").value === "1") renderMapCapFields();
   const series = $("mapSheets").value === "series";
   $("mapScaleRow").style.display = series ? "block" : "none";
   if(series) refreshSheetEstimate();
@@ -28024,23 +28314,27 @@ function legGroupColour(i){
 
 /* Is this key row drawn on any of these trees? One answer for the sheet and the
    screen, so the two keys cannot disagree about what is on the map. */
-function legendRowPresent(r, shown){
-    if(symbolMode==="health")  return shown.some(t=>t.HEALTH===r[0]);
-    if(symbolMode==="action")  return shown.some(t=>ACTION_LABEL[actionClass(t)]===r[0]) ||
-                                      (r[0]==="Not yet assessed" && shown.some(t=>!actionClass(t)));
+/* v240: ONE TREE AT A TIME, so the same test gives both whether a row is drawn and
+   HOW MANY trees it stands for. Chris: "In the legend on the map, we should note the
+   number of trees by recommended action." */
+function legendRowMatch(r, t){
+    if(symbolMode==="health")  return t.HEALTH===r[0];
+    if(symbolMode==="action")  return r[0]==="Not yet assessed" ? !actionClass(t) : ACTION_LABEL[actionClass(t)]===r[0];
     /* The impact key listed all four classes whatever the sheet carried — a sheet of
        green trees printed "Tree mortality" and "Not yet assessed" beside them. It
        now lists what is drawn, the same as health and action always have. */
-    if(symbolMode==="impact")  return shown.some(t=>IMPACT_LABEL[impactClass(t) || ""]===r[0]);
-    if(symbolMode==="followup") return shown.some(t=>followLabel(t)===r[0]);
-    if(symbolMode==="species")  return shown.some(t=>speciesLabel(t)===r[0]);
-    if(symbolMode==="change")   return shown.some(t=>changeLabel(t)===r[0]);
-    if(symbolMode==="risk")     return shown.some(t=>(String(t.RISK||"")||"Not rated")===r[0]);
+    if(symbolMode==="impact")  return IMPACT_LABEL[impactClass(t) || ""]===r[0];
+    if(symbolMode==="followup") return followLabel(t)===r[0];
+    if(symbolMode==="species")  return speciesLabel(t)===r[0];
+    if(symbolMode==="change")   return changeLabel(t)===r[0];
+    if(symbolMode==="risk")     return (String(t.RISK||"")||"Not rated")===r[0];
     return true;
 }
+function legendRowPresent(r, shown){ return shown.some(t => legendRowMatch(r, t)); }
+function legendRowCount(r, shown){ return shown.filter(t => legendRowMatch(r, t)).length; }
 function sheetLegendRaw(shown){
   const present = legendRows().filter(r=>legendRowPresent(r, shown))
-    .map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot"}));
+    .map(r=>({key:"cls:"+r[0], label:r[0], color:r[1], kind:"dot", count:legendRowCount(r, shown), unit:""}));
   /* THE COLOUR THE PLAN ACTUALLY DRAWS. The sheet strokes the protection zone in
      #B8860B over a pale yellow wash; the key was drawing a pale yellow RING on white,
      which is why Chris read it as smaller and fainter than the crown beside it —
@@ -29501,7 +29795,8 @@ function showHelp(){
     <p><b>A species that is not on the list</b><br>Type the name into the species search. If it does not match an existing entry exactly, the last option offered is <b>＋ Add “…” as a new species</b>. It is added to the picker, sent to the Species tab on the Sheet, and so reaches every other phone. Fill in its i-Tree code and botanical name on the Species tab afterwards.</p>
     <p><b>Fast entry</b><br>Your most-used values sit in a "Most used" group at the top of each list — DBH, pest, impediment and treatment in their drop-downs, species at the top of the search screen. The full lists follow underneath.</p>
     <p><b>Tree tools, from the phone</b><br><i>Menu → Sync &amp; the Sheet → Tree tools</i> runs the jobs that live on the Sheet without needing access to it: tidy the dictated comments, fill in missing addresses, recalculate crown, height, TPZ and risk, and prepare everything for download. Each works a batch at a time with a running count, and can be stopped. <b>Prepare everything for download</b> builds the workbook, the trees as CSV, a shapefile, GeoJSON, the photo table and the zipped photos into Drive and hands back tappable links — the comments in them are the tidied ones. A <b>Set-up &amp; maintenance</b> section holds the rest: fill species taxonomy, fill i-Tree codes, re-apply codes to the trees, rebuild the summary and photo links, and back up the workbook. Those either fill blanks or rebuild a derived tab, so none of them can lose anything. Archiving, clearing data, restoring original comments, seeding the species list and setting the AI key stay in the Sheet — they destroy or move data, or hold a secret — where only the owner can reach them.</p>
-    <p><b>Tidying dictated comments</b><br>Dictated notes arrive with homophones and missing punctuation. The tidy is run either from the phone or, in the Sheet, from <i>Tree Tools → Tidy dictated comments with Gemini</i>. It works in batches — a 700-tree job is about 18 requests and three or four minutes, not 700 requests and an hour. It fixes spelling, punctuation and misheard arboricultural terms, and is instructed not to add or remove any observation. The original dictation is kept in <b>CMNT_RAW</b> and <i>Restore original comments</i> puts it back.</p>
+    <p><b>Tidying dictated comments</b><br>Dictated notes arrive with homophones and missing punctuation. The tidy is run either from the phone or, in the Sheet, from <i>Tree Tools → Tidy dictated comments with Gemini</i>. It works in batches — a 700-tree job is about 18 requests and three or four minutes, not 700 requests and an hour. It fixes spelling, punctuation and misheard arboricultural terms, and is instructed not to add or remove any observation. The original dictation is kept in <b>CMNT_RAW</b> and <i>Put the original wording back</i> (Sheet → Tree Tools → Dictated comments) restores it.</p>
+    <p><b>Report style, and ✨ on one comment</b><br><i>Tree tools → 📝 Rewrite comments in report style</i> (or the same item in the Sheet's Dictated comments menu) goes further than the tidy: complete sentences, third person, defects before site conflicts — under the same rule, nothing added and nothing removed. It goes through every comment in the project, a batch at a time, and keeps the first wording in CMNT_RAW. On the tree form, <b>✨ Improve</b> beside Comments asks for a suggestion for that one comment: <i>Report style</i> or <i>Tidy only</i>, shown under the box. <i>Use this</i> puts it in the box (nothing is saved until you Save); <i>Keep mine</i> leaves yours. Both need a connection, the AI key on the Sheet and Sheet script v167. Read the suggestion before you use it — the AI is told not to add findings, but it is your report.</p>
     <p><b>Dictation</b><br>Tap the microphone on the keyboard in Notes, Address, DBH or the species search. Curly quotes and dashes are folded to plain text on save, and spoken numbers like "forty two point five" are reduced to 42.5. The Clear button beside Notes and Address wipes the field for a fresh dictation.</p>
     <p><b>Crown size</b><br>Two methods, chosen in settings. <i>By species</i> differentiates columnar, dwarf and weeping forms; <i>Aurora equation</i> reproduces the historical calculation, which treated every species alike. Crown radius is estimated from DBH, species and stem count, and the spread is twice it. The line under the field says where the number came from: a species the source study actually measured, a genus assigned to one of its five allometric types, and any cultivar form correction. These are <i>open-grown potential</i> — the crown a tree that size could reach unrestricted — so a tree pruned off wires or squeezed between buildings will be narrower. Typing your own value marks it as measured and stops it being recalculated.</p>
     <p><b>Height</b><br>Height is calculated from DBH using the same equation the Town of Aurora ArcPad build used, so new records stay comparable with the old ones. It caps at 26 m above 54 cm DBH, as the original did. Typing your own value marks it measured.</p>
@@ -29545,7 +29840,7 @@ function showHelp(){
     <p><b>Changing a whole group at once</b><br>With a group selected you can:</p>
     <p>• <b>Work ownership out from the parcels</b> — each tree takes the property it stands in, and a tree inside no parcel is in the road allowance, which has no polygon of its own. Trees with no position are left alone, and with no parcel layer loaded it says so rather than guessing.<br>• <b>Change any one field</b> — proposed action, condition, address, comments and the rest, from the same pick lists the form uses. DBH and species are deliberately not offered: both drive figures the app works out for you, and neither should ever be the same for fifty trees.<br>• <b>Assign them to a project</b> — the quickest way to sort a mixed import onto the right job.</p>
     <p>Every one of those is <b>undoable</b>. The ↩ button names the last change and how many trees it touched, and puts back exactly the values that were there — only the fields that actually changed, so anything you edited afterwards is left alone. The last ten changes are kept, and they survive the app being closed, because a mis-tap followed by the phone dying is when you need it most. Undone trees re-sync, so the Sheet is corrected too.</p>
-    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is either this view on one sheet, or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. Photo pages come after the map, six to a page, each captioned with the tree number and then the fields you tick under <i>Under each photograph</i> — species and condition unless you change them, the same choice as the Appendix A captions — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
+    <p><b>Map to PDF</b><br>Menu → Export map of this view opens a short options sheet: the title, coverage, how to label each tree, and whether to add photo pages. <b>Coverage</b> is this view on one sheet, <i>all trees in the project on one sheet</i> (fitted to every tree the project shows, whatever is on screen), or <i>all trees as a series of sheets</i> at a chosen scale — 1:500 to 1:4,000. The series starts with an <b>index sheet</b> showing <i>every</i> tree in the project, zoomed out far enough to hold them all, with each sheet's area boxed in red and numbered, then one sheet per cell at that exact scale, so species labels stay readable however large the job. Empty cells are skipped and the estimate tells you how many sheets before you commit. A 700-tree subdivision comes out as 14 sheets at 1:1,000.</p> Labels default to <b>tree number and species</b> — printed short, as <i>T1</i>, <i>T2</i>, matching the tag and Schedule A rather than the long record key. <b>Tree inventory table</b> adds a table of the trees on the map after it — the tree number, then the columns you tick from every attribute the record carries (the everyday ten first, the rest under <i>More attributes</i>), in the order you tick them; long notes wrap. <b>Road names</b> can go on the map, the key map, both or neither, and <i>Print the names larger</i> draws them at about eight point so they read on paper. On screen the <b>legend</b> lists only the classes on the map, each with its count of trees; coloured by recommended action the classes are Remove tree, Pruning, Root-sensitive excavation, Pruning and root excavation (a tree needing both), Protection measures and No action required. Photo pages come after the map, six to a page, each captioned with the tree number and then the fields you tick under <i>Under each photograph</i> — species and condition unless you change them, the same choice as the Appendix A captions — so a photo can be matched back to a point without hunting. Photographs are taken from the phone first and fetched from <b>Drive</b> for anything the phone does not hold — so a report assembled in the office, on a machine that was never in the field, comes out with every photograph in it. With no signal the phone's own copies are still used and the rest show as a frame marked “needs a connection”, which is the truth rather than a missing photo. Every page of the PDF is numbered <b>Page n of N</b> in the bottom margin — written as text in the PDF rather than painted on the image, so it costs nothing and the total is exact. Captions carry the <b>tree number</b> (T1), which is what is on the tag, on the map label and in Schedule A; the long record key appears only on a tree that has no number. <b>Photographs per page</b> is yours to choose — 1, 2, 4, 6, 9 or 12 — and the note tells you how many pages that comes to before you commit; the captions scale with the frame. The photograph section of the assembled plan keeps its own six to a page. The scale bar on the drawing is a measured one — graduated, with the halfway figure labelled, so a distance can be stepped off it. Then it makes a letter-size landscape PDF of exactly what is on screen. Put a <b>|</b> bar in the title for a second line — <i>Centre Street | Sheet 2 of 4</i> — and the title also becomes the filename. Your last title is offered again next time, since a run of sheets usually differs by a word. The map contains: aerial background, your reference layers, trees coloured by health with their labels, a north arrow, a scale bar rounded to a sensible distance, and a title block with the project, tree count, recorder, date and a legend of the health classes present. It prints at 200 dpi, sharper than the screen, and needs a connection for the imagery. If a view needs more than 400 imagery tiles it asks you to zoom in.</p>
     <p><b>Showing the zone distance with the number</b><br>A dashed circle tells a contractor where the fence goes; the figure beside it is what they measure to. The label list on the export offers <i>Tree number and protection zone</i> — <b>T1 / 2.4 m</b> — and <i>Number, species and protection zone</i>, and the same thing is available on screen as a field called <b>Protection zone, with units</b> in <i>Menu → Label settings</i>. Where no zone has been stored for a tree, the figure is worked out from its DBH, because the circle is drawn for those trees too and a circle with no dimension beside it is not a specification. A tree with neither gets no dimension rather than a nought.</p>
     <p><b>Protection zones on the sheet</b><br>With <i>TPZ</i> switched on, every tree's protection zone is drawn on the exported plan as well as on screen — a dashed amber circle at its true radius, scaled with the rest of the map, drawn underneath the pins so none is hidden. Each uses the tree's own <b>TPZ_M</b> where one is recorded and the calculated radius where it is not, so a large tree gets a large circle. On a plan drawn small enough that a zone would be a dot, it is left off rather than drawn misleadingly. The legend has always listed the protection zone; now the symbol is actually there.</p>
     <p><b>Crowded labels and leader lines</b><br>Where trees stand close together — a row along a frontage, a woodlot edge — the numbers no longer pile on top of one another. Each label is tried in sixteen directions and, failing that, further out ring by ring, until it finds clear space; one pushed away from its tree gets a <b>leader line</b> back to it, with a small dot at the tree end so there is no doubt which is which. Labels are kept clear of each other and of the sheet edge. If a label truly cannot be fitted the app says how many and suggests a larger scale, rather than dropping a tree number silently.</p>
