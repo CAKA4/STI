@@ -66,6 +66,10 @@
     border:1px solid #c9a227; border-radius:12px; background:#fff6d6; color:#5a4500; font-family:inherit; font-size:11px; font-weight:600; line-height:1.2;
     white-space:nowrap; cursor:pointer; text-transform:none; letter-spacing:0; text-align:left }
   .appbar .sub .fchip .fx{ font-weight:700; color:#8a6a00 }
+  /* v244: world file */
+  .cadwld{ border:1px solid #9cc9a9; background:rgba(29,122,69,.08); border-radius:10px; padding:9px 10px; margin:4px 0 8px }
+  .cadwld small{ display:block; color:var(--muted, #5a7062); margin-top:3px }
+  .menuitem.cadwldbtn{ margin:2px 0 8px }
   /* v243: saved set-ups */
   .mpreset{ border:1px solid var(--line2); border-radius:10px; padding:10px }
   .mpreset .mpbtns{ display:flex; gap:8px; margin-top:6px } .mpreset .mpbtns button{ flex:1; padding:9px; border-radius:8px }
@@ -2870,7 +2874,8 @@
 <input id="updInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx,.xlsx" style="display:none">
 <input id="lineInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <input id="sitePdfInput" type="file" accept=".pdf,application/pdf,image/png,image/jpeg" style="display:none">
-<input id="cadInput" type="file" accept=".dxf,.dwg,image/vnd.dxf,application/dxf,image/vnd.dwg" style="display:none">
+<input id="cadInput" type="file" multiple accept=".dxf,.dwg,.wld,.wld3,.prj,image/vnd.dxf,application/dxf,image/vnd.dwg" style="display:none">
+<input id="cadWldInput" type="file" multiple accept=".wld,.wld3,.prj,.txt,.tfw,.jgw,.pgw,.dxw" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
 <div class="repobar" id="drawBar">
   <span class="msg" id="drawMsg">—</span>
@@ -3091,7 +3096,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-24 · v243";
+const APP_BUILD  = "2026-11-24 · v244";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -4105,7 +4110,9 @@ async function initMap(){
   const di=$("detailInput");
   if(di) di.addEventListener("change", e=>{ if(e.target.files.length) addDetailFiles(e.target.files); e.target.value=""; });
   const cdi=$("cadInput");
-  if(cdi) cdi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f) cadOpenFile(f); e.target.value=""; });
+  if(cdi) cdi.addEventListener("change", e=>{ const fs=[...e.target.files]; if(fs.length) cadOpenFiles(fs); e.target.value=""; });
+  const cwi=$("cadWldInput");
+  if(cwi) cwi.addEventListener("change", e=>{ const fs=[...e.target.files]; if(fs.length) cadWorldFiles(fs); e.target.value=""; });
   const spi=$("sitePdfInput");
   if(spi) spi.addEventListener("change", e=>{ const f=e.target.files[0]; if(f){ if(/^image\//.test(f.type)) gfFromImageFile(f); else loadPdfOverlay(f); } e.target.value=""; });
   const tli=$("tppLogoInput");
@@ -23838,7 +23845,7 @@ function cadOcs(g){ const z = dxfNum(g, 230); return z != null && z < 0 ? -1 : 1
 function cadFlatten(doc, opt){
   opt = opt || {};
   const L = {}, MAXV = opt.maxVerts || 600000; let nv = 0, cut = false;
-  const lay = (nm) => L[nm] || (L[nm] = { lines:[], blines:[], polys:[], bpolys:[], texts:[], blocks:0, n:0 });
+  const lay = (nm) => L[nm] || (L[nm] = { lines:[], blines:[], polys:[], bpolys:[], texts:[], pts:[], blocks:0, n:0 });
   const M0 = [1, 0, 0, 0, 1, 0];                         // [a b c; d e f]: x' = a x + b y + c
   const mul = (A, B) => [A[0]*B[0] + A[1]*B[3], A[0]*B[1] + A[1]*B[4], A[0]*B[2] + A[1]*B[5] + A[2],
                          A[3]*B[0] + A[4]*B[3], A[3]*B[1] + A[4]*B[4], A[3]*B[2] + A[4]*B[5] + A[5]];
@@ -23864,6 +23871,9 @@ function cadFlatten(doc, opt){
       const Mo = oc < 0 ? mul(M, [-1, 0, 0, 0, 1, 0]) : M;
       switch(e.type){
         case "LINE": addLine(ln, M, [dxfNum(g,10)||0, dxfNum(g,20)||0, dxfNum(g,11)||0, dxfNum(g,21)||0]); break;
+        /* v244: POINT — a surveyor's tree points are often just this. Only those placed
+           on the drawing itself; a point inside a block is the block's own anchor. */
+        case "POINT": if(depth === 0){ const q = tf(Mo, [dxfNum(g,10)||0, dxfNum(g,20)||0]); const l = lay(ln); l.pts.push(q[0], q[1]); l.n++; } break;
         case "LWPOLYLINE": {
           const xs = dxfAll(g, 10), ys = dxfAll(g, 20), closed = (dxfNum(g, 70) || 0) & 1;
           const bul = new Array(xs.length).fill(0); let vi = -1;
@@ -23952,7 +23962,7 @@ function cadFlatten(doc, opt){
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const grow = (a) => { for(let k = 0; k < a.length; k += 2){ const x = a[k], y = a[k + 1]; if(!isFinite(x) || !isFinite(y)) continue;
     if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; } };
-  Object.keys(L).forEach(nm => { const l = L[nm]; l.lines.forEach(grow); l.blines.forEach(grow); l.polys.forEach(p => p.forEach(grow)); l.bpolys.forEach(p => p.forEach(grow)); l.texts.forEach(t => grow([t.x, t.y]));
+  Object.keys(L).forEach(nm => { const l = L[nm]; l.lines.forEach(grow); l.blines.forEach(grow); l.polys.forEach(p => p.forEach(grow)); l.bpolys.forEach(p => p.forEach(grow)); l.texts.forEach(t => grow([t.x, t.y])); grow(l.pts);
     const d = doc.layers[nm] || { color:7 }; l.color = d.tc != null ? tcHex(d.tc) : aciHex(d.color || 7);
     l.off = !!d.off; l.frozen = !!d.frozen; });
   return { layers:L, ext: isFinite(x0) ? { x0, y0, x1, y1 } : null, verts:nv, cut };
@@ -24156,6 +24166,95 @@ async function cadOpenFile(file){
   cadW.crs = g0 && g0.k !== "local" && (g0.d == null || g0.d < 25000) ? g0.k : "local";
   cadPaint(); $("cadSheet").classList.add("show");
 }
+/* v244 — A WORLD FILE PLACES IT. Chris: "I have a georeferencing world file for a DXF I
+   received, and I know that works … rather than having to manually do that as it took
+   a significant amount of time to get it done correctly the first time round."
+
+   Two kinds are read:
+   · the CAD world file (.wld, ArcGIS / AutoCAD Map): one line per link, "x,y X,Y" —
+     a point in the drawing and where it is in the real coordinate system (a .wld3 has
+     a z on each). One link is a shift; two or more give the rotation and the scale
+     too, fitted by least squares as ArcGIS does (a similarity: true shape kept).
+   · a six-line world file (the raster kind, .tfw/.jgw, sometimes made for CAD): A, D,
+     B, E, C, F — X = A·x + B·y + C, Y = D·x + E·y + F.
+   Either way the result is one affine A from the drawing's own numbers to the real
+   coordinates, so the drawing units no longer matter: the world file carries the
+   scale. Which real coordinate system those are comes from a .prj picked with it, or
+   else from where the numbers land against this project's trees. */
+function cadParseWorld(text){
+  const rows = String(text || "").split(/\r?\n/).map(l => l.replace(/#.*$/, "").trim()).filter(Boolean)
+    .map(l => l.split(/[\s,;]+/).filter(Boolean).map(Number));
+  if(!rows.length || rows.some(r => r.some(v => !isFinite(v)))) return null;
+  if(rows.length === 6 && rows.every(r => r.length === 1)){
+    const v = rows.map(r => r[0]);
+    const A = [v[0], v[2], v[4], v[1], v[3], v[5]];
+    if(!(Math.abs(A[0] * A[4] - A[1] * A[3]) > 0)) return null;
+    return { kind:"six", A, n:6, rms:null, scale:Math.sqrt(Math.abs(A[0] * A[4] - A[1] * A[3])), rot:Math.atan2(A[3], A[0]) * 180 / Math.PI };
+  }
+  const src = [], dst = [];
+  for(const r of rows){
+    if(r.length === 4){ src.push([r[0], r[1]]); dst.push([r[2], r[3]]); }
+    else if(r.length === 6){ src.push([r[0], r[1]]); dst.push([r[3], r[4]]); }
+    else return null;
+  }
+  const F = cadFitRigid(src, dst, src.length >= 2);
+  if(!F || !(F.scale > 0)) return null;
+  return { kind:"links", A:F.A, n:src.length, rms:src.length >= 3 ? F.rms : null, scale:F.scale, rot:F.rot, resid:F.resid };
+}
+/* The coordinate system named in a .prj, when it is one the app knows. */
+function cadCrsFromPrj(text){
+  const t = String(text || "").toUpperCase().replace(/\s+/g, "_");
+  const n27 = /NAD.?1927|NAD.?27\b/.test(t) ? "_27" : "";
+  let m = /UTM.?ZONE.?(\d{1,2})/.exec(t), k = m ? "utm" + (+m[1]) : null;
+  if(!k){ m = /MTM.?(?:ZONE.?)?(\d{1,2})\b/.exec(t); if(m) k = "mtm" + (+m[1]); }
+  if(!k){ m = /\b(?:EPSG.?)?(269|267)(1[6-8])\b/.exec(t); if(m) return cadCrsOf("utm" + m[2] + (m[1] === "267" ? "_27" : "")) ? "utm" + m[2] + (m[1] === "267" ? "_27" : "") : null; }
+  return k && cadCrsOf(k + n27) ? k + n27 : null;
+}
+/* The drawing's extent through the world file, for guessing the coordinate system. */
+function cadWorldExt(w){
+  const A = w.wld.A, e = w.ext, xs = [], ys = [];
+  [[e.x0, e.y0], [e.x1, e.y0], [e.x0, e.y1], [e.x1, e.y1]].forEach(([x, y]) => { xs.push(A[0] * x + A[1] * y + A[2]); ys.push(A[3] * x + A[4] * y + A[5]); });
+  return { x0:Math.min(...xs), x1:Math.max(...xs), y0:Math.min(...ys), y1:Math.max(...ys) };
+}
+/* Apply a world file (and maybe a .prj) to the drawing in hand. Placement starts
+   again from the file: any matched points or nudges were made on the old footing. */
+async function cadWorldFiles(files){
+  const w = cadW; if(!w){ toast("Open the drawing first", true); return; }
+  const wf = files.find(f => !/\.prj$/i.test(f.name)), pf = files.find(f => /\.prj$/i.test(f.name));
+  let msg = [];
+  if(wf){
+    let parsed = null;
+    try{ parsed = cadParseWorld(await wf.text()); }catch(e){}
+    if(!parsed){ toast("That doesn't read as a world file — expected lines of \"x,y X,Y\" or six numbers", true); return; }
+    w.wld = Object.assign(parsed, { file: wf.name });
+    w.guess = cadGuessCrs(cadWorldExt(w), 1, cadRefPoint());
+    const g0 = w.guess[0];
+    w.crs = g0 && g0.k !== "local" ? g0.k : "local";
+    msg.push(`World file ${wf.name} read`);
+  }
+  if(pf){
+    let k = null; try{ k = cadCrsFromPrj(await pf.text()); }catch(e){}
+    if(k){ w.crs = k; w.prjFile = pf.name; msg.push(`${pf.name} says ${cadCrsOf(k).n}`); }
+    else msg.push(`${pf.name} names a coordinate system the app doesn't know — pick it below`);
+  }
+  if(!w.isNew){ w.T = null; w.placed = ""; w.gfPts = []; }
+  w.base = null;
+  cadPaint();
+  if(!$("cadSheet").classList.contains("show")) $("cadSheet").classList.add("show");
+  if(msg.length) toast(msg.join(" · "));
+}
+function cadWorldOff(){ const w = cadW; if(!w) return; delete w.wld; delete w.prjFile;
+  w.guess = cadGuessCrs(w.ext, CAD_UNITS[w.unitsCode], cadRefPoint());
+  if(!w.isNew){ w.T = null; w.placed = ""; } w.base = null; cadPaint(); }
+/* Several files at once from Menu → CAD drawing: the DXF, and its .wld / .prj. */
+async function cadOpenFiles(files){
+  const dx = files.find(f => /\.(dxf|dwg)$/i.test(f.name)) || files.find(f => !/\.(wld3?|prj|tfw|jgw|pgw|dxw|txt)$/i.test(f.name));
+  const rest = files.filter(f => f !== dx);
+  if(!dx){ if(cadW) return cadWorldFiles(rest); toast("Pick the DXF drawing too — the world file goes with it", true); return; }
+  await cadOpenFile(dx);
+  if(cadW && rest.length) await cadWorldFiles(rest);
+}
+
 /* Where the drawing ought to be: the middle of this project's trees, else the map. */
 function cadRefPoint(){
   const ts = (typeof visibleTrees === "function" ? visibleTrees() : []).filter(t => num(t.LAT) != null && num(t.LON) != null);
@@ -24187,18 +24286,43 @@ function cadPaint(){
   const best = w.guess[0] && w.guess[0].k !== "local" && w.guess[0].d != null && w.guess[0].d < 25000 ? w.guess[0].k : null;
   let h = `<div class="idline">${esc(w.file)} · ${names.length} layer(s) · ${Math.round(wM)} × ${Math.round(hM)} m${w.cut ? " · very large: the first 600,000 points were read" : ""}</div>`;
   h += `<div class="stath" style="margin-top:10px">Where it is</div>`;
+  if(w.wld){
+    const W = w.wld;
+    h += `<div class="cadwld"><b>📄 Placed by its world file</b> · ${esc(W.file || "")}` +
+         `<small>${W.kind === "six" ? "Six-line world file" : W.n + " link" + (W.n === 1 ? " (a shift only)" : "s")}` +
+         ` · scale ${W.scale >= 0.1 ? W.scale.toFixed(4) : W.scale.toPrecision(4)} · turned ${(+W.rot).toFixed(2)}°` +
+         (W.rms != null ? ` · links agree within ${W.rms < 0.05 ? "a few cm" : W.rms.toFixed(2) + " m"}` : "") +
+         (w.prjFile ? ` · coordinate system from ${esc(w.prjFile)}` : "") + `</small>` +
+         `<div class="btnrow" style="margin-top:6px"><button type="button" class="alt" onclick="$('cadWldInput').click()">Use a different one…</button><button type="button" class="alt" onclick="cadWorldOff()">Stop using it</button></div></div>`;
+    if(w.crs === "local") h += `<div class="mini" style="color:#b0281c">The world file's coordinates aren't a UTM or MTM position in Ontario that the app recognises. Pick the coordinate system it was made in, or stop using it and match points.</div>`;
+  } else {
+    h += `<button type="button" class="menuitem cadwldbtn" onclick="$('cadWldInput').click()">📄 Place it with a world file (.wld)…<small class="msub"><span class="msep"> — </span>and its .prj, if there is one</small></button>`;
+  }
   h += opts.map(g => { const c = cadCrsOf(g.k);
       return `<label class="cadopt"><input type="radio" name="cadCrs" ${w.crs === g.k ? "checked" : ""} onchange="cadSet('crs','${g.k}')"><span><b>${esc(c.n)}</b>${g.k === best ? ' <span class="cadbest">best fit</span>' : ""}<small>${esc(dist(g.d).replace(/^ · /, ""))}</small></span></label>`; }).join("");
-  h += `<label class="cadopt"><input type="radio" name="cadCrs" ${w.crs === "local" ? "checked" : ""} onchange="cadSet('crs','local')"><span><b>Local site grid, or none of these</b><small>Placed by matching points on the drawing to the aerial or your layers</small></span></label>`;
+  if(!w.wld) h += `<label class="cadopt"><input type="radio" name="cadCrs" ${w.crs === "local" ? "checked" : ""} onchange="cadSet('crs','local')"><span><b>Local site grid, or none of these</b><small>Placed by matching points on the drawing to the aerial or your layers</small></span></label>`;
   if(!opts.length) h += `<div class="mini">The coordinates aren't a UTM or MTM position in Ontario, so it is drawn on a local grid — you place it by matching points.</div>`;
-  h += `<div class="row2" style="margin-top:6px"><div class="fld"><label>Drawing units</label><select onchange="cadSet('units', this.value)">${CAD_UNIT_NAMES.map(([k, n]) => `<option value="${k}"${+w.unitsCode === k ? " selected" : ""}>${n}${k === 6 && w.noUnits ? " (not stated in the file)" : ""}</option>`).join("")}</select></div>
+  h += `<div class="row2" style="margin-top:6px"><div class="fld"><label>Drawing units${w.wld ? " <small>(set by the world file)</small>" : ""}</label><select ${w.wld ? "disabled " : ""}onchange="cadSet('units', this.value)">${CAD_UNIT_NAMES.map(([k, n]) => `<option value="${k}"${+w.unitsCode === k ? " selected" : ""}>${n}${k === 6 && w.noUnits ? " (not stated in the file)" : ""}</option>`).join("")}</select></div>
     <div class="fld"><label>Bring in</label><div class="pschips" style="margin:0">${[["text", "Text"], ["hatch", "Fills"], ["blocks", "Symbols"]].map(([k, l]) => `<button type="button" class="${w.what[k] ? "on" : ""}" onclick="cadSet('what','${k}')">${l}</button>`).join("")}</div></div></div>`;
   h += `<div class="stath" style="margin-top:10px">Layers <small id="cadNOn">${nOn} of ${names.length} ticked</small> <button type="button" class="wchip" onclick="cadAll(1)">All</button> <button type="button" class="wchip" onclick="cadAll(0)">None</button></div><div id="cadLayers">`;
   h += names.map((nm, k) => { const l = w.layers[nm], why = [l.off ? "off in the drawing" : "", l.frozen ? "frozen" : "", /^defpoints$/i.test(nm) ? "construction points" : ""].filter(Boolean).join(", ");
     const parts = [l.lines.length ? l.lines.length + " line" + (l.lines.length === 1 ? "" : "s") : "", l.polys.length ? l.polys.length + " fill" + (l.polys.length === 1 ? "" : "s") : "",
-                   l.texts.length ? l.texts.length + " text" : "", l.blocks ? l.blocks + " symbol" + (l.blocks === 1 ? "" : "s") : ""].filter(Boolean).join(" · ") || "empty";
+                   l.texts.length ? l.texts.length + " text" : "", l.blocks ? l.blocks + " symbol" + (l.blocks === 1 ? "" : "s") : "",
+                   (l.pts || []).length ? (l.pts.length / 2) + " point" + (l.pts.length === 2 ? "" : "s") : ""].filter(Boolean).join(" · ") || "empty";
     return `<label class="cadlyr"><input type="checkbox" ${w.picks[nm] ? "checked" : ""} onchange="cadTick(${k}, this.checked)"><span class="sw" style="background:${l.color}"></span><span><b>${esc(nm)}</b><small>${parts}${why ? " · " + why : ""}</small></span></label>`; }).join("");
   h += `</div>`;
+  if(!w.isNew && cadPointLayers(w).length){
+    /* v244 — TREES FROM THE DRAWING'S POINTS. Chris: "Sometimes the CAD drawing will
+       have tree points. Can these be used as … locations at which to capture tree
+       data?" — the trees drawn as simple points, location only. */
+    const pl = cadPointLayers(w);
+    if(!w.ptPick){ w.ptPick = {}; const treeish = pl.filter(nm => /tree|tre\b|veg|plant|shrub/i.test(nm)); (treeish.length ? treeish : pl).forEach(nm => w.ptPick[nm] = true); }
+    const nPick = pl.filter(nm => w.ptPick[nm]).reduce((a, nm) => a + w.layers[nm].pts.length / 2, 0);
+    h += `<div class="stath" style="margin-top:12px">Trees from its points</div>
+      <div class="mini" style="margin-bottom:6px">Each point on the layers ticked becomes a tree in <b>${esc(settings.project || "— choose a project first —")}</b>, with nothing filled in — open each one on site and record it. A point within half a metre of a tree already there is skipped.</div>` +
+      pl.map((nm, k) => `<label class="cadlyr"><input type="checkbox" ${w.ptPick[nm] ? "checked" : ""} onchange="cadPtPick(${k}, this.checked)"><span class="sw" style="background:${w.layers[nm].color}"></span><span><b>${esc(nm)}</b><small>${w.layers[nm].pts.length / 2} point(s)</small></span></label>`).join("") +
+      `<div class="btnrow"><button type="button" class="alt" id="cadTreesBtn" ${nPick && settings.project ? "" : "disabled"} onclick="cadMakeTrees()">🌳 Make ${nPick} tree${nPick === 1 ? "" : "s"} from these points</button></div>`;
+  }
   if(!w.isNew){
     h += `<div class="stath" style="margin-top:12px">Placement</div><div class="mini" style="margin-bottom:6px">${esc(cadPlacedText(w))}</div>
       <div class="btnrow"><button type="button" class="alt" onclick="cadMatchStart()">⌖ Match points…</button><button type="button" class="alt" onclick="cadNudgeStart()">⤧ Shift / rotate…</button></div>`;
@@ -24208,16 +24332,53 @@ function cadPaint(){
     ? `<button type="button" class="primary" onclick="cadBringIn()">${w.crs === "local" ? "Next: place it" : "Bring it in"}</button><button type="button" onclick="cadW=null;closeCad()">Cancel</button>`
     : `<button type="button" class="primary" onclick="cadApply()">Apply</button><button type="button" onclick="closeCad()">Close</button><button type="button" class="alt" onclick="cadRemove('${w.cid}')">Remove this drawing</button>`;
 }
+function cadPointLayers(w){ return cadLayerNames(w).filter(nm => (w.layers[nm].pts || []).length); }
+function cadPtPick(k, on){ const w = cadW; if(!w) return; w.ptPick[cadPointLayers(w)[k]] = !!on; cadPaint(); }
+/* Where each picked point is, through the drawing's placement — the same path its
+   lines take to the map, so a tree sits exactly on the point you see. */
+function cadPointLatLons(w){
+  cadPrepare(w);
+  const A = w.T || CAD_I, out = [];
+  cadPointLayers(w).filter(nm => w.ptPick && w.ptPick[nm]).forEach(nm => { const b = w.base[nm]; if(!b || !b.pts) return;
+    for(let q = 0; q < b.pts.length; q += 2){ const x = b.pts[q], y = b.pts[q + 1];
+      const g = cadGeo(w.O, A[0] * x + A[1] * y + A[2], A[3] * x + A[4] * y + A[5]); out.push({ lat:g[0], lon:g[1], layer:nm }); } });
+  return out;
+}
+function cadMakeTrees(){
+  const w = cadW; if(!w) return;
+  if(!settings.project){ toast("Choose the project first — the trees are filed under it", true); return; }
+  if(!w.T){ toast("Place the drawing first", true); return; }
+  const pts = cadPointLatLons(w); if(!pts.length){ toast("Tick a layer with points", true); return; }
+  const here = trees.filter(t => lcName(projectOf(t)) === lcName(settings.project) && num(t.LAT) != null && num(t.LON) != null);
+  const near = (a, b) => Math.hypot((a.lat - b.lat) * 111130, (a.lon - b.lon) * 111320 * Math.cos(a.lat * Math.PI / 180)) < 0.5;
+  if(!confirm(`Make up to ${pts.length} tree(s) in ${settings.project} from the drawing's points?\n\nEach starts empty, marked as imported, ready to record on site. An import can be taken back under Layers.`)) return;
+  const batchId = "imp" + Date.now().toString(36), made = [];
+  let skipped = 0;
+  pts.forEach(pt => {
+    if(here.some(t => near(pt, { lat:num(t.LAT), lon:num(t.LON) })) || made.some(t => near(pt, { lat:+t.LAT, lon:+t.LON }))){ skipped++; return; }
+    const t = {}; KEYS.forEach(k => t[k] = "");
+    t.TREE_ID = nextTreeId(); t.LAT = pt.lat.toFixed(7); t.LON = pt.lon.toFixed(7);
+    t.STEMS = "1"; t.PROJECT = settings.project; t.SOURCE = "import"; t._imp = batchId; t._sent = false;
+    trees.push(t); made.push(t);
+  });
+  if(made.length){
+    importBatches.push({ id:batchId, name:(w.name || "CAD drawing") + " — points", n:made.length, when:nowStr().slice(0, 16), project:settings.project || "" });
+    persistBatches(); persistTrees(); renderPins(); renderOverlays();
+  }
+  closeCad(); if(made.length) fitTrees();
+  toast(`Made ${made.length} tree(s) from the points${skipped ? ` · ${skipped} already had a tree` : ""}`);
+}
 function cadPlacedText(w){
   const c = cadCrsOf(w.crs);
   const how = w.placed === "points" ? `placed by ${w.nPts || 2} matched point(s)${w.rms != null && w.nPts >= 2 ? ` (within ${w.rms < 0.05 ? "a few cm" : w.rms.toFixed(2) + " m"})` : ""}`
-            : w.placed === "shift" ? "then shifted / rotated by hand" : "as drawn";
+            : w.placed === "shift" ? "then shifted / rotated by hand"
+            : w.placed === "world" ? `by its world file${w.wld && w.wld.file ? " (" + w.wld.file + ")" : ""}` : "as drawn";
   return w.crs === "local" ? `Local grid, ${how}.` : `${c ? c.n : w.crs}, ${how}.`;
 }
 function cadSet(k, v){
   const w = cadW; if(!w) return;
   if(k === "crs"){ w.crs = v; if(!w.isNew){ w.T = null; w.placed = ""; } }
-  if(k === "units"){ w.unitsCode = +v; w.guess = cadGuessCrs(w.ext, CAD_UNITS[w.unitsCode], cadRefPoint()); if(!w.isNew){ w.T = null; w.placed = ""; } }
+  if(k === "units"){ if(w.wld) return; w.unitsCode = +v; w.guess = cadGuessCrs(w.ext, CAD_UNITS[w.unitsCode], cadRefPoint()); if(!w.isNew){ w.T = null; w.placed = ""; } }
   if(k === "what") w.what[v] = !w.what[v];
   cadPaint();
 }
@@ -24233,8 +24394,14 @@ function cadAll(on){ cadLayerNames(cadW).forEach(n => cadW.picks[n] = !!on && ca
    change". */
 function cadBase(w){
   const unit = CAD_UNITS[w.unitsCode] || 1, crs = cadCrsOf(w.crs), cx = (w.ext.x0 + w.ext.x1) / 2, cy = (w.ext.y0 + w.ext.y1) / 2;
-  let O, fn;
-  if(crs && crs.P){
+  let O, fn, hs = unit;
+  if(w.wld && crs && crs.P){
+    /* v244: drawing → real coordinates by the world file, then as any projected drawing. */
+    const A = w.wld.A, X = (x, y) => A[0] * x + A[1] * y + A[2], Y = (x, y) => A[3] * x + A[4] * y + A[5];
+    const q = cadToLatLon(crs, X(cx, cy), Y(cx, cy)); O = [q.lat, q.lon];
+    fn = (x, y) => { const r = cadToLatLon(crs, X(x, y), Y(x, y)); return cadEnu(O, r.lat, r.lon); };
+    hs = w.wld.scale;
+  } else if(crs && crs.P){
     const q = cadToLatLon(crs, cx * unit, cy * unit); O = [q.lat, q.lon];
     fn = (x, y) => { const r = cadToLatLon(crs, x * unit, y * unit); return cadEnu(O, r.lat, r.lon); };
   } else {
@@ -24245,10 +24412,12 @@ function cadBase(w){
   const base = {};
   Object.keys(w.layers).forEach(nm => { const l = w.layers[nm];
     base[nm] = { lines: l.lines.map(pts), blines: (l.blines || []).map(pts), polys: l.polys.map(p => p.map(pts)), bpolys: (l.bpolys || []).map(p => p.map(pts)),
-                 texts: l.texts.map(t => { const p = fn(t.x, t.y); return { x:p[0], y:p[1], s:t.s, h:t.h * unit, r:t.r }; }) }; });
+                 pts: pts(l.pts || []),
+                 texts: l.texts.map(t => { const p = fn(t.x, t.y); return { x:p[0], y:p[1], s:t.s, h:t.h * hs, r:t.r + (w.wld && crs && crs.P ? w.wld.rot : 0) }; }) }; });
   return { O, base };
 }
-function cadPrepare(w){ if(!w.base || w._baseKey !== w.crs + "|" + w.unitsCode){ const b = cadBase(w); w.O = b.O; w.base = b.base; w._baseKey = w.crs + "|" + w.unitsCode; } }
+function cadPrepare(w){ const key = w.crs + "|" + w.unitsCode + "|" + (w.wld ? w.wld.A.join(",") : "");
+  if(!w.base || w._baseKey !== key){ const b = cadBase(w); w.O = b.O; w.base = b.base; w._baseKey = key; } }
 const CAD_I = [1, 0, 0, 0, 1, 0];
 
 /* ---- base metres → reference layers ---------------------------------------------- */
@@ -24277,6 +24446,7 @@ function cadMakeLayers(w){
     const feats = [];
     Object.values(tl).forEach(rs => feats.push({ geom:{ t:"ln", c:rs }, props:{ CAD_LAYER:nm } }));
     Object.values(tp).forEach(ps => feats.push({ geom:{ t:"pg", c:ps }, props:{ CAD_LAYER:nm } }));
+    for(let q = 0; q < (b.pts || []).length; q += 2) feats.push({ geom:{ t:"pt", c:ll(b.pts[q], b.pts[q + 1]) }, props:{ CAD_LAYER:nm } });
     const src = "cad:" + w.cid + ":" + nm.toLowerCase();
     if(feats.length){
       const was = oldBy[src];
@@ -24305,7 +24475,8 @@ function cadMakeLayers(w){
 function cadSave(w){
   const rec = { id:"__cad_" + w.cid, isCad:true, features:[], cid:w.cid, name:w.name, file:w.file, unitsCode:w.unitsCode, noUnits:w.noUnits,
                 layers:w.layers, ext:w.ext, verts:w.verts, cut:w.cut, picks:w.picks, what:w.what, crs:w.crs, O:w.O, T:w.T, placed:w.placed,
-                nPts:w.nPts || 0, rms:w.rms == null ? null : w.rms, gfPts:w.gfPts || [], when:isoDay() };
+                nPts:w.nPts || 0, rms:w.rms == null ? null : w.rms, gfPts:w.gfPts || [], when:isoDay(),
+                wld:w.wld || null, prjFile:w.prjFile || "" };
   cadDocs[w.cid] = rec;
   return idbPutLayer(rec).catch(() => toast("Drawing shown, but too large to keep on this device", true));
 }
@@ -24316,15 +24487,15 @@ function cadBringIn(){
   closeCad();
   cadPrepare(w);
   if(w.crs === "local"){ w.isNew = false; w.T = null; cadSave(w); cadMatchStart(); return; }
-  w.T = CAD_I.slice(); w.placed = "crs"; w.isNew = false;
+  w.T = CAD_I.slice(); w.placed = w.wld ? "world" : "crs"; w.isNew = false;
   cadMakeLayers(w); cadSave(w); cadZoom(w);
   cadCheckBar(w);
 }
 function cadApply(){
   const w = cadW; if(!w) return;
   closeCad(); cadPrepare(w);
-  if(!w.T){ if(w.crs === "local"){ cadSave(w); cadMatchStart(); return; } w.T = CAD_I.slice(); w.placed = "crs"; }
-  cadMakeLayers(w); cadSave(w); toast("Drawing updated");
+  if(!w.T){ if(w.crs === "local"){ cadSave(w); cadMatchStart(); return; } w.T = CAD_I.slice(); w.placed = w.wld ? "world" : "crs"; }
+  cadMakeLayers(w); cadSave(w); toast("Drawing updated"); if(w.placed === "world") cadZoom(w);
 }
 function cadZoom(w){
   const fs = refLayers.filter(L2 => L2.cadId === w.cid).flatMap(L2 => L2.features);
@@ -24341,7 +24512,9 @@ function cadCheckBar(w){
 function cadBarClose(){ $("cadBar").classList.remove("show"); }
 function openCadManage(cid){
   const rec = cadDocs[cid]; if(!rec){ toast("That drawing isn't on this phone", true); return; }
-  cadW = cadFromRec(rec); cadW.guess = cadGuessCrs(cadW.ext, CAD_UNITS[cadW.unitsCode], cadRefPoint());
+  cadW = cadFromRec(rec);
+  /* v244: a drawing placed by its world file is guessed through it, not from its raw numbers. */
+  cadW.guess = cadW.wld ? cadGuessCrs(cadWorldExt(cadW), 1, cadRefPoint()) : cadGuessCrs(cadW.ext, CAD_UNITS[cadW.unitsCode], cadRefPoint());
   cadPaint(); $("cadSheet").classList.add("show");
 }
 function cadRemove(cid){
@@ -30045,7 +30218,7 @@ function showHelp(){
     <p><b>Fading the aerial</b><br>Map → Aerial photo → <b>Fade the aerial</b> washes the photo toward white (up to 80 %) so a site plan, fences, zones and trees stand out. It applies on screen and to every printed map; the tree summary starts from the same setting and can be changed for that page alone.</p>
     <p><b>Who sees which project</b><br>Once login is on, each person sees the projects they started or recorded trees in. The owner sees everything and, from <b>Projects → People &amp; projects</b>, can <b>Allow</b> or <b>Block</b> any project for anyone (Block wins), rename any project, archive one (it leaves every phone; trees and photos go to the Sheet's Archive) and restore it. Anyone can rename a project they started (<b>Projects → Rename a project</b>). If your access to a project is taken away, its trees that are already on the Sheet leave this phone; any you had not sent stay, marked "can't send".</p>
     <p><b>Tree summary for a client</b><br>Tap a tree, then <b>📄 Summary</b>. Choose the photo (the latest is picked for you), what to show on the map — protection zone, crown, protection fencing and plantings, pruning and removal marks, the trees nearby, tree numbers, roads, the loaded site plan and any reference layers — and how far out the map goes. Add who it is for and a note if you like, then <b>Create PDF</b>. <b>Share…</b> opens the phone's share sheet (Mail, Messages, Drive); <b>Download</b> saves the file. The page carries the tree's size, condition, risk, recommendations, when it was last inspected and worked on, when the next inspection is due and the recent visits; the appraised value only if you tick it.</p>
-    <p><b>CAD drawings from the engineer</b><br><b>Map → Bring in a CAD drawing</b> (or <i>Menu → Bring data in → CAD drawing</i>) reads a <b>DXF</b>. A DWG has to be saved as DXF first — AutoCAD's Save As, ArcGIS Pro's Export CAD, or the free ODA File Converter. The app works out where the drawing is — UTM 17 or 18, MTM 8 to 11, NAD83 or NAD27 — by checking which lands nearest your trees, and offers that first; a drawing on a local site grid is placed by matching points. Tick the layers to show (layers turned off or frozen in the drawing, and Defpoints, start unticked), and whether to bring in text, fills (hatches) and block symbols. Each CAD layer becomes one of your reference layers, so it can be renamed, recoloured, put in the legend (they start out of it), printed, and used by the TPZ conflict check and Find trees near a layer. If it does not line up: <b>⤧ Shift / rotate</b> holds the drawing still while you drag the map under it and turn it with the arrows; <b>⌖ Match points</b> fits it to spots you tap on the drawing and then find on the map — one point moves it, two or more also turn it, keeping its true scale — and <b>Snap</b> jumps the map cross to the nearest corner of one of your own layers, such as the parcel fabric. The drawing stays on this phone with its placement, so it can be adjusted, have its layers changed, or be removed later from the Map panel.</p>
+    <p><b>CAD drawings from the engineer</b><br><b>Map → Bring in a CAD drawing</b> (or <i>Menu → Bring data in → CAD drawing</i>) reads a <b>DXF</b>. <b>If it came with a world file</b> (<i>.wld</i>, and perhaps a <i>.prj</i>), pick them together with the DXF — or later, <i>📄 Place it with a world file</i> on the drawing's screen — and it is placed from the file: no matching points. A two-line .wld ("x,y X,Y") gives the shift, turn and scale; a six-line world file works too. The .prj says which coordinate system; without one the app picks the one that lands on your trees. <b>Tree points:</b> when the drawing marks trees as points, its screen (Map → the drawing → manage) offers <i>🌳 Make trees from these points</i> — one empty tree per point in the current project, ready to record on site; a point within half a metre of an existing tree is skipped, and the batch can be taken back like any import. A DWG has to be saved as DXF first — AutoCAD's Save As, ArcGIS Pro's Export CAD, or the free ODA File Converter. The app works out where the drawing is — UTM 17 or 18, MTM 8 to 11, NAD83 or NAD27 — by checking which lands nearest your trees, and offers that first; a drawing on a local site grid is placed by matching points. Tick the layers to show (layers turned off or frozen in the drawing, and Defpoints, start unticked), and whether to bring in text, fills (hatches) and block symbols. Each CAD layer becomes one of your reference layers, so it can be renamed, recoloured, put in the legend (they start out of it), printed, and used by the TPZ conflict check and Find trees near a layer. If it does not line up: <b>⤧ Shift / rotate</b> holds the drawing still while you drag the map under it and turn it with the arrows; <b>⌖ Match points</b> fits it to spots you tap on the drawing and then find on the map — one point moves it, two or more also turn it, keeping its true scale — and <b>Snap</b> jumps the map cross to the nearest corner of one of your own layers, such as the parcel fabric. The drawing stays on this phone with its placement, so it can be adjusted, have its layers changed, or be removed later from the Map panel.</p>
     <p><b>Tree risk assessment (ISA TRAQ)</b><br>Tap a tree, then <b>⚠ Risk</b>, for a full basic assessment laid out like the ISA form: the <b>targets</b> (up to four, with the target zone, occupancy and whether they can be moved or access restricted); the <b>condition checklist</b> — site and load factors, crown and branches, trunk, roots and root collar — tap to tick, with a note for each; the <b>tree parts</b> of concern, each with its size, fall distance, the target it would hit, likelihood of failure and of impact, and consequences, rated with ISA's two matrices; then <b>mitigation</b> options with their residual risk and the one recommended, the time frame, and the inspection interval. The tree's risk rating is the highest of its parts, and its likelihood, target, impact and consequence fields are set from that part. Every assessment is kept — a re-assessment starts from the last one — and goes to the Sheet's <b>Risk assessments</b> tab. A High or Extreme rating can add a work order for the recommended mitigation. The Follow-up list uses the recommended interval. <b>PDF of this assessment</b> prints the form with the photo and a map; <b>Tools → Risk register</b> ranks every assessed tree, with PDF and CSV. <b>Layers → Colour trees by → Risk</b> colours the map by rating.</p>
     <p><b>Planting sites</b><br><b>Tools → Visits &amp; work → Planting sites</b> keeps the places a tree could go. <b>＋ Add sites on the map</b> and tap each one; record the site type and the width of the growing space, overhead wires and anything nearby (hydrant, driveway, light standard…). The app works out the mature size that fits — under 1.2 m too narrow, 1.2 m small, 1.8 m medium, 2.4 m and over large, small only under wires — and suggests species that fit and keep this inventory under 10% of one species, 20% of a genus and 30% of a family. Set a priority and a planting season. The <b>Stumps</b> list shows stumps and removed trees with no site yet; <b>＋ Make a site</b> puts one at the same spot. Marking a site <b>Planted</b> adds the new tree to the inventory with a Planted visit. Sites show on the map as numbered squares (Layers → Planting sites), print on the plan sheets, and go to the Sheet's <b>Planting sites</b> tab. <b>Planting plan — PDF</b> gives the map and the list with the cost from the project's planting rate. These are separate from the <b>proposed plantings</b> of a tree protection plan, which are compensation trees on the plan.</p>
     <p><b>Map visuals</b><br><b>Layers → Colour trees by</b> also offers <b>Species</b> — the nine most common each in their own colour, the rest grey as “Other species” — and <b>Health change</b>: each tree's health today against its first record (or against 1, 3 or 5 years ago), green where it improved, red where it declined, grey where it is the same, brown where it has been removed since. Under <b>Map visuals</b>: <b>Size by trunk diameter</b> draws bigger trees with bigger symbols; <b>Heat map</b> shades where trees gather, or — weighted — where the poor-condition, high-risk or work-outstanding trees gather, with the spread of each tree set at 10, 20 or 40 m; <b>Canopy as one cover</b> fills the crowns as one green canopy and the legend gives the share of the view it covers. All of them print on the plan sheets the way they look on screen, and the key names only what the sheet carries.</p>
