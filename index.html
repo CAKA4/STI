@@ -66,6 +66,20 @@
     border:1px solid #c9a227; border-radius:12px; background:#fff6d6; color:#5a4500; font-family:inherit; font-size:11px; font-weight:600; line-height:1.2;
     white-space:nowrap; cursor:pointer; text-transform:none; letter-spacing:0; text-align:left }
   .appbar .sub .fchip .fx{ font-weight:700; color:#8a6a00 }
+  /* v247: layer list */
+  .layerrow.lr2{ flex-wrap:wrap; align-items:flex-start }
+  .layerrow.lr2 .nm{ flex:1 1 60%; white-space:normal; overflow:visible; word-break:break-word; line-height:1.3 }
+  .layerrow.lr2.sel{ outline:2px solid var(--accent, #1d7a45) }
+  .lrbtns{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; padding-left:22px; margin-top:6px }
+  .lrchk{ width:20px; height:20px; margin:2px 2px 0 0; flex:0 0 auto }
+  .lgroup{ border:1px solid #9fb0a5; border-radius:12px; padding:8px; margin-bottom:9px; background:rgba(29,122,69,.05) }
+  .lgroup .lghead{ display:flex; gap:8px; align-items:flex-start; cursor:pointer; padding:2px 2px 4px }
+  .lgroup .lghead .nm{ font-size:14px; font-weight:600; line-height:1.3 } .lgroup .lgtw{ width:14px; flex:0 0 auto }
+  .lgroup .lrbtns{ padding-left:22px; margin:2px 0 8px } .lgroup .lrbtns button, .lsbar button{ padding:7px 10px; font-size:12px; border-radius:8px; border:1px solid var(--line2); background:#fff; color:#0d1a13 }
+  .lsbar{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 9px } .lsbar button.danger{ color:#b3261e; border-color:#e2a49e }
+  .lsbar button:disabled{ opacity:.45 }
+  .cmpgo{ display:flex; flex-direction:column; gap:6px; margin:4px 0 6px } .cmpgo button{ text-align:left; padding:8px 10px; border-radius:8px; border:1px solid #c9d4cc; background:#fff; color:#0d1a13; font-size:14px }
+  .cmpgo button small{ display:block; color:#5a7062; font-size:11px; margin-top:2px }
   /* v244: world file */
   .cadwld{ border:1px solid #9cc9a9; background:rgba(29,122,69,.08); border-radius:10px; padding:9px 10px; margin:4px 0 8px }
   .cadwld small{ display:block; color:var(--muted, #5a7062); margin-top:3px }
@@ -1818,6 +1832,7 @@
       <button onclick="openLegendCfg()">🎨 Legend — names &amp; groups</button>
       <button onclick="removeAllRefLayers()">✕ Remove all</button>
     </div>
+    <div class="mini"><b>Groups:</b> a CAD drawing's layers, and the layers that came in one zip, are listed together — open the heading to see them; <i>All on / All off</i>, <i>⟳ Replace with a revision…</i> (the drawing or file is swapped for the new one, keeping colours, names, labels and placement) and <i>✕ Remove all</i> act on the whole group. <i>☑ Select layers…</i> picks any few to switch or remove. A removed layer also leaves the project folder, so your other devices drop it.</div>
     <div class="mini">Reference layers are for context — parcels, streets, boundaries, and a GPX track log of where the crew walked. They are drawn and labelled but never edited; ⬇ on any layer sends it back out as a shapefile or GeoJSON. To bring in trees you will edit, use Menu → Import tree points.</div>
     <div class="btnrow"><button onclick="closeLayers()">Close</button></div>
   </div>
@@ -2884,6 +2899,8 @@
 <input id="cadInput" type="file" multiple accept=".dxf,.dwg,.wld,.wld3,.prj,image/vnd.dxf,application/dxf,image/vnd.dwg" style="display:none">
 <input id="cadWldInput" type="file" multiple accept=".wld,.wld3,.prj,.txt,.tfw,.jgw,.pgw,.dxw" style="display:none">
 <input id="refInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<input id="refReplaceInput" type="file" accept=".zip,.shp,.geojson,.json,.gpx" style="display:none">
+<input id="cadReviseInput" type="file" multiple accept=".dxf,.wld,.wld3,.prj,image/vnd.dxf,application/dxf" style="display:none">
 <div class="repobar" id="drawBar">
   <span class="msg" id="drawMsg">—</span>
   <button class="alt" onclick="undoDrawPt()">Undo</button>
@@ -3103,7 +3120,7 @@
    Menu → Settings and kept on the device — so re-uploading this file after an
    update no longer wipes it. */
 const SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbzRy_ObDe76tb6DUKOb4gaa__Sd6kIwLSjs-WFGeHr9Zw3HiSOKgdlxFtPkaz29qMj1-A/exec";
-const APP_BUILD  = "2026-11-24 · v246";
+const APP_BUILD  = "2026-11-28 · v247";
 /* THE Code.gs THIS BUILD EXPECTS TO FIND ON THE SHEET — bumped only when Code.gs
    itself changes, which is not every build.
 
@@ -4030,6 +4047,7 @@ function persistRefLayers(){
     const rec = layerStyleOf(l, { id:l.id, src:l.src || "", visible:l.visible,
                                   xfer:l.xfer||null, features:l.features });
     if(l.cadId){ rec.cadId = l.cadId; if(l.textOnly) rec.textOnly = true; }     // v237
+    if(l.grp){ rec.grp = l.grp; rec.grpName = l.grpName || ""; }                  // v247: which file it came in with
     idbPutLayer(rec)
       .catch(()=>toast("Could not save "+l.name+" to this device",true));
   });
@@ -5029,7 +5047,10 @@ async function importRefLayer(file){
         src: g.nm.toLowerCase(),
         name: g.nm.slice(0,40),
         color: REF_PALETTE[refLayers.length % REF_PALETTE.length],
-        visible: true, features: g.feats
+        visible: true, features: g.feats,
+        /* v247: the file it came in with, so the layers of one zip are listed — and
+           can be replaced or removed — together. */
+        grp: groups.length > 1 ? "f" + id.replace(/_\d+$/, "") : "", grpName: groups.length > 1 ? base : ""
       });
       made.push(id);
     });
@@ -5495,11 +5516,49 @@ function toggleRef(id){
 }
 function removeRef(id){
   const L2 = refLayers.find(x=>x.id===id); if(!L2) return;
-  if(!confirm(`Remove the layer "${L2.name}"? Trees are not affected.`)) return;
-  refLayers = refLayers.filter(x=>x.id!==id);
-  delete labelCfg[id]; persistLabelCfg();
-  idbDelLayer(id); drawRefLayers(); renderLayerList(); buildLegend();
-  toast("Layer removed");
+  removeRefLayers([id], `the layer "${L2.name}"`);
+}
+/* v247 — ONE WAY TO REMOVE LAYERS, ONE OR MANY, AND THE PROJECT FOLDER TOO.
+   Chris: "I want to be able to remove them or a group of them easily and replace them
+   with updated layers." And the menu kept saying "15 layers or documents in the
+   project folder, not on this device": a layer removed here stayed in the folder, so
+   every device went on being told it was missing — and could bring the old one back.
+   Removing now takes it out of the folder as well (queued if there is no signal). */
+function removeRefLayers(ids, what, quiet){
+  ids = ids.filter(id => refLayers.some(l => l.id === id));
+  if(!ids.length) return false;
+  const proj = String(currentProject() || "").trim();
+  const folder = !!proj && !showAllProjects;
+  if(!quiet && !confirm(`Remove ${what}? Trees are not affected.` +
+      (folder ? `\n\n${ids.length === 1 ? "It is" : "They are"} also taken out of the project folder, so your other devices drop ${ids.length === 1 ? "it" : "them"} too.` : ""))) return false;
+  refLayers = refLayers.filter(l => ids.indexOf(l.id) < 0);
+  ids.forEach(id => { delete labelCfg[id]; idbDelLayer(id); if(lsSel) lsSel.delete(id); });
+  persistLabelCfg(); drawRefLayers(); renderLayerList(); buildLegend();
+  if(folder) pfDelQueue(proj, ids.map(id => ({ kind:"layer", ref:String(id) })));
+  if(!quiet) toast(ids.length === 1 ? "Layer removed" : `${ids.length} layers removed`);
+  return true;
+}
+/* Folder removals, sent one at a time and kept until they have gone (offline-safe). */
+let pfDelQ = [];
+try{ pfDelQ = JSON.parse(STORE && STORE.getItem("st_pfdelq")) || []; }catch(e){ pfDelQ = []; }
+function persistPfDelQ(){ try{ STORE && STORE.setItem("st_pfdelq", JSON.stringify(pfDelQ)); }catch(e){} }
+function pfDelQueue(project, items){
+  items.forEach(it => { if(!pfDelQ.some(q => q.project === project && q.kind === it.kind && q.ref === it.ref)) pfDelQ.push({ project, kind:it.kind, ref:it.ref }); });
+  persistPfDelQ(); pfDelFlush();
+}
+let pfDelBusy = false;
+function pfDelFlush(){
+  if(pfDelBusy || !pfDelQ.length || !connected || isOffline()) return;
+  pfDelBusy = true;
+  const q = pfDelQ[0];
+  postJson({ _action:"pfdel", project:q.project, kind:q.kind, ref:q.ref })
+    .then(() => {
+      try{ delete pfSent[q.kind + "~" + q.ref]; persistPfSent(); }catch(e){}
+      if(Array.isArray(pfItems)) pfItems = pfItems.filter(it => !(it.kind === q.kind && String(it.ref) === q.ref));
+      pfDelQ.shift(); persistPfDelQ(); pfDelBusy = false;
+      if(pfDelQ.length) setTimeout(pfDelFlush, 700); else { try{ paintMenuReady(); }catch(e){} }
+    })
+    .catch(() => { pfDelBusy = false; });
 }
 
 /* Removes every tree that came in with one import — locally, and from the Sheet in
@@ -5527,14 +5586,91 @@ function removeImportBatch(id){
 
 function removeAllRefLayers(){
   if(!refLayers.length) return;
-  if(!confirm(`Remove all ${refLayers.length} reference layer(s)? Trees are not affected.`)) return;
-  refLayers.forEach(l=>{ delete labelCfg[l.id]; idbDelLayer(l.id); });
-  refLayers = [];
-  persistLabelCfg(); drawRefLayers(); renderLayerList(); buildLegend();
-  toast("Reference layers removed");
+  removeRefLayers(refLayers.map(l => l.id), `all ${refLayers.length} reference layer(s)`);
 }
 
 function openLayers(){ renderLayerList(); $("layersSheet").classList.add("show"); }
+/* ---- v247: groups, selection, replacing ------------------------------------------- */
+let lgOpen = {}, lsSel = null;
+function layerGroupKey(L2){
+  if(L2.cadId) return "cad:" + L2.cadId;
+  if(L2.grp) return "grp:" + L2.grp;
+  const pre = String(L2.id).replace(/_\d+$/, "");
+  return refLayers.filter(x => !x.cadId && !x.grp && String(x.id).replace(/_\d+$/, "") === pre).length > 1 ? "grp:f" + pre : "one:" + L2.id;
+}
+function layerGroups(){
+  const out = [], by = {};
+  refLayers.forEach(L2 => {
+    const key = layerGroupKey(L2);
+    if(!by[key]){
+      const cad = L2.cadId ? cadDocs[L2.cadId] : null;
+      by[key] = { key, kind: L2.cadId ? "cad" : key.indexOf("grp:") === 0 ? "file" : "one", cid: L2.cadId || "",
+                  label: cad ? cad.name : (L2.grpName || (key.indexOf("grp:") === 0 ? "Layers that came in together" : L2.name)), layers: [] };
+      out.push(by[key]);
+    }
+    by[key].layers.push(L2);
+  });
+  return out;
+}
+function lgLayers(key){ return refLayers.filter(L2 => layerGroupKey(L2) === key); }
+function lgToggle(key){ lgOpen[key] = !lgOpen[key]; renderLayerList(); }
+function lgVis(key, on){ lgLayers(key).forEach(L2 => L2.visible = !!on); persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend(); }
+function lgRemove(key){
+  const ls = lgLayers(key); if(!ls.length) return;
+  const g = layerGroups().find(x => x.key === key);
+  if(g && g.kind === "cad"){ cadRemove(g.cid); return; }
+  removeRefLayers(ls.map(l => l.id), `the ${ls.length} layers of "${g ? g.label : "this group"}"`);
+}
+function lsSelToggle(){ lsSel = lsSel ? null : new Set(); renderLayerList(); }
+function lsSelPick(id, on){ if(!lsSel) return; if(on) lsSel.add(id); else lsSel.delete(id); renderLayerList(); }
+function lsSelAll(){ if(!lsSel) return; if(lsSel.size === refLayers.length) lsSel.clear(); else refLayers.forEach(l => lsSel.add(l.id)); renderLayerList(); }
+function lsSelVis(on){ if(!lsSel || !lsSel.size) return; refLayers.forEach(l => { if(lsSel.has(l.id)) l.visible = !!on; }); persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend(); }
+function lsSelRemove(){ if(!lsSel || !lsSel.size) return; const ids = [...lsSel]; if(removeRefLayers(ids, `${ids.length} selected layer(s)`)) { lsSel = new Set(); renderLayerList(); } }
+
+/* REPLACE WITH A REVISION. For a CAD drawing: the revised DXF (and its .wld / .prj, if
+   the engineer sent new ones) takes the old one's place — same placement, same layer
+   choices, same colours and names, new linework; layers that are new are added, ones
+   that are gone go. For a file's layers: the updated zip / shapefile / GeoJSON is matched
+   to the old layers by name; each keeps its colour, labels and legend wording. */
+let lgReplaceKey = "";
+function lgReplace(key){
+  lgReplaceKey = key;
+  if(key.indexOf("cad:") === 0) $("cadReviseInput").click();
+  else $("refReplaceInput").click();
+}
+async function refReplaceFile(file){
+  const key = lgReplaceKey; lgReplaceKey = "";
+  const targets = key.indexOf("one:") === 0 ? refLayers.filter(l => l.id === key.slice(4)) : lgLayers(key);
+  if(!targets.length) return;
+  toast("Reading…");
+  let gj; try{ gj = await readGeoFile(file); }catch(e){ toast("Could not read that file", true); return; }
+  const cols = (Array.isArray(gj) ? gj : [gj]).filter(Boolean);
+  const base = file.name.replace(/\.[^.]+$/, "");
+  const groups = [];
+  cols.forEach((fc, i) => { const feats = refFeaturesOf(fc); if(!feats.length) return;
+    const inner = String((fc && (fc.fileName || fc.name)) || "").replace(/\.[^.]+$/, "").trim();
+    groups.push({ nm: (cols.length > 1 && inner) ? inner : (cols.length > 1 ? base + " " + (i + 1) : base), feats }); });
+  if(!groups.length){ toast("Nothing to draw in that file", true); return; }
+  const k = x => String(x || "").toLowerCase().replace(/\.[^.]+$/, "").trim();
+  const used = new Set(); let kept = 0, added = 0;
+  if(targets.length === 1 && groups.length === 1){ targets[0].features = groups[0].feats; used.add(targets[0].id); kept = 1; }
+  else {
+    const gKey = targets[0].grp || (key.indexOf("grp:") === 0 ? key.slice(4) : "");
+    groups.forEach((g, i) => {
+      const t = targets.find(l => !used.has(l.id) && (k(l.src) === k(g.nm) || k(l.name) === k(g.nm)));
+      if(t){ t.features = g.feats; used.add(t.id); kept++; return; }
+      const id = "ref" + Date.now().toString(36) + "_n" + i;
+      refLayers.push({ id, src:g.nm.toLowerCase(), name:g.nm.slice(0, 40), color:REF_PALETTE[refLayers.length % REF_PALETTE.length],
+                       visible:true, features:g.feats, grp:gKey || ("f" + id), grpName:targets[0].grpName || base });
+      added++;
+    });
+  }
+  const gone = targets.filter(l => !used.has(l.id));
+  persistRefLayers(); drawRefLayers(); renderLayerList(); buildLegend();
+  if(gone.length && confirm(`${gone.length} layer(s) are not in the new file:\n\n${gone.map(l => "· " + l.name).slice(0, 12).join("\n")}\n\nRemove them?`))
+    removeRefLayers(gone.map(l => l.id), "", true);
+  toast(`Replaced: ${kept} layer(s) updated${added ? ` · ${added} new` : ""}${gone.length ? ` · ${gone.length} not in the new file` : ""}`);
+}
 function closeLayers(){ $("layersSheet").classList.remove("show"); backToMenu(); }
 function renderLayerList(){
   const withLbl = id => cfgFor(id).fields.length ? `${cfgFor(id).fields.length} label field(s)` : "no labels";
@@ -5543,19 +5679,45 @@ function renderLayerList(){
       <span class="nm">Trees<br><span class="ct">${trees.length} points · coloured by health · ${withLbl("trees")}</span></span>
       <button onclick="openLabels('trees')">🏷</button>
     </div>`;
-  h += refLayers.map(L2=>`
-    <div class="layerrow">
+  /* v247 — READABLE, GROUPED, SELECTABLE. Chris's screenshot: eight buttons on one line
+     left room for one letter of each name ("E.", "T.") — the list could not be read. The
+     name now has its own line and the buttons wrap beneath it. A CAD drawing's layers,
+     and the layers that came in one zip, sit under one heading that can be opened,
+     switched on or off, replaced with a revision, or removed in one go. */
+  h += `<div class="lsbar">${lsSel
+      ? `<b>${lsSel.size} selected</b><button type="button" onclick="lsSelAll()">All</button><button type="button" onclick="lsSelVis(true)">Turn on</button><button type="button" onclick="lsSelVis(false)">Turn off</button><button type="button" class="danger" ${lsSel.size ? "" : "disabled"} onclick="lsSelRemove()">✕ Remove</button><button type="button" onclick="lsSelToggle()">Done</button>`
+      : `<button type="button" onclick="lsSelToggle()">☑ Select layers…</button><span class="mini">to remove or switch several at once</span>`}</div>`;
+  const row = L2 => `
+    <div class="layerrow lr2${lsSel && lsSel.has(L2.id) ? " sel" : ""}">
+      ${lsSel ? `<input type="checkbox" class="lrchk" ${lsSel.has(L2.id) ? "checked" : ""} onchange="lsSelPick('${L2.id}', this.checked)">` : ""}
       <span class="sw sq" style="width:14px;height:14px;background:${L2.color};border:1px solid #fff"></span>
       <span class="nm">${esc(L2.name)}<br><span class="ct">${L2.features.length} features · ${withLbl(L2.id)}</span></span>
+      ${lsSel ? "" : `<div class="lrbtns">
       <button class="${L2.visible?"on":""}" onclick="toggleRef('${L2.id}')">${L2.visible?"ON":"OFF"}</button>
-      <button onclick="zoomToRef('${L2.id}')">⤢</button>
+      <button onclick="zoomToRef('${L2.id}')" title="Zoom to it">⤢</button>
       <button onclick="openLayerStyle('${L2.id}')" title="Name, colour and legend">✎</button>
-      <button onclick="openLabels('${L2.id}')">🏷</button>
-      <button onclick="openXfer('${L2.id}')">⇥</button>
+      <button onclick="openLabels('${L2.id}')" title="Labels">🏷</button>
+      <button onclick="openXfer('${L2.id}')" title="Move or adjust">⇥</button>
       <button onclick="openLayerExport('${L2.id}')" title="Export">⬇</button>
       <button onclick="openRole('${L2.id}')" title="Role">${L2.role&&L2.role!=="reference"?"★":"☆"}</button>
-      <button onclick="removeRef('${L2.id}')">✕</button>
-    </div>`).join("");
+      ${L2.cadId ? "" : `<button onclick="lgReplace('one:${L2.id}')" title="Replace with an updated file">⟳</button>`}
+      <button onclick="removeRef('${L2.id}')" title="Remove">✕</button></div>`}
+    </div>`;
+  layerGroups().forEach(g => {
+    if(g.layers.length === 1 && g.kind !== "cad"){ h += row(g.layers[0]); return; }
+    const open = !!lgOpen[g.key] || !!lsSel, on = g.layers.filter(l => l.visible).length;
+    h += `<div class="lgroup">
+      <div class="lghead" onclick="lgToggle('${g.key}')"><span class="lgtw">${open ? "▾" : "▸"}</span>
+        <span class="nm">${g.kind === "cad" ? "📐 " : "🗂 "}${esc(g.label)}<br><span class="ct">${g.layers.length} layers · ${on} on${g.kind === "cad" ? " · CAD drawing" : " · one file"}</span></span></div>
+      ${lsSel ? "" : `<div class="lrbtns">
+        <button type="button" onclick="lgVis('${g.key}', true)">All on</button>
+        <button type="button" onclick="lgVis('${g.key}', false)">All off</button>
+        <button type="button" onclick="lgReplace('${g.key}')">⟳ Replace with a revision…</button>
+        ${g.kind === "cad" ? `<button type="button" onclick="closeLayers();openCadManage('${g.cid}')">Manage</button>` : ""}
+        <button type="button" onclick="lgRemove('${g.key}')">✕ Remove all</button></div>`}
+      ${open ? g.layers.map(row).join("") : ""}
+    </div>`;
+  });
   /* THE FENCE AND THE EXCAVATION LINE, listed where every other drawn thing is listed,
      with the same ✎ that names and styles a reference layer. Only shown once lines of
      that kind exist — a style row for something not on the drawing is a setting for
@@ -11457,6 +11619,7 @@ function sendTreeChunks(list, onProgress){
 }
 
 async function syncEverything(opts){
+  try{ pfDelFlush(); }catch(e){}                      // v247: folder removals waiting for a signal
   opts = opts || {};
   if(!connected){ if(opts.loud) toast("This build has no backend address", true); return; }
   if(isOffline()){ if(opts.loud) toast("No connection", true); netDot(); return; }
@@ -11664,7 +11827,28 @@ const CMP_FEAT = { id: r => String((r && r.id) || "").trim(),
                    label: "fence, excavation line or planting" };
 const CMP_NOTE = { id: r => String((r && r.id) || "").trim(),
                    fields: ["kind","project","text","size","bold","color","pts"],
-                   label: "note or arrow" };
+                   label: "note or arrow",
+                   /* v247 — Chris: "4 notes and arrows on this device and NOT on the Sheet.
+                      I don't know what these are. Can I tap to see them?" Each is named by
+                      what it says (or "arrow"), and tapping it goes to it on the map. */
+                   goList: list => `<div class="cmpgo">${list.slice(0, 30).map(a =>
+                     `<button type="button" onclick="cmpGoNote('${esc(String(a.id))}')">${a.kind === "arrow" ? "➜ Arrow" : "✎ " + esc(String(a.text || "Note (no text)").slice(0, 40))}` +
+                     `<small>${esc(String(a.date || "").slice(0, 10))}${a.by ? " · " + esc(a.by) : ""}</small></button>`).join("")}</div>` };
+function cmpGoNote(id){
+  const a = annById(id); if(!a || !a.pts || !a.pts.length){ toast("That note isn't on this device any more", true); return; }
+  closeCompare(); try{ closeMenu(); }catch(e){}
+  const b = L.latLngBounds(a.pts.map(p => [p[0], p[1]]));
+  fmap.fitBounds(b.pad(0.6), { maxZoom:20 });
+  try{ const m = L.circleMarker(b.getCenter(), { radius:26, color:"#FF1744", weight:4, fill:false }).addTo(fmap); setTimeout(() => fmap.removeLayer(m), 2600); }catch(e){}
+}
+/* These four had been marked as sent, so a Sync never sent them again — the Sheet had
+   not kept them (a send with no answer looks the same as one that worked). */
+function cmpResendNotes(){
+  const ids = ((cmpResult && cmpResult.notes && cmpResult.notes.onlyHere) || []).map(a => a.id);
+  let n = 0; annots.forEach(a => { if(a && ids.indexOf(a.id) >= 0){ a._sent = false; n++; } });
+  if(!n) return;
+  annSave(); syncAnnots(); toast(`Sending ${n} note(s) and arrow(s) again — run the check in a minute`);
+}
 /* THE SYNCED MARK ITSELF, which is what two separate menu items used to be about.
 
    "Verify what reached the Sheet" and "Check what the Sheet already has" were one
@@ -11792,7 +11976,8 @@ async function runCompare(){
   h.push(`<div class="stath" style="margin:14px 0 4px">Notes and arrows</div>`);
   h.push(dN
     ? cmpSection(dN, CMP_NOTE, "note or arrow", "notes and arrows",
-                 "<b>Tap Sync</b> — they go up with the trees.",
+                 "Tap one to see it on the map. This device believes they were sent, so a Sync will not send them again — " +
+                 `<div class="btnrow" style="margin-top:8px"><button class="primary" onclick="cmpResendNotes()">Send them again</button></div>`,
                  "Drawn on another device. <b>Menu → Load trees from Sheet</b> brings them down.",
                  d => cmpDiffRow(d, a => a.text || a.kind))
     : diagLine("bad", "The Sheet could not be asked about them",
@@ -11870,7 +12055,7 @@ function cmpSection(d, spec, one, many, fixHere, fixThere, rowFn){
   const h = [];
   h.push(d.onlyHere.length
     ? diagLine("bad", `${d.onlyHere.length} ${d.onlyHere.length===1?one:many} on this device and NOT on the Sheet`,
-        cmpList(d.onlyHere.map(spec.id)) + "<br>" + fixHere)
+        (spec.goList ? spec.goList(d.onlyHere) : cmpList(d.onlyHere.map(spec.id))) + "<br>" + fixHere)
     : diagLine("ok", `Every ${one} on this device is on the Sheet`, ""));
   h.push(d.onlySheet.length
     ? diagLine("bad", `${d.onlySheet.length} ${d.onlySheet.length===1?one:many} on the Sheet and NOT on this device`,
@@ -12120,6 +12305,8 @@ $("refInput").addEventListener("change", e=>{
   const f=e.target.files[0]; e.target.value="";
   if(f) importRefLayer(f);
 });
+$("refReplaceInput").addEventListener("change", e=>{ const f = e.target.files[0]; e.target.value = ""; if(f) refReplaceFile(f); });
+$("cadReviseInput").addEventListener("change", e=>{ const fs = [...e.target.files]; e.target.value = ""; if(fs.length) cadReviseFiles(fs); });
 
 // Shared by both importers: read any supported file into WGS84 GeoJSON.
 /* The .prj of the last file read, so the project can remember what frame its data
@@ -24152,6 +24339,52 @@ const cadEnu = (O, lat, lon) => [(lon - O[1]) * CAD_KX(O[0]), (lat - O[0]) * CAD
 const cadGeo = (O, e, n) => [O[0] + n / CAD_KY(O[0]), O[1] + e / CAD_KX(O[0])];
 
 function cadPick(){ try{ closeMenu(); }catch(e){} const i = $("cadInput"); if(i) i.click(); }
+/* v247: reading a DXF, shared by a new drawing and a revision. */
+async function cadReadFile(file){
+  let buf;
+  try{ buf = await file.arrayBuffer(); }catch(e){ toast("Couldn't read that file", true); return null; }
+  const head = new TextDecoder("latin1").decode(new Uint8Array(buf.slice(0, 24)));
+  if(/^AC10\d\d/.test(head) || /\.dwg$/i.test(file.name)){ cadDwgHelp(file.name); return null; }
+  if(/^AutoCAD Binary DXF/.test(head)){ toast("That is a binary DXF — save it as an ASCII DXF and try again", true); return null; }
+  let text = new TextDecoder("utf-8").decode(buf);
+  if(text.indexOf("\ufffd") >= 0) text = new TextDecoder("windows-1252").decode(buf);
+  let doc, flat;
+  try{ doc = dxfRead(text); flat = cadFlatten(doc, { what:{ text:true, hatch:true, blocks:true } }); }
+  catch(e){ toast("That doesn't read as a DXF drawing", true); return null; }
+  if(!flat.ext){ toast("Nothing to draw in that file — is everything in paper space?", true); return null; }
+  return { doc, flat };
+}
+async function cadReviseFiles(files){
+  const key = lgReplaceKey; lgReplaceKey = "";
+  const cid = key.replace(/^cad:/, ""), rec = cadDocs[cid];
+  if(!rec){ toast("That drawing isn't on this device", true); return; }
+  const dx = files.find(f => /\.dxf$/i.test(f.name)) || files.find(f => !/\.(wld3?|prj)$/i.test(f.name));
+  if(!dx){ toast("Pick the revised DXF (with its .wld / .prj if there are new ones)", true); return; }
+  toast("Reading the revision…");
+  const r = await cadReadFile(dx); if(!r) return;
+  const w = cadFromRec(rec);
+  const oldNames = Object.keys(w.layers || {}), newNames = Object.keys(r.flat.layers);
+  const picks = {};
+  newNames.forEach(nm => { const l = r.flat.layers[nm];
+    picks[nm] = (nm in (rec.picks || {})) ? !!rec.picks[nm] : (!l.off && !l.frozen && !/^defpoints$/i.test(nm) && l.n > 0); });
+  Object.assign(w, { layers:r.flat.layers, ext:r.flat.ext, verts:r.flat.verts, cut:r.flat.cut, picks, file:dx.name, base:null, ptPick:null });
+  const wf = files.find(f => /\.(wld3?)$/i.test(f.name)), pf = files.find(f => /\.prj$/i.test(f.name));
+  if(wf){ let pw = null; try{ pw = cadParseWorld(await wf.text()); }catch(e){}
+    if(pw){ w.wld = Object.assign(pw, { file:wf.name }); w.T = CAD_I.slice(); w.placed = "world";
+            const g = cadGuessCrs(cadWorldExt(w), 1, cadRefPoint()); if(!pf && g[0] && g[0].k !== "local") w.crs = g[0].k; } }
+  if(pf){ let kk = null; try{ kk = cadCrsFromPrj(await pf.text()); }catch(e){} if(kk){ w.crs = kk; w.prjFile = pf.name; } }
+  const before = refLayers.filter(L2 => L2.cadId === cid).map(L2 => L2.id);
+  cadPrepare(w);
+  if(!w.T){ cadSave(w); cadW = w; cadMatchStart(); return; }
+  const made = cadMakeLayers(w); cadSave(w);
+  const gone = before.filter(id => made.indexOf(id) < 0);
+  const proj = String(currentProject() || "").trim();
+  if(gone.length && proj && !showAllProjects) pfDelQueue(proj, gone.map(id => ({ kind:"layer", ref:String(id) })));
+  const kept = newNames.filter(n => oldNames.indexOf(n) >= 0).length, added = newNames.filter(n => oldNames.indexOf(n) < 0).length,
+        lost = oldNames.filter(n => newNames.indexOf(n) < 0).length;
+  closeLayers(); cadZoom(w); cadCheckBar(w);
+  toast(`Revision in — ${kept} layer(s) kept${added ? `, ${added} new` : ""}${lost ? `, ${lost} gone` : ""}. Same placement: check it lines up.`);
+}
 async function cadOpenFile(file){
   toast("Reading the drawing…");
   let buf;
@@ -24449,6 +24682,11 @@ function cadMakeLayers(w){
   old.forEach(L2 => oldBy[L2.src] = L2);                         // keep a layer's styling and name across a re-placement
   refLayers = refLayers.filter(L2 => L2.cadId !== w.cid);
   const made = [];
+  /* v247: a layer that is NEW in a revision never takes an id an old layer had — the
+     names shift position in a revised drawing, and a reused id would give two layers
+     one id (and tell the project folder the wrong thing). */
+  const taken = new Set(old.map(L2 => L2.id));
+  const freshId = base => { let id = base, n = 1; while(taken.has(id) || made.indexOf(id) >= 0) id = base + "_v" + (n++); taken.add(id); return id; };
   cadLayerNames(w).forEach((nm, k) => {
     if(!w.picks[nm]) return;
     const b = w.base[nm], l = w.layers[nm]; if(!b) return;
@@ -24465,7 +24703,7 @@ function cadMakeLayers(w){
       const was = oldBy[src];
       const L2 = Object.assign({ name:nm.slice(0, 40), color:l.color === "#ffffff" ? "#f4f4f4" : l.color, visible:true, legend:false,
                                  weight:2, opacity:95, fill: polys.length ? 35 : 10 }, was ? layerStyleOf(was, {}) : {},
-                               { id: was ? was.id : "cad" + w.cid + "_" + k, src, cadId:w.cid, features:feats });
+                               { id: was ? was.id : freshId("cad" + w.cid + "_" + k), src, cadId:w.cid, features:feats });
       if(was) L2.visible = was.visible;
       refLayers.push(L2); made.push(L2.id);
     }
@@ -24473,7 +24711,7 @@ function cadMakeLayers(w){
       const srcT = src + ":text", was = oldBy[srcT];
       const L3 = Object.assign({ name:(nm + " · text").slice(0, 40), color:l.color === "#ffffff" ? "#f4f4f4" : l.color, visible:true, legend:false,
                                  weight:2, opacity:95, fill:10 }, was ? layerStyleOf(was, {}) : {},
-                               { id: was ? was.id : "cad" + w.cid + "_" + k + "t", src:srcT, cadId:w.cid, textOnly:true,
+                               { id: was ? was.id : freshId("cad" + w.cid + "_" + k + "t"), src:srcT, cadId:w.cid, textOnly:true,
                                  features: b.texts.map(t => ({ geom:{ t:"pt", c:ll(t.x, t.y) }, props:{ TEXT:t.s, CAD_LAYER:nm } })) });
       if(was) L3.visible = was.visible;
       if(!labelCfg[L3.id]) labelCfg[L3.id] = Object.assign({}, LBL_DEFAULT, { fields:["TEXT"], size:"s", minZoom:18, ink:"white" });
@@ -24533,8 +24771,8 @@ function openCadManage(cid){
 function cadRemove(cid){
   const rec = cadDocs[cid]; if(!rec) return;
   if(!confirm(`Remove ${rec.name} and its ${refLayers.filter(L2 => L2.cadId === cid).length} layer(s) from the map?`)) return;
-  refLayers.filter(L2 => L2.cadId === cid).forEach(L2 => idbDelLayer(L2.id));
-  refLayers = refLayers.filter(L2 => L2.cadId !== cid);
+  /* v247: through the one remover, so the drawing's layers leave the project folder too. */
+  removeRefLayers(refLayers.filter(L2 => L2.cadId === cid).map(L2 => L2.id), "", true);
   idbDelLayer("__cad_" + cid); delete cadDocs[cid];
   closeCad(); cadW = null; drawRefLayers(); renderLayerList(); buildLegend();
   toast("Drawing removed");
